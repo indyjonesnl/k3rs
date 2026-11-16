@@ -21,11 +21,15 @@ const NODE: &str = "node-lim";
 struct Pods(Vec<Pod>);
 
 impl PodManager for Pods {
-    fn get_pod_by_uid(&self, uid: &str) -> Option<Pod> {
-        self.0.iter().find(|p| p.metadata.uid == uid).cloned()
+    fn get_pod_by_uid(&self, uid: &str) -> Option<Arc<Pod>> {
+        self.0
+            .iter()
+            .find(|p| p.metadata.uid == uid)
+            .cloned()
+            .map(Arc::new)
     }
-    fn get_pods(&self) -> Vec<Pod> {
-        self.0.clone()
+    fn get_pods(&self) -> Vec<Arc<Pod>> {
+        self.0.iter().cloned().map(Arc::new).collect()
     }
 }
 

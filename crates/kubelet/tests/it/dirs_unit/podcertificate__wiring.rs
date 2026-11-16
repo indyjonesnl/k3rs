@@ -151,6 +151,92 @@ mod tests {
         assert!(cache.get_pod_by_uid("uid-a").is_some());
     }
 
+    fn versioned(uid: &str, name: &str, rv: &str) -> Pod {
+        let mut p = pod(uid, name);
+        p.metadata.resource_version = Some(rv.into());
+        p
+    }
+
+    /// `basicManager.GetPods` / `GetPodByUID` hand out pointers
+    /// (`pod_manager.go`): two reads share the stored pod, and a sync pass over
+    /// an unchanged pod (same resourceVersion) keeps that pointer instead of
+    /// re-allocating the pod.
+    #[test]
+    fn pods_are_shared_pointers_and_unchanged_pods_are_not_replaced() {
+        let cache = PodCache::new();
+        let rec = Recording::new(cache.clone());
+        cache.reconcile(&[versioned("uid-a", "a", "5")], &rec);
+        let first = cache.get_pod_by_uid("uid-a").unwrap();
+        assert!(Arc::ptr_eq(&first, &cache.get_pods()[0]));
+
+        cache.reconcile(&[versioned("uid-a", "a", "5")], &rec);
+        assert!(Arc::ptr_eq(&first, &cache.get_pod_by_uid("uid-a").unwrap()));
+
+        // A newer version replaces it, without a second TrackPod.
+        cache.reconcile(&[versioned("uid-a", "a", "6")], &rec);
+        let now = cache.get_pod_by_uid("uid-a").unwrap();
+        assert!(!Arc::ptr_eq(&first, &now));
+        assert_eq!(now.metadata.resource_version.as_deref(), Some("6"));
+        assert_eq!(
+            rec.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.0 == "track")
+                .count(),
+            1
+        );
+    }
+
+    /// The pod watch and the sync loop's list both feed the cache: a list taken
+    /// just before a watch event must not roll the pod back.
+    #[test]
+    fn an_older_list_does_not_overwrite_a_newer_watch_event() {
+        let cache = PodCache::new();
+        let rec = Recording::new(cache.clone());
+        cache.handle_pod_update(versioned("uid-a", "a", "10"), &rec);
+        cache.reconcile(&[versioned("uid-a", "a", "9")], &rec);
+        assert_eq!(
+            cache
+                .get_pod_by_uid("uid-a")
+                .unwrap()
+                .metadata
+                .resource_version
+                .as_deref(),
+            Some("10")
+        );
+    }
+
+    /// The pod workers (keyed by pod name) read the pod manager, not the API.
+    #[test]
+    fn find_node_pod_by_name_matches_name_and_node() {
+        let cache = PodCache::new();
+        let rec = Recording::new(cache.clone());
+        cache.handle_pod_update(pod("uid-a", "a"), &rec);
+        assert!(cache.find_node_pod_by_name("a", "node1").is_some());
+        assert!(cache.find_node_pod_by_name("a", "node2").is_none());
+        assert!(cache.find_node_pod_by_name("b", "node1").is_none());
+    }
+
+    /// `HandlePodRemoves` from the watch: `ForgetPod` BEFORE `RemovePod`.
+    #[test]
+    fn handle_pod_remove_forgets_before_removing() {
+        let cache = PodCache::new();
+        let rec = Recording::new(cache.clone());
+        cache.handle_pod_update(pod("uid-a", "a"), &rec);
+        cache.handle_pod_remove("uid-a", &rec);
+        cache.handle_pod_remove("uid-a", &rec); // unknown now: no second forget
+        let calls = rec.calls.lock().unwrap().clone();
+        assert_eq!(
+            calls,
+            vec![
+                ("track".to_string(), "uid-a".to_string(), true),
+                ("forget".to_string(), "uid-a".to_string(), true)
+            ]
+        );
+        assert!(cache.get_pod_by_uid("uid-a").is_none());
+    }
+
     /// `podCertificateCollector.CollectWithStability`:
     /// `kubelet_podcertificate_states{signer_name,state}`.
     #[test]

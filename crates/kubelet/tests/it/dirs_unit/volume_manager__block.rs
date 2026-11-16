@@ -56,16 +56,23 @@ impl BlockVolumePathHandler for Blk {
 struct Pods(Mutex<Vec<Pod>>);
 
 impl PodManager for Pods {
-    fn get_pod_by_uid(&self, uid: &str) -> Option<Pod> {
+    fn get_pod_by_uid(&self, uid: &str) -> Option<Arc<Pod>> {
         self.0
             .lock()
             .unwrap()
             .iter()
             .find(|p| p.metadata.uid == uid)
             .cloned()
+            .map(Arc::new)
     }
-    fn get_pods(&self) -> Vec<Pod> {
-        self.0.lock().unwrap().clone()
+    fn get_pods(&self) -> Vec<Arc<Pod>> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .map(Arc::new)
+            .collect()
     }
 }
 

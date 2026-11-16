@@ -39,7 +39,7 @@ pub trait PodEventSink: Send + Sync {
 /// upstream's `found == false`.
 pub trait StatsProvider: Send + Sync {
     /// `GetPods`.
-    fn get_pods(&self) -> Vec<Pod>;
+    fn get_pods(&self) -> Vec<Arc<Pod>>;
     /// `ListVolumesForPod` (`kubelet_volumes.go:39`): keyed by
     /// `OuterVolumeSpecName`.
     fn list_volumes_for_pod(&self, pod_uid: &str) -> Option<HashMap<String, Arc<dyn Mounter>>>;
@@ -390,7 +390,7 @@ impl FsResourceAnalyzer {
                 let calc = VolumeStatCalculator::new(
                     Arc::clone(&self.stats_provider),
                     self.calc_period,
-                    pod,
+                    (*pod).clone(),
                     Arc::clone(&self.event_recorder),
                 )
                 .start_once();
@@ -424,7 +424,7 @@ pub struct KubeletStatsProvider {
 }
 
 impl StatsProvider for KubeletStatsProvider {
-    fn get_pods(&self) -> Vec<Pod> {
+    fn get_pods(&self) -> Vec<Arc<Pod>> {
         self.pod_manager.get_pods()
     }
 

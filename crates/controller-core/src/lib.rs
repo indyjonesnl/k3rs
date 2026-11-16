@@ -10,3 +10,17 @@
 pub mod apiservice;
 pub mod clusterrole_aggregation;
 pub mod worker_pool;
+
+/// `MinResyncPeriod`, the floor of the informers' resync
+/// (`staging/src/k8s.io/controller-manager/config/v1alpha1/defaults.go:31-33`:
+/// 12h).
+pub const INFORMER_RESYNC_PERIOD: std::time::Duration = std::time::Duration::from_secs(12 * 3600);
+
+/// Port of `ResyncPeriod` (`cmd/kube-controller-manager/app/controllermanager.go:176-181`):
+/// `MinResyncPeriod * (rand.Float64() + 1)`, so controllers do not resync in
+/// lock-step. Drawn once per informer start, as upstream calls the returned
+/// function once per informer.
+pub fn resync_period() -> std::time::Duration {
+    use rand::Rng;
+    INFORMER_RESYNC_PERIOD.mul_f64(rand::rng().random::<f64>() + 1.0)
+}

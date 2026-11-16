@@ -329,6 +329,18 @@ fn main() -> Result<()> {
     // when dropped (after block_on returns on a SIGINT shutdown).
     #[cfg(feature = "dhat-heap")]
     let _dhat = dhat::Profiler::new_heap();
+    // Cumulative allocation counters every 60s (stderr, grep `dhat-stats`), so
+    // allocation rates can be read off two lines instead of needing a mid-run
+    // dump: churn = d(total_blocks)/dt, d(total_bytes)/dt.
+    #[cfg(feature = "dhat-heap")]
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+        let st = dhat::HeapStats::get();
+        eprintln!(
+            "dhat-stats total_blocks={} total_bytes={} curr_blocks={} curr_bytes={}",
+            st.total_blocks, st.total_bytes, st.curr_blocks, st.curr_bytes
+        );
+    });
 
     // The all-in-one packs the api-server, scheduler, controller-manager,
     // kubelet, and kube-proxy into one tokio runtime. The api-server's request
