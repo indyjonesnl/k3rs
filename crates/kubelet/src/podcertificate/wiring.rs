@@ -20,19 +20,79 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use tracing::info;
 
-/// `kubelet.podManager`, as far as the pod certificate manager reads it.
-/// k3rs has no event-driven pod manager: the sync loop lists the
-/// node's pods each pass, so [`PodCache::reconcile`] turns that list into the
-/// `HandlePodAdditions` / `HandlePodRemoves` calls upstream receives as
-/// config-source updates.
+/// `kubelet.podManager` (`pkg/kubelet/pod/pod_manager.go` `basicManager`): a
+/// `podByUID` map of pod *pointers* (`Arc<Pod>` here), as far as the pod
+/// certificate manager and the volume populator read it. k3rs has no
+/// event-driven config source for the whole pod set, so the sync loop's list
+/// ([`PodCache::reconcile`]) and the pod watch ([`PodCache::update_pod`]) turn
+/// into the `HandlePodAdditions` / `HandlePodUpdates` / `HandlePodRemoves` calls
+/// upstream receives as config-source updates.
 #[derive(Default)]
 pub struct PodCache {
-    pods: RwLock<HashMap<String, Pod>>,
+    pods: RwLock<HashMap<String, Arc<Pod>>>,
 }
 
 impl PodCache {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// `basicManager.UpdatePod` (`pod_manager.go`): store the pod under its UID.
+    /// Returns whether the UID was already known, and the pointer now held.
+    ///
+    /// An update carrying the resourceVersion already held is dropped: the
+    /// stored pointer stays, so the unchanged pod is neither re-allocated nor
+    /// re-cloned on every sync pass (upstream stores the pointer the config
+    /// source delivered, and only receives one when the object changed).
+    fn upsert(&self, pod: Pod) -> (bool, Arc<Pod>) {
+        let mut pods = self.pods.write().unwrap();
+        match pods.get(&pod.metadata.uid) {
+            Some(held) if held_is_current(held, &pod) => (true, Arc::clone(held)),
+            held => {
+                let was_known = held.is_some();
+                let new = Arc::new(pod);
+                pods.insert(new.metadata.uid.clone(), Arc::clone(&new));
+                (was_known, new)
+            }
+        }
+    }
+
+    /// The pod called `name` assigned to `node_name`, as the pod workers
+    /// (keyed by pod name) look it up. A pointer scan; nothing is cloned.
+    pub fn find_node_pod_by_name(&self, name: &str, node_name: &str) -> Option<Arc<Pod>> {
+        self.pods
+            .read()
+            .unwrap()
+            .values()
+            .find(|p| {
+                p.metadata.name == name
+                    && p.spec.as_ref().and_then(|s| s.node_name.as_deref()) == Some(node_name)
+            })
+            .cloned()
+    }
+
+    /// `HandlePodAdditions` / `HandlePodUpdates` for one pod
+    /// (`kubelet.go:2724-2729`): `UpdatePod`, then `TrackPod` when the pod is
+    /// new to the manager -- tracking after the add is what lets
+    /// `queueAllProjectionsForPod` find the pod by UID.
+    pub fn handle_pod_update(&self, pod: Pod, manager: &dyn Manager) {
+        if pod.metadata.uid.is_empty() {
+            return;
+        }
+        let (was_known, held) = self.upsert(pod);
+        if !was_known {
+            manager.track_pod(&held);
+        }
+    }
+
+    /// `HandlePodRemoves` for one pod (`kubelet.go:2948-2949`): `ForgetPod`
+    /// then `podManager.RemovePod`.
+    pub fn handle_pod_remove(&self, uid: &str, manager: &dyn Manager) {
+        let held = self.pods.read().unwrap().get(uid).cloned();
+        if let Some(pod) = held {
+            manager.forget_pod(&pod);
+            self.pods.write().unwrap().remove(uid);
+        }
     }
 
     /// Diff `pods` against the cache.
@@ -46,7 +106,7 @@ impl PodCache {
     ///   a second `TrackPod`.
     pub fn reconcile(&self, pods: &[Pod], manager: &dyn Manager) {
         let current: HashSet<&str> = pods.iter().map(|p| p.metadata.uid.as_str()).collect();
-        let removed: Vec<Pod> = self
+        let removed: Vec<Arc<Pod>> = self
             .pods
             .read()
             .unwrap()
@@ -62,24 +122,42 @@ impl PodCache {
             if pod.metadata.uid.is_empty() {
                 continue;
             }
-            let was_known = self
+            // Fast path: an unchanged pod is not cloned at all.
+            let unchanged = self
                 .pods
-                .write()
+                .read()
                 .unwrap()
-                .insert(pod.metadata.uid.clone(), pod.clone())
-                .is_some();
-            if !was_known {
-                manager.track_pod(pod);
+                .get(&pod.metadata.uid)
+                .is_some_and(|held| held_is_current(held, pod));
+            if unchanged {
+                continue;
             }
+            self.handle_pod_update(pod.clone(), manager);
         }
     }
 }
 
+/// `held` is the same version as `new`, or a newer one. The sync loop's list
+/// and the pod watch both feed the cache, so a list taken just before a watch
+/// event must not roll the pod back. resourceVersions are opaque, but the
+/// storage backends here issue integers, which is all this orders.
+fn held_is_current(held: &Pod, new: &Pod) -> bool {
+    match (
+        &held.metadata.resource_version,
+        &new.metadata.resource_version,
+    ) {
+        (Some(h), Some(n)) => {
+            h == n || matches!((h.parse::<u64>(), n.parse::<u64>()), (Ok(h), Ok(n)) if n < h)
+        }
+        _ => false,
+    }
+}
+
 impl PodManager for PodCache {
-    fn get_pod_by_uid(&self, uid: &str) -> Option<Pod> {
+    fn get_pod_by_uid(&self, uid: &str) -> Option<Arc<Pod>> {
         self.pods.read().unwrap().get(uid).cloned()
     }
-    fn get_pods(&self) -> Vec<Pod> {
+    fn get_pods(&self) -> Vec<Arc<Pod>> {
         self.pods.read().unwrap().values().cloned().collect()
     }
 }
