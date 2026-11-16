@@ -2499,6 +2499,7 @@ dependencies = [
  "futures",
  "k3rs-common",
  "k3rs-storage",
+ "rand 0.9.4",
  "serde_json",
  "tokio",
  "tracing",

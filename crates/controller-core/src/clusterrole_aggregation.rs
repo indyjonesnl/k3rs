@@ -22,8 +22,10 @@
 //! against an api-server, the shared apply engine on direct backends.
 //! When the apply is rejected as `UnsupportedMediaType` (a server without
 //! Server Side Apply) the sync falls back to `Update` (`syncClusterRole`
-//! :132-141, `updateClusterRoles` :152-160). A 5s periodic resync stands in
-//! for the informer's resync.
+//! :132-141, `updateClusterRoles` :152-160). The ClusterRole informer's resync
+//! (`ResyncPeriod`, `controllermanager.go:176-181`, 12h-24h: see
+//! [`crate::resync_period`]) re-fires `enqueue`; a re-list after a watch gap
+//! enqueues too, as the reflector's relist replays adds.
 
 use futures::StreamExt;
 use k3rs_common::resources::{ClusterRole, PolicyRule};
@@ -41,8 +43,8 @@ const WORKERS: usize = 5;
 /// `metav1.ApplyOptions{FieldManager: ...}` (:131).
 const FIELD_MANAGER: &str = "clusterrole-aggregation-controller";
 
-/// Periodic resync, so a missed watch event is still repaired.
-const RESYNC: Duration = Duration::from_secs(5);
+/// Back-off before retrying a failed watch (`wait.Backoff` in the reflector).
+const WATCH_RETRY: Duration = Duration::from_secs(5);
 
 pub struct ClusterRoleAggregationController<S: Storage> {
     storage: Arc<S>,
@@ -71,11 +73,11 @@ impl<S: Storage + 'static> ClusterRoleAggregationController<S> {
                 Ok(w) => w,
                 Err(e) => {
                     error!("ClusterRoleAggregator: watch failed: {}, retrying", e);
-                    tokio::time::sleep(RESYNC).await;
+                    tokio::time::sleep(WATCH_RETRY).await;
                     continue;
                 }
             };
-            let mut resync = tokio::time::interval(RESYNC);
+            let mut resync = tokio::time::interval(crate::resync_period());
             resync.tick().await;
             loop {
                 tokio::select! {
