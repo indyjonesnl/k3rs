@@ -103,12 +103,28 @@ fn parse_mount_options(options: &[String]) -> (libc::c_ulong, String) {
 /// Mount `source` on `target` in-process with `mount(2)`.
 ///
 /// Upstream (`mount.Interface.MountSensitiveWithoutSystemd`,
-/// `staging/src/k8s.io/mount-utils/mount_linux.go` `doMount`) execs the
+/// `staging/src/k8s.io/mount-utils/mount_linux.go:194` -> `doMount:221`,
+/// args built by `MakeMountArgsSensitiveWithMountFlags:350`) execs the
 /// `mount` binary: `mount -t <fstype> [-o <options>] <source> <target>`.
-/// DELIBERATE DEVIATION (k3rs): that binary is not guaranteed to exist in a
-/// minimal node image, and pods then never leave ContainerCreating, so the
-/// same syscall `mount(8)` ends up making is issued directly. The option
-/// handling mirrors `mount(8)` ([`parse_mount_options`]) and the failure
+///
+/// DELIBERATE DEVIATION (k3rs): minimal node images (e.g. mikronetes microVM
+/// workers) ship no util-linux `mount`, and every projected service-account
+/// token and `medium: Memory` emptyDir then fails with `could not exec mount`
+/// and the pod never leaves ContainerCreating. k3s does not hit this because
+/// it ships its own userland (k3s-root) in its data dir. So the syscall
+/// `mount(8)` ends up making is issued directly.
+///
+/// Scope, from the upstream callers: only `setupTmpfs`
+/// (`pkg/volume/emptydir/empty_dir.go:339`: `size=N`, `noswap`) and
+/// `setupHugepages` (`:384`: `pagesize=N`) reach this, i.e. fresh
+/// filesystem mounts whose options are all fs data. Nothing upstream-side
+/// relies on `defaults`/`remount` here (`defaults` is only appended by
+/// `FormatAndMount`, `mount_linux.go:572`). What `mount(8)` adds beyond the
+/// syscall (fstab/mtab handling, helper `mount.<fstype>` lookup, bind-mount
+/// two-step `bindMountSensitive:139`) is deliberately not reproduced:
+/// bind/remount are rejected rather than half-implemented; those callers use
+/// `volume_plugins::util::mount_ops::Mounter`, which still execs. Option
+/// parsing mirrors `mount(8)` ([`parse_mount_options`]) and the failure
 /// message keeps the upstream shape (`mount failed: ...\nMounting command:
 /// ...`).
 #[cfg(target_os = "linux")]
@@ -120,6 +136,12 @@ pub(crate) fn mount_fs(
 ) -> anyhow::Result<()> {
     use std::ffi::CString;
     let (flags, data) = parse_mount_options(options);
+    if flags & (libc::MS_BIND | libc::MS_REMOUNT) != 0 {
+        anyhow::bail!(
+            "mount failed: bind/remount are not supported by the in-process mount (options: {})",
+            options.join(",")
+        );
+    }
     let cstr = |s: &str| {
         CString::new(s).map_err(|_| anyhow::anyhow!("mount argument contains a NUL byte: {s:?}"))
     };
@@ -166,7 +188,10 @@ pub(crate) fn mount_fs(
 /// <target>` (no flags: no force, no lazy detach); same deviation as
 /// [`mount_fs`].
 ///
-/// `umount(8)` reports `EINVAL` (target is not a mount point) as "not
+/// Upstream returns nil for "not mounted" only when `withSafeNotMountedBehavior`
+/// (`detectSafeNotMountedBehavior`, `mount_linux.go:307`); emptyDir checks the
+/// mount point first (`empty_dir.go` TearDownAt) so callers here never rely on
+/// that. `umount(8)` reports `EINVAL` (target is not a mount point) as "not
 /// mounted", which upstream's `checkUmountError` keys on
 /// (`errNotMounted`, `mount_linux.go:910-924`); that wording is kept so the
 /// same string matching keeps working. `EBUSY` is reported as "target is busy".
@@ -687,6 +712,16 @@ mod inprocess_mount_tests {
             msg.contains("not mounted") || msg.contains("Operation not permitted"),
             "{msg}"
         );
+    }
+
+    #[test]
+    fn bind_and_remount_are_rejected() {
+        for opt in ["bind", "rbind", "remount"] {
+            let err = mount_fs("/a", "/b", "", &o(&[opt]))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("not supported"), "{err}");
+        }
     }
 
     #[test]
