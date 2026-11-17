@@ -253,12 +253,10 @@ impl CacheWatcher {
         *self.lock_state() == BookmarkState::BookmarkSent
     }
 
-    /// `markBookmarkAfterRvAsReceived`. `is_bookmark` is
-    /// `event.Type == watch.Bookmark`: the cache's event type
-    /// ([`WatchEventData`]) has no Bookmark variant until bookmark production
-    /// moves into the cacher (`dispatchEvent`'s bookmark branch).
-    pub fn mark_bookmark_after_rv_as_received(&self, is_bookmark: bool) {
-        if is_bookmark {
+    /// `markBookmarkAfterRvAsReceived` (`cache_watcher.go:276`): only
+    /// `event.Type == watch.Bookmark` events change the state.
+    pub fn mark_bookmark_after_rv_as_received(&self, event: &WatchEventData) {
+        if event.is_bookmark() {
             let mut st = self.lock_state();
             if *st != BookmarkState::WaitingForBookmark {
                 return;
@@ -270,9 +268,9 @@ impl CacheWatcher {
         }
     }
 
-    /// `markBookmarkAfterRvSent` (`is_bookmark` as above).
-    pub fn mark_bookmark_after_rv_sent(&self, is_bookmark: bool) {
-        if is_bookmark {
+    /// `markBookmarkAfterRvSent` (`cache_watcher.go:311`).
+    pub fn mark_bookmark_after_rv_sent(&self, event: &WatchEventData) {
+        if event.is_bookmark() {
             let mut st = self.lock_state();
             if *st != BookmarkState::BookmarkSent {
                 *st = BookmarkState::BookmarkSent;
@@ -534,7 +532,9 @@ impl Dispatcher {
         }
     }
 
-    /// `Cacher.dispatchEvent` for a non-bookmark event.
+    /// `Cacher.dispatchEvent` for a non-bookmark event. Bookmark events are
+    /// scheduled by `startDispatchingBookmarkEvents` (not yet ported) and are
+    /// ignored here.
     pub async fn dispatch(&self, prefix: &str, event: &CachedWatchEvent) {
         // startDispatching: the watchers interested in this event; forget the
         // ones that are already gone.
@@ -542,6 +542,7 @@ impl Dispatcher {
             WatchEventData::Added(k, v) => (false, k, v),
             WatchEventData::Modified(k, v) => (false, k, v),
             WatchEventData::Deleted(k, v) => (true, k, v),
+            WatchEventData::Bookmark => return,
         };
         let was_added = matches!(event.event, WatchEventData::Added(..));
         // `triggerValuesThreadUnsafe`, only when some watcher is indexed by value.
@@ -641,12 +642,15 @@ impl Dispatcher {
     }
 }
 
-fn to_watch_event(cached: CachedWatchEvent) -> WatchEvent {
-    match cached.event {
+/// `None` for a bookmark: the storage `WatchEvent` has no bookmark variant; the
+/// handlers still synthesise bookmarks until production moves into the cacher.
+fn to_watch_event(cached: CachedWatchEvent) -> Option<WatchEvent> {
+    Some(match cached.event {
         WatchEventData::Added(key, value) => WatchEvent::Added(key, (*value).clone()),
         WatchEventData::Modified(key, value) => WatchEvent::Modified(key, (*value).clone()),
         WatchEventData::Deleted(key, prev) => WatchEvent::Deleted(key, (*prev).clone()),
-    }
+        WatchEventData::Bookmark => return None,
+    })
 }
 
 /// `cacheWatcher.process` (`cache_watcher.go`): replay `history`, then forward
@@ -670,7 +674,10 @@ pub fn process(
     let (tx, result) = mpsc::channel(rx.chan_size());
     tokio::spawn(async move {
         for cached in history {
-            if tx.send(to_watch_event(cached)).await.is_err() {
+            let Some(ev) = to_watch_event(cached) else {
+                continue;
+            };
+            if tx.send(ev).await.is_err() {
                 return;
             }
         }
@@ -685,7 +692,10 @@ pub fn process(
             if cached.revision > 0 && cached.revision <= max_seen {
                 continue;
             }
-            if tx.send(to_watch_event(cached)).await.is_err() {
+            let Some(ev) = to_watch_event(cached) else {
+                continue;
+            };
+            if tx.send(ev).await.is_err() {
                 return;
             }
         }

@@ -4,7 +4,12 @@
 //! the repo's `PassiveClock` (`clock.Step(d)` is `step(d)`).
 use k3rs_api_server::cache_watcher::*;
 use k3rs_api_server::flow_control_object_count::PassiveClock;
+use k3rs_api_server::watch_cache::WatchEventData;
 use k3rs_api_server::watcher_bookmark::*;
+
+fn added() -> WatchEventData {
+    WatchEventData::Added("k".into(), Arc::new("{}".into()))
+}
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -83,7 +88,7 @@ fn bookmark_after_resource_version_watchers() {
     assert!(ret.len() == 1 && ret[0].len() == 1);
 
     // after confirming the watcher is not expired immediately
-    ret[0][0].mark_bookmark_after_rv_as_received(true);
+    ret[0][0].mark_bookmark_after_rv_as_received(&WatchEventData::Bookmark);
     assert!(target.add_watcher_thread_unsafe(ret[0][0].clone()));
     clock.step(secs(30));
     assert_eq!(target.pop_expired_watchers_thread_unsafe().len(), 0);
@@ -127,12 +132,12 @@ fn bookmark_state_machine() {
     assert!(!w.was_bookmark_after_rv_received());
     assert_eq!(w.next_bookmark_time(now, f), NextBookmark::Immediately);
     // Only watch.Bookmark events change the state.
-    w.mark_bookmark_after_rv_as_received(false);
+    w.mark_bookmark_after_rv_as_received(&added());
     assert!(!w.was_bookmark_after_rv_received());
-    w.mark_bookmark_after_rv_as_received(true);
+    w.mark_bookmark_after_rv_as_received(&WatchEventData::Bookmark);
     assert!(w.was_bookmark_after_rv_received() && !w.was_bookmark_after_rv_sent());
-    w.mark_bookmark_after_rv_sent(false);
+    w.mark_bookmark_after_rv_sent(&added());
     assert!(!w.was_bookmark_after_rv_sent());
-    w.mark_bookmark_after_rv_sent(true);
+    w.mark_bookmark_after_rv_sent(&WatchEventData::Bookmark);
     assert!(w.was_bookmark_after_rv_sent());
 }
