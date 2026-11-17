@@ -185,6 +185,17 @@ pub enum WatchEventData {
     Added(String, Arc<String>),    // key, value JSON
     Modified(String, Arc<String>), // key, value JSON
     Deleted(String, Arc<String>),  // key, previous value JSON
+    /// Upstream `watch.Bookmark` event type (`watchCacheEvent.Type`): carries
+    /// only a resource version, set on `CachedWatchEvent::revision`. Upstream
+    /// marks bookmarks by event type, not by a separate flag.
+    Bookmark,
+}
+
+impl WatchEventData {
+    /// `event.Type == watch.Bookmark`.
+    pub fn is_bookmark(&self) -> bool {
+        matches!(self, WatchEventData::Bookmark)
+    }
 }
 
 /// WatchCache manages shared watch streams for resource prefixes.
