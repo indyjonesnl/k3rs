@@ -32,13 +32,15 @@
 //! ### What this does NOT do
 //!
 //! - DNSSEC, DNS-over-TLS, DNS-over-HTTPS.
-//! - Recursion / upstream forwarding (kubelet writes upstream resolvers
-//!   directly into pod `/etc/resolv.conf`, so the cluster DNS only needs
-//!   to answer cluster-local zones).
+//! - Recursion. Names outside the cluster zones are *forwarded* to the
+//!   host's upstream resolvers ([`forward`], port of the CoreDNS `forward`
+//!   plugin), because `ClusterFirst` pods list only the cluster DNS in their
+//!   `resolv.conf`, exactly as with upstream Kubernetes.
 //! - Prometheus metrics (TODO follow-up).
 //! - Dynamic zone updates (RFC 2136) — zone is rebuilt from storage on
 //!   each watch event.
 
+pub mod forward;
 pub mod server;
 pub mod watcher;
 pub mod zone;
@@ -61,6 +63,15 @@ pub struct DnsConfig {
     /// How often (seconds) to do a full resync from storage as a safety
     /// net even when no watch events have fired.
     pub resync_interval: u64,
+    /// Upstream resolvers for names outside the cluster zones: each entry
+    /// is an IP, `IP:port` or a resolv.conf-style file (CoreDNS
+    /// `forward . <to...>` / `parse.HostPortOrFile`). Empty disables
+    /// forwarding. Default `/etc/resolv.conf`, as the k3s Corefile.
+    pub forward: Vec<String>,
+    /// CoreDNS `forward` `policy`.
+    pub forward_policy: forward::Policy,
+    /// Run the CoreDNS `loop` self-probe when forwarding.
+    pub loop_detect: bool,
 }
 
 impl Default for DnsConfig {
@@ -70,6 +81,9 @@ impl Default for DnsConfig {
             udp_bind: "0.0.0.0:53".parse().expect("valid bind addr"),
             tcp_bind: "0.0.0.0:53".parse().expect("valid bind addr"),
             resync_interval: 30,
+            forward: vec!["/etc/resolv.conf".to_string()],
+            forward_policy: forward::Policy::default(),
+            loop_detect: true,
         }
     }
 }
@@ -114,6 +128,27 @@ async fn run_with_source(source: watcher::DnsSource, config: DnsConfig) -> Resul
         }
     });
 
+    let forwarder = if config.forward.is_empty() {
+        info!("Upstream forwarding disabled; only cluster zones are answered");
+        None
+    } else {
+        let opts = forward::ForwardOptions {
+            policy: config.forward_policy,
+            ..Default::default()
+        };
+        let f = forward::Forwarder::from_entries(&config.forward, opts)
+            .map_err(|e| anyhow::anyhow!("forward {:?}: {e}", config.forward))?;
+        info!("Forwarding non-cluster names to {:?}", f.upstreams());
+        Some(Arc::new(f))
+    };
+
     // Run the DNS server until shutdown.
-    server::serve(shared, config.udp_bind, config.tcp_bind).await
+    server::serve(
+        shared,
+        config.udp_bind,
+        config.tcp_bind,
+        forwarder,
+        config.loop_detect,
+    )
+    .await
 }
