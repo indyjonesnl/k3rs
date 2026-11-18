@@ -289,35 +289,35 @@ fn default_node_name() -> Result<String> {
     Ok(h.trim().to_lowercase())
 }
 
-/// Host part of the server URL (kubelet `KUBERNETES_SERVICE_HOST` for pods).
-fn server_host(server: &str) -> String {
-    let rest = server.split("://").nth(1).unwrap_or(server);
-    let auth = rest.split('/').next().unwrap_or(rest);
-    match auth.strip_prefix('[') {
-        Some(v6) => v6.split(']').next().unwrap_or(v6).to_string(),
-        None => auth.split(':').next().unwrap_or(auth).to_string(),
-    }
-}
-
 /// Kubelet configuration for an agent node. Field mapping mirrors the
 /// all-in-one `main.rs` kubelet block; flag values follow k3s
 /// `pkg/daemons/agent/agent.go` `startKubelet` (`cluster-dns`, `node-ip`,
 /// `hostname-override`).
-fn kubelet_config(a: &crate::cli::AgentArgs, c: &ClusterInfo) -> k3rs_kubelet::KubeletConfig {
+fn kubelet_config(
+    a: &crate::cli::AgentArgs,
+    c: &ClusterInfo,
+) -> Result<k3rs_kubelet::KubeletConfig> {
+    // Pods reach the API through the `kubernetes` Service ClusterIP (first IP of
+    // the service CIDR, options.go:378-382) via kube-proxy, port 443. k3s
+    // pkg/daemons/agent sets no KUBERNETES_SERVICE_HOST override. Same helper
+    // as the all-in-one main.
+    let ranges =
+        k3rs_api_server::registry::core::service::ipranges::ServiceIpRanges::parse(&c.service_cidr)
+            .map_err(|e| anyhow!("invalid service CIDR from server: {e}"))?;
     let node_name = a.node_name.clone().unwrap_or_default();
     let volume_dir = a
         .volume_dir
         .clone()
         .unwrap_or_else(|| format!("{}/agent/volumes", a.data_dir.trim_end_matches('/')));
-    k3rs_kubelet::KubeletConfig {
+    Ok(k3rs_kubelet::KubeletConfig {
         node_name: node_name.clone(),
         volume_dir,
         cluster_dns: c.cluster_dns.clone(),
         node_ip: a.node_ip.clone().unwrap_or_default(),
         hostname_override: node_name,
-        kubernetes_service_host: server_host(&a.server),
+        kubernetes_service_host: ranges.api_server_service_ip().to_string(),
         ..Default::default()
-    }
+    })
 }
 
 /// kube-proxy configuration: `cluster_cidr` is the ClusterIP (service) CIDR as
@@ -377,7 +377,7 @@ pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
 
     let kubelet_client = client_from_kubeconfig(&creds.kubelet_kubeconfig)?;
     let storage = std::sync::Arc::new(k3rs_storage::StorageBackend::new_api(kubelet_client));
-    let kcfg = kubelet_config(&a, &creds.cluster);
+    let kcfg = kubelet_config(&a, &creds.cluster)?;
     let pcfg = kube_proxy_config(&node_name, &creds.cluster);
     let proxy_client = client_from_kubeconfig(&creds.kube_proxy_kubeconfig)?;
 
@@ -439,12 +439,12 @@ mod run_tests {
 
     #[test]
     fn kubelet_config_from_join() {
-        let c = kubelet_config(&args(), &cluster());
+        let c = kubelet_config(&args(), &cluster()).unwrap();
         assert_eq!(c.cluster_dns, "10.96.0.10");
         assert_eq!(c.node_name, "n1");
         assert_eq!(c.hostname_override, "n1");
         assert_eq!(c.node_ip, "10.0.0.5");
-        assert_eq!(c.kubernetes_service_host, "10.0.0.1");
+        assert_eq!(c.kubernetes_service_host, "10.96.0.1");
         assert_eq!(c.volume_dir, "/var/lib/k3rs/agent/volumes");
     }
 
@@ -456,12 +456,5 @@ mod run_tests {
         assert_eq!(nn.node_name, "n1");
         assert_eq!(nn.cni_conf_path, "/etc/cni/net.d/10-k3rs.conflist");
         assert_eq!(nn.no_masq_cidrs, vec!["10.244.0.0/16", "10.96.0.0/12"]);
-    }
-
-    #[test]
-    fn server_host_forms() {
-        assert_eq!(server_host("https://a.b:6443"), "a.b");
-        assert_eq!(server_host("https://[::1]:6443/x"), "::1");
-        assert_eq!(server_host("h:6443"), "h");
     }
 }
