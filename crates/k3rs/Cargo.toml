@@ -6,6 +6,10 @@ authors.workspace = true
 license.workspace = true
 description = "All-in-one Kubernetes in a single binary"
 
+[lib]
+name = "k3rs"
+path = "src/lib.rs"
+
 [[bin]]
 name = "k3rs"
 path = "src/main.rs"

@@ -10,9 +10,12 @@
 
 use anyhow::Result;
 use clap::Parser;
+use k3rs::cli::{parse_mode, Mode};
 use k3rs_storage::{StorageBackend, StorageConfig};
 use std::sync::Arc;
 use tracing::{error, info, warn};
+
+mod server;
 
 // Heap-profiling allocator (off by default; `--features dhat-heap`). Attributes
 // the all-in-one's idle RAM by backtrace for #1138. Dumps `dhat-heap.json` when
@@ -339,11 +342,23 @@ fn main() -> Result<()> {
     // affected; only the single-runtime all-in-one is. Give workers an 8 MiB
     // stack — virtual reservation only (Linux commits stack pages lazily), so
     // no idle-RAM cost. See #1135.
-    tokio::runtime::Builder::new_multi_thread()
+    let argv: Vec<String> = std::env::args().collect();
+    let mode = parse_mode(&argv).unwrap_or_else(|e| match e.downcast::<clap::Error>() {
+        Ok(ce) => ce.exit(),
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(2)
+        }
+    });
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_stack_size(8 * 1024 * 1024)
-        .build()?
-        .block_on(async_main())
+        .build()?;
+    match mode {
+        Mode::AllInOne => rt.block_on(async_main()),
+        Mode::Server(a) => rt.block_on(server::run_server(a)),
+        Mode::Agent(a) => rt.block_on(k3rs::agent::run_agent(a)),
+    }
 }
 
 /// Apply `--emulated-version`, `--min-compatibility-version` and
