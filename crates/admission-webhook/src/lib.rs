@@ -2126,11 +2126,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
             res_match && sub_match
         });
 
-        if !resource_matched {
-            return false;
-        }
-
-        true
+        resource_matched
     }
 }
 

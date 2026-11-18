@@ -279,15 +279,10 @@ impl<S: Storage + 'static> CertificateSigningRequestController<S> {
         }
 
         // Auto-approve kubelet serving certificates
-        if csr.spec.signer_name == "kubernetes.io/kubelet-serving"
+        Ok(csr.spec.signer_name == "kubernetes.io/kubelet-serving"
             && csr.spec.usages.contains(&KeyUsage::ServerAuth)
             && csr.spec.usages.contains(&KeyUsage::DigitalSignature)
-            && csr.spec.usages.contains(&KeyUsage::KeyEncipherment)
-        {
-            return Ok(true);
-        }
-
-        Ok(false)
+            && csr.spec.usages.contains(&KeyUsage::KeyEncipherment))
     }
 
     /// Approve a CSR
