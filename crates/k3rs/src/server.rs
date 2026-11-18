@@ -249,8 +249,17 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
         })),
         node_ipam: Some(node_ipam(&info)?),
         node_net: Some(node_net(&node_name, &info)),
-        // Bootstrap objects (namespaces, kube-dns) are a later task.
-        post_start: None,
+        // kube-dns Service + EndpointSlice (k3rs-dns runs in-process). The hook
+        // is synchronous and runs before signal setup, so spawn the retrying
+        // apply and only log on failure.
+        post_start: Some(Box::new(|ctx| {
+            tokio::spawn(async move {
+                let objs = k3rs::bootstrap::objects(&ctx.node_ip);
+                if let Err(e) = k3rs::bootstrap::apply_all(&ctx.loopback_client, &objs).await {
+                    tracing::error!("applying bootstrap objects failed: {e:#}");
+                }
+            });
+        })),
     };
     run_all_in_one(args, ov).await
 }

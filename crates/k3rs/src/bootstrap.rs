@@ -1,0 +1,245 @@
+//! Objects `k3rs server` applies once the control plane is up.
+//!
+//! Source: the all-in-one branch of `scripts/bootstrap-cluster.sh` (Step 5:
+//! kube-dns EndpointSlice `kube-dns-k3rs`) and the kube-dns Service of
+//! `bootstrap-cluster.yaml`. k3rs-dns runs in-process on the server
+//! (`run_all_in_one` DNS task), so the Service has no selector and the slice
+//! points at the node IP.
+//!
+//! Deliberately NOT created here because the api-server already seeds them
+//! (`crates/api-server/src/startup.rs::register_post_start_hooks`): the
+//! `kubernetes` Service + Endpoints (`bootstrap::bootstrap_kubernetes_service`),
+//! the system Namespaces `kube-system`/`default`/`kube-public`/
+//! `kube-node-lease` (`bootstrap_system_namespaces`, upstream
+//! systemnamespaces controller) and the `system-node-critical` /
+//! `system-cluster-critical` PriorityClasses
+//! (`bootstrap_system_priority_classes`, upstream storage_scheduling.go).
+//! `default` ServiceAccounts come from the serviceaccount controller.
+//!
+//! k3s comparison: manifests/coredns.yaml ships the same kube-dns Service
+//! (ports dns/53 UDP, dns-tcp/53 TCP, labels `k8s-app`,
+//! `kubernetes.io/cluster-service`) but with a `k8s-app: kube-dns` selector
+//! backed by a CoreDNS Deployment; k3rs has no such pod.
+
+use std::time::Duration;
+
+use anyhow::{anyhow, Result};
+use k3rs_client::http::ApiClient;
+use serde_json::{json, Value};
+
+/// ClusterIP of `kube-dns` (bootstrap-cluster.yaml; `--cluster-dns`).
+pub const KUBE_DNS_CLUSTER_IP: &str = "10.96.0.10";
+
+/// How long `apply_all` keeps retrying while the api-server is not answering.
+const APPLY_DEADLINE: Duration = Duration::from_secs(120);
+
+/// One object to create: `POST {path}` with `body`, existence via
+/// `GET {path}/{name}`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BootstrapObject {
+    /// Collection path, e.g. `/api/v1/namespaces/kube-system/services`.
+    pub path: String,
+    pub name: String,
+    pub body: Value,
+}
+
+/// The objects for a server whose node IP is `node_ip` (first address when a
+/// dual-stack list is given).
+pub fn objects(node_ip: &str) -> Vec<BootstrapObject> {
+    let ip = node_ip.split(',').next().unwrap_or(node_ip).trim();
+    let address_type = if ip.contains(':') { "IPv6" } else { "IPv4" };
+    let service = json!({
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {
+            "name": "kube-dns",
+            "namespace": "kube-system",
+            "labels": {
+                "k8s-app": "kube-dns",
+                "kubernetes.io/cluster-service": "true",
+                "kubernetes.io/name": "k3rs-dns"
+            }
+        },
+        "spec": {
+            "clusterIP": KUBE_DNS_CLUSTER_IP,
+            "ports": [
+                {"name": "dns", "port": 53, "protocol": "UDP"},
+                {"name": "dns-tcp", "port": 53, "protocol": "TCP"}
+            ]
+        }
+    });
+    let slice = json!({
+        "apiVersion": "discovery.k8s.io/v1",
+        "kind": "EndpointSlice",
+        "metadata": {
+            "name": "kube-dns-k3rs",
+            "namespace": "kube-system",
+            "labels": {
+                "kubernetes.io/service-name": "kube-dns",
+                "endpointslice.kubernetes.io/managed-by": "k3rs"
+            }
+        },
+        "addressType": address_type,
+        "ports": [
+            {"name": "dns", "port": 53, "protocol": "UDP"},
+            {"name": "dns-tcp", "port": 53, "protocol": "TCP"}
+        ],
+        "endpoints": [{
+            "addresses": [ip],
+            "conditions": {"ready": true, "serving": true, "terminating": false}
+        }]
+    });
+    vec![
+        BootstrapObject {
+            path: "/api/v1/namespaces/kube-system/services".into(),
+            name: "kube-dns".into(),
+            body: service,
+        },
+        BootstrapObject {
+            path: "/apis/discovery.k8s.io/v1/namespaces/kube-system/endpointslices".into(),
+            name: "kube-dns-k3rs".into(),
+            body: slice,
+        },
+    ]
+}
+
+async fn apply_one(client: &ApiClient, o: &BootstrapObject) -> Result<()> {
+    if client
+        .resource_exists(&format!("{}/{}", o.path, o.name))
+        .await?
+    {
+        return Ok(());
+    }
+    match client.post::<_, Value>(&o.path, &o.body).await {
+        Ok(_) => Ok(()),
+        // Lost a race with another creator: the object exists, never overwrite.
+        Err(e) if k3rs_client::api_status::is_already_exists(&e) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Create each object that is absent; never overwrites. Retries with
+/// backoff (250ms doubling to 5s) until the api-server answers, for at most
+/// two minutes.
+pub async fn apply_all(client: &ApiClient, objs: &[BootstrapObject]) -> Result<()> {
+    apply_all_within(client, objs, APPLY_DEADLINE).await
+}
+
+async fn apply_all_within(
+    client: &ApiClient,
+    objs: &[BootstrapObject],
+    deadline: Duration,
+) -> Result<()> {
+    let start = tokio::time::Instant::now();
+    let mut delay = Duration::from_millis(250);
+    for o in objs {
+        loop {
+            match apply_one(client, o).await {
+                Ok(()) => break,
+                Err(e) if start.elapsed() + delay >= deadline => {
+                    return Err(anyhow!("bootstrap {}/{}: {e:#}", o.path, o.name));
+                }
+                Err(e) => {
+                    tracing::debug!("bootstrap {}/{} not ready: {e:#}", o.path, o.name);
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(5));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        extract::State,
+        http::{StatusCode, Uri},
+        routing::any,
+        Json, Router,
+    };
+    use std::sync::{Arc, Mutex};
+
+    fn find<'a>(objs: &'a [BootstrapObject], name: &str) -> &'a BootstrapObject {
+        objs.iter().find(|o| o.name == name).unwrap()
+    }
+
+    #[test]
+    fn objects_contain_kube_dns_service_with_pinned_cluster_ip() {
+        let objs = objects("192.0.2.10");
+        let svc = find(&objs, "kube-dns");
+        assert_eq!(svc.path, "/api/v1/namespaces/kube-system/services");
+        assert_eq!(svc.body["spec"]["clusterIP"], "10.96.0.10");
+        assert!(svc.body["spec"].get("selector").is_none());
+        assert_eq!(svc.body["spec"]["ports"][0]["protocol"], "UDP");
+        assert_eq!(svc.body["spec"]["ports"][1]["name"], "dns-tcp");
+    }
+
+    #[test]
+    fn endpointslice_points_at_node_ip_port_53_both_protocols() {
+        let objs = objects("192.0.2.10");
+        let s = find(&objs, "kube-dns-k3rs");
+        assert_eq!(
+            s.body["metadata"]["labels"]["kubernetes.io/service-name"],
+            "kube-dns"
+        );
+        assert_eq!(
+            s.body["metadata"]["labels"]["endpointslice.kubernetes.io/managed-by"],
+            "k3rs"
+        );
+        assert_eq!(s.body["endpoints"][0]["addresses"][0], "192.0.2.10");
+        let ports = s.body["ports"].as_array().unwrap();
+        assert_eq!(ports.len(), 2);
+        assert!(ports.iter().all(|p| p["port"] == 53));
+        assert_eq!(ports[0]["protocol"], "UDP");
+        assert_eq!(ports[1]["protocol"], "TCP");
+    }
+
+    type Posts = Arc<Mutex<Vec<String>>>;
+
+    async fn serve(existing: Vec<String>) -> (String, Posts) {
+        let posts: Posts = Arc::default();
+        let st = (posts.clone(), Arc::new(existing));
+        async fn h(
+            State((posts, existing)): State<(Posts, Arc<Vec<String>>)>,
+            method: axum::http::Method,
+            uri: Uri,
+        ) -> (StatusCode, Json<Value>) {
+            if method == axum::http::Method::POST {
+                posts.lock().unwrap().push(uri.path().to_string());
+                (StatusCode::CREATED, Json(json!({})))
+            } else if existing.iter().any(|e| e == uri.path()) {
+                (StatusCode::OK, Json(json!({})))
+            } else {
+                (StatusCode::NOT_FOUND, Json(json!({})))
+            }
+        }
+        let app = Router::new().fallback(any(h)).with_state(st);
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", l.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        (url, posts)
+    }
+
+    #[tokio::test]
+    async fn apply_all_skips_existing() {
+        let objs = objects("192.0.2.10");
+        let svc = find(&objs, "kube-dns");
+        let (url, posts) = serve(vec![format!("{}/{}", svc.path, svc.name)]).await;
+        let client = ApiClient::new(&url, false, None).unwrap();
+        apply_all(&client, &objs).await.unwrap();
+        let got = posts.lock().unwrap().clone();
+        assert_eq!(
+            got,
+            vec!["/apis/discovery.k8s.io/v1/namespaces/kube-system/endpointslices".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_all_gives_up_when_api_never_answers() {
+        let client = ApiClient::new("http://127.0.0.1:1", false, None).unwrap();
+        let r = apply_all_within(&client, &objects("192.0.2.10"), Duration::from_millis(600)).await;
+        assert!(r.is_err());
+    }
+}

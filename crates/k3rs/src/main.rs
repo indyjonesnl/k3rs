@@ -452,7 +452,6 @@ pub(crate) struct Overrides {
 }
 
 /// Handed to `Overrides::post_start`.
-#[allow(dead_code)] // read by the server bootstrap hook.
 pub(crate) struct ServerContext {
     /// A loopback client to the embedded api-server.
     pub loopback_client: Arc<k3rs_client::http::ApiClient>,
