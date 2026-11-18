@@ -174,6 +174,20 @@ fn local_ips() -> Vec<IpAddr> {
     out
 }
 
+/// The first non-loopback, non-link-local IPv4 address of this host, used as
+/// the server's default `--node-ip`. Simplification of k3s
+/// `util.GetHostnameAndIPs` -> `apinet.ChooseHostInterface` (pkg/util/net.go:
+/// 138-152), which prefers the default-route interface; this walks
+/// `getifaddrs` order instead.
+pub fn primary_ipv4() -> Option<Ipv4Addr> {
+    local_ips().into_iter().find_map(|ip| match ip {
+        IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_link_local() && !v4.is_unspecified() => {
+            Some(v4)
+        }
+        _ => None,
+    })
+}
+
 fn hostname() -> Option<String> {
     let mut buf = [0u8; 256];
     // SAFETY: buf is valid for buf.len() bytes.

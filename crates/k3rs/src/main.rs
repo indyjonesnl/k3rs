@@ -586,12 +586,7 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     // loopback cert is skipped when TLS is on; skip_auth is the all-in-one
     // default, so no bearer token is needed (real authn tracked in #1129). The
     // port is derived from the api-server bind address; fall back to 6443.
-    let api_port = args
-        .bind_address
-        .rsplit(':')
-        .next()
-        .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or(6443);
+    let api_port = api_port(&args.bind_address);
     let loopback_scheme = if args.tls { "https" } else { "http" };
     let loopback_url = format!("{loopback_scheme}://127.0.0.1:{api_port}");
 
@@ -800,6 +795,16 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// The api-server port from `--bind-address` (`host:port`); 6443 when it does
+/// not parse.
+pub(crate) fn api_port(bind_address: &str) -> u16 {
+    bind_address
+        .rsplit(':')
+        .next()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(6443)
 }
 
 /// The recycler plugin config the `--pv-recycler-*` flags describe, built as

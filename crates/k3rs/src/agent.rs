@@ -282,7 +282,7 @@ pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
 
 /// Default node name when `--node-name` is unset: the hostname, as k3s
 /// `pkg/agent/config` does (`nodeName` defaults to `os.Hostname()`).
-fn default_node_name() -> Result<String> {
+pub fn default_node_name() -> Result<String> {
     let h = std::fs::read_to_string("/proc/sys/kernel/hostname")
         .or_else(|_| std::fs::read_to_string("/etc/hostname"))
         .context("determine hostname; pass --node-name")?;
