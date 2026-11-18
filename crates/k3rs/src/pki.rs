@@ -215,13 +215,14 @@ fn apply_usage(p: &mut CertificateParams, usage: Usage, sans: &[String]) -> Resu
 
 impl Pki {
     /// Create the PKI under `<data_dir>/tls`, or load it if present. Existing
-    /// files are never rewritten; a regenerated CA invalidates (and so
-    /// regenerates) the leaf certs it signed.
+    /// files are never rewritten, except that a regenerated CA also regenerates
+    /// the leaves it signs: server CA -> `serving.{crt,key}`, request-header CA
+    /// -> `front-proxy-client.{crt,key}`, client CA -> `admin.kubeconfig`.
     pub fn load_or_create(data_dir: &Path, sans: &[String]) -> Result<Pki> {
         let tls = data_dir.join("tls");
         std::fs::create_dir_all(&tls)?;
         let (server, s_new) = ensure_ca(&tls, "server-ca", "k3rs-server-ca")?;
-        let (client, _) = ensure_ca(&tls, "client-ca", "k3rs-client-ca")?;
+        let (client, client_new) = ensure_ca(&tls, "client-ca", "k3rs-client-ca")?;
         let (rh, rh_new) = ensure_ca(&tls, "request-header-ca", "k3rs-request-header-ca")?;
 
         // Front-proxy client cert: CN front-proxy-client, clientAuth, signed by
@@ -281,7 +282,7 @@ impl Pki {
 
         // Admin kubeconfig: CN system:admin, O system:masters, client CA.
         let adm = tls.join("admin.kubeconfig");
-        if !adm.exists() {
+        if client_new || !adm.exists() {
             let k = KeyPair::generate()?;
             let pem = issue_leaf(
                 &client,
@@ -437,6 +438,33 @@ mod tests {
         assert_eq!(a.ca_hash(), b.ca_hash());
         assert_eq!(a.ca_hash().len(), 64);
         assert_eq!(a.server_ca_pem(), b.server_ca_pem());
+    }
+
+    #[test]
+    fn admin_kubeconfig_is_reissued_when_client_ca_is_regenerated() {
+        use base64::Engine;
+        let (d, _) = mk();
+        let tls = d.path().join("tls");
+        std::fs::remove_file(tls.join("client-ca.key")).unwrap();
+        std::fs::remove_file(tls.join("client-ca.crt")).unwrap();
+        let pki = Pki::load_or_create(d.path(), &[]).unwrap();
+        let kc = std::fs::read_to_string(tls.join("admin.kubeconfig")).unwrap();
+        let line = kc
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("client-certificate-data: "))
+            .unwrap();
+        let pem = base64::engine::general_purpose::STANDARD
+            .decode(line)
+            .unwrap();
+        let der = pem_der(std::str::from_utf8(&pem).unwrap());
+        let (_, cert) = X509Certificate::from_der(&der).unwrap();
+        let ca_der = pem_der(pki.client_ca_pem());
+        let (_, ca) = X509Certificate::from_der(&ca_der).unwrap();
+        cert.verify_signature(Some(ca.public_key())).unwrap();
+        let cn = cert.subject().iter_common_name().next().unwrap();
+        assert_eq!(cn.as_str().unwrap(), "system:admin");
+        let o = cert.subject().iter_organization().next().unwrap();
+        assert_eq!(o.as_str().unwrap(), "system:masters");
     }
 
     #[test]
