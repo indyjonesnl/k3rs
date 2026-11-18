@@ -39,6 +39,16 @@ const CNI_CONF_PATH: &str = "/etc/cni/net.d/10-k3rs.conflist";
 /// = `system:auth-proxy` for its own front-proxy cert; the allowed name must
 /// match the cert this PKI issues.
 const FRONT_PROXY_CN: &str = "front-proxy-client";
+/// Milestone 1 runs the api-server with `--skip-auth` (AlwaysAllow
+/// authorizer) and optional client certs, so anyone who can reach the API
+/// port is cluster-admin. k3s instead sets `anonymous-auth=false` and
+/// `authorization-mode=Node,RBAC` (pkg/daemons/control/server.go:216-224).
+const SKIP_AUTH_WARNING: &str = "authorization is disabled (--skip-auth): any client that can reach :{port} has full API access; RBAC is a follow-up";
+
+/// The operator-facing `--skip-auth` warning for the API port.
+pub(crate) fn skip_auth_warning(port: u16) -> String {
+    SKIP_AUTH_WARNING.replace("{port}", &port.to_string())
+}
 
 /// `printToken` (pkg/server/server.go:496-498), with the node IP as the
 /// advertise address and the token inline rather than a `${VAR}` placeholder.
@@ -216,7 +226,13 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
         "Server node token is available at {}",
         data_dir.join("token").display()
     );
-    println!("{}", join_line(&node_ip, api_port(&a.bind_address), &token));
+    let port = api_port(&a.bind_address);
+    println!("{}", join_line(&node_ip, port, &token));
+    // stderr so it shows without a tracing subscriber (tracing is initialised
+    // later, inside run_all_in_one); warn! for embedders that already have one.
+    let warning = skip_auth_warning(port);
+    eprintln!("WARNING: {warning}");
+    tracing::warn!("{warning}");
 
     let args = parse_args_from(server_argv(&a, &node_name, &node_ip))?;
     let info = cluster_info(&a);
@@ -322,6 +338,15 @@ mod tests {
         assert!(args.disable_proxy);
         assert_eq!(args.bind_address, "127.0.0.1:16443");
         assert_eq!(api_port(&a.bind_address), 16443);
+    }
+
+    #[test]
+    fn skip_auth_warning_names_the_port() {
+        assert_eq!(
+            skip_auth_warning(6443),
+            "authorization is disabled (--skip-auth): any client that can reach :6443 has full API access; RBAC is a follow-up"
+        );
+        assert!(skip_auth_warning(16443).contains(":16443 has full API access"));
     }
 
     #[test]
