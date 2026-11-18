@@ -3,4 +3,5 @@
 pub mod agent;
 pub mod cli;
 pub mod pki;
+pub mod supervisor;
 pub mod token;
