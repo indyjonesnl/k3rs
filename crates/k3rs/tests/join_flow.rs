@@ -97,7 +97,10 @@ async fn join_writes_creds_and_kubeconfigs() {
     let pw = std::fs::read_to_string(a.join("node-password")).unwrap();
     assert_eq!(pw.trim().len(), 32);
     assert!(pw.trim().chars().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(c.ca_pem, s.pki.server_ca_pem());
+    assert_eq!(
+        ::pem::parse(&c.ca_pem).unwrap().contents(),
+        ::pem::parse(s.pki.server_ca_pem()).unwrap().contents()
+    );
     assert_eq!(c.cluster.cluster_dns, "10.43.0.10");
     assert_eq!(c.kubelet_kubeconfig, a.join("kubelet.kubeconfig"));
     assert_eq!(c.kube_proxy_kubeconfig, a.join("kube-proxy.kubeconfig"));
@@ -185,4 +188,79 @@ async fn wrong_token_fails_401() {
         .await
         .unwrap_err();
     assert!(format!("{e:#}").contains("401"), "{e:#}");
+}
+
+#[tokio::test]
+async fn multi_cert_cacerts_bundle_refused_before_any_authed_request() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    k3rs::agent::ensure_crypto_provider();
+    let d = tempfile::tempdir().unwrap();
+    let pki = Pki::load_or_create(d.path(), &["localhost".to_string()]).unwrap();
+    let real = pki.server_ca_pem().to_string();
+    let other = pki.client_ca_pem().to_string();
+    let bundle = format!("{real}{other}");
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let app = axum::Router::new()
+        .route(
+            "/cacerts",
+            axum::routing::get(move || async move { bundle }),
+        )
+        .fallback(move || {
+            let h = h.clone();
+            async move {
+                h.fetch_add(1, Ordering::SeqCst);
+                "x"
+            }
+        });
+    let cfg = axum_server::tls_rustls::RustlsConfig::from_pem_file(
+        pki.dir.join("serving.crt"),
+        pki.dir.join("serving.key"),
+    )
+    .await
+    .unwrap();
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum_server::from_tcp_rustls(l, cfg)
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
+    });
+    let out = tempfile::tempdir().unwrap();
+    let p = JoinParams {
+        server: format!("https://127.0.0.1:{port}"),
+        // hash of the FIRST cert matches: the old code would have joined
+        token: format_token(&pki.ca_hash(), "pw"),
+        node_name: "n".into(),
+        node_ip: None,
+        data_dir: out.path().to_path_buf(),
+    };
+    let e = join(&p).await.unwrap_err();
+    assert!(format!("{e:#}").contains("exactly one"), "{e:#}");
+    assert_eq!(hits.load(Ordering::SeqCst), 0, "authed request was sent");
+}
+
+#[tokio::test]
+async fn http_scheme_refused() {
+    let s = boot("pw1").await;
+    let d = tempfile::tempdir().unwrap();
+    let mut p = params(&s, "pw1".into(), "node-a", d.path());
+    p.server = s.url.replacen("https://", "http://", 1);
+    let e = join(&p).await.unwrap_err();
+    assert!(format!("{e:#}").contains("insecure"), "{e:#}");
+}
+
+#[tokio::test]
+async fn bare_host_port_defaults_to_https() {
+    let s = boot("pw1").await;
+    let d = tempfile::tempdir().unwrap();
+    let mut p = params(
+        &s,
+        format_token(&s.pki.ca_hash(), "pw1"),
+        "node-a",
+        d.path(),
+    );
+    p.server = s.url.trim_start_matches("https://").to_string();
+    join(&p).await.unwrap();
 }

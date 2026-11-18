@@ -89,12 +89,41 @@ fn csr_bytes(key_file: &Path) -> Result<Vec<u8>> {
     Ok(p.serialize_request(&kp)?.der().to_vec())
 }
 
-/// `validateCACerts` (clientaccess/token.go): sha256 of the CA's DER.
-fn ca_hash(pem_text: &str) -> Result<String> {
-    let der = pem::parse(pem_text)
-        .context("server returned an invalid CA certificate")?
-        .into_contents();
-    Ok(hex::encode(Sha256::digest(der)))
+/// `validateCACerts` (clientaccess/token.go): sha256 of the CA's DER. The
+/// response must hold exactly one certificate: reqwest trusts every cert in a
+/// PEM buffer, so a bundle could smuggle in an unpinned CA. (k3s selects the
+/// root by hash from a bundle; the k3rs supervisor serves a single CA.)
+/// Returns (hash, DER, re-encoded single-cert PEM).
+fn single_ca(pem_text: &str) -> Result<(String, Vec<u8>, String)> {
+    let blocks = pem::parse_many(pem_text).context("server returned an invalid CA certificate")?;
+    let [b] = blocks.as_slice() else {
+        bail!(
+            "server /cacerts returned {} PEM blocks, expected exactly one CA certificate",
+            blocks.len()
+        );
+    };
+    if b.tag() != "CERTIFICATE" {
+        bail!(
+            "server /cacerts returned a {} block, expected CERTIFICATE",
+            b.tag()
+        );
+    }
+    let der = b.contents().to_vec();
+    Ok((hex::encode(Sha256::digest(&der)), der, pem::encode(b)))
+}
+
+/// k3s normalises a bare `host:port` to `https://`; plain http would send the
+/// join password in cleartext, so it is refused.
+fn normalize_server(s: &str) -> Result<String> {
+    let s = s.trim().trim_end_matches('/');
+    if let Some(rest) = s.strip_prefix("http://") {
+        bail!("refusing insecure server URL http://{rest}: the join token must travel over https");
+    }
+    Ok(if s.starts_with("https://") {
+        s.to_string()
+    } else {
+        format!("https://{s}")
+    })
 }
 
 struct Api {
@@ -169,7 +198,7 @@ pub fn ensure_crypto_provider() {
 pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
     ensure_crypto_provider();
     let tok = parse_token(&p.token).map_err(|e| anyhow!("invalid token: {e}"))?;
-    let server = p.server.trim_end_matches('/').to_string();
+    let server = normalize_server(&p.server)?;
     let agent = p.data_dir.join("agent");
     std::fs::create_dir_all(&agent)?;
 
@@ -179,7 +208,7 @@ pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
         .danger_accept_invalid_certs(true)
         .timeout(HTTP_TIMEOUT)
         .build()?;
-    let ca_pem = insecure
+    let fetched = insecure
         .get(format!("{server}/cacerts"))
         .send()
         .await
@@ -187,7 +216,7 @@ pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
         .error_for_status()?
         .text()
         .await?;
-    let got = ca_hash(&ca_pem)?;
+    let (got, ca_der, ca_pem) = single_ca(&fetched)?;
     match &tok.ca_hash {
         Some(want) if !want.eq_ignore_ascii_case(&got) => bail!(
             "CA hash mismatch: token has {want}, server CA is {got}; refusing to join"
@@ -198,7 +227,7 @@ pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
         ),
     }
 
-    let root = reqwest::Certificate::from_pem(ca_pem.as_bytes())?;
+    let root = reqwest::Certificate::from_der(&ca_der)?;
     let api = Api {
         http: reqwest::Client::builder()
             .tls_built_in_root_certs(false)
