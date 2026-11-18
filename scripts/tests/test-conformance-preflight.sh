@@ -145,7 +145,14 @@ esac
 exit 0
 STUB
 
-    chmod +x "$dir/kubectl" "$dir/docker"
+    # curl stub: only the rhino /metrics probe (#3855). METRICS_BACKLOG unset
+    # means the endpoint is unreachable (older rhino / not published).
+    cat >"$dir/curl" <<'STUB'
+#!/usr/bin/env bash
+[ -n "${METRICS_BACKLOG:-}" ] || exit 7
+printf '# TYPE rhino_compaction_backlog gauge\nrhino_compaction_backlog %s\n' "$METRICS_BACKLOG"
+STUB
+    chmod +x "$dir/kubectl" "$dir/docker" "$dir/curl"
 }
 
 STUBS="$TMPROOT/bin"
@@ -433,6 +440,13 @@ PY
 else
     echo "skip [compaction backlog cases: python3 unavailable]"
 fi
+# rhino /metrics gauge (#3855) is preferred over the DB copy.
+expect_case "metrics backlog over the ceiling is refused" 2 "backlog is 16000 revisions" "METRICS_BACKLOG=16000"
+expect_case "metrics backlog healthy passes" 0 "compaction backlog is 1200 (ceiling 10000, rhino /metrics)" \
+    "METRICS_BACKLOG=1200"
+expect_case "metrics wins over a bad DB copy" 0 "rhino /metrics" "METRICS_BACKLOG=1200" \
+    "LAG_FIXTURE_DIR=$TMPROOT/lag-bad"
+expect_case "metrics works without a storage container" 0 "rhino /metrics" "METRICS_BACKLOG=1200" "RHINO_PRESENT=0"
 expect_case "unreadable DB skips the compaction assertion" 0 "could not read the compaction backlog" \
     "LAG_DB_READABLE=0"
 expect_case "absent storage container skips the compaction assertion" 0 "skipping compaction-backlog assertion" \

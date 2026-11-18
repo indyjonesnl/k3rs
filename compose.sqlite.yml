@@ -32,6 +32,8 @@ services:
     restart: unless-stopped
     ports:
       - "2379:2379"
+      # /metrics (rhino_compaction_backlog), read by conformance-preflight.sh
+      - "127.0.0.1:2382:2382"
     volumes:
       - rhino-data:/data/db
     networks:
@@ -43,6 +45,8 @@ services:
       - "/data/db/state.db"
       - "--max-connections"
       - "20"
+      - "--metrics-bind-address"
+      - "0.0.0.0:2382"
     healthcheck:
       test: ["CMD-SHELL", "true"]
       interval: 5s
