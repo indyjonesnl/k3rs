@@ -36,6 +36,7 @@ unverified, see notes).
 | Bundled addons | traefik, helm-controller, metrics-server, local-path, ServiceLB, coredns | traefik, helm-controller and metrics-server run from the upstream k3s manifests. The Pi profile is intended to leave out traefik and helm-controller (the author's own node uses a Cloudflare tunnel instead). | Footprint on a 512 MB node. | partial |
 | Kubelet mounts | `mount`/`umount` from the node userland | Tmpfs mounts for emptyDir and projected volumes use `mount(2)`/`umount2(2)` in-process (#4483). Other volume plugins still exec `mount`, `umount` and `systemd-run`. | Minimal node images have no util-linux. Upstream `mount-utils` execs the `mount` binary, so this differs on purpose. | partial |
 | Single binary | One `k3s` binary for server and agent | One `k3rs` all-in-one binary, musl plus mimalloc in the shipped build. | Footprint; same idea as k3s. | shipped |
+| Async worker threads | Go runtime: `GOMAXPROCS` = CPU count (cgroup-aware since Go 1.25); k3s sets no cap | The all-in-one binary defaults to `min(available_parallelism, 4)` tokio workers; `TOKIO_WORKER_THREADS` overrides (#4485, `docs/PERFORMANCE.md`). Standalone binaries are uncapped. | On a 24-CPU host idle anon fell from 227-240 MiB (uncapped) to 171-178 MiB; no change on a 4-CPU Pi. | shipped (all-in-one only) |
 
 ## Not deviations (still faithful)
 
