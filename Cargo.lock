@@ -2288,8 +2288,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64",
  "clap",
  "dhat",
+ "hex",
  "k3rs-api-server",
  "k3rs-client",
  "k3rs-common",
@@ -2299,10 +2301,20 @@ dependencies = [
  "k3rs-kubelet",
  "k3rs-scheduler",
  "k3rs-storage",
+ "libc",
  "mimalloc",
+ "pem",
+ "rcgen",
+ "rsa",
+ "rustls",
  "serial_test",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
  "tokio",
  "tracing",
+ "x509-parser",
 ]
 
 [[package]]
