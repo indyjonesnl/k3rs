@@ -280,6 +280,188 @@ pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
     })
 }
 
-pub async fn run_agent(_a: crate::cli::AgentArgs) -> anyhow::Result<()> {
-    anyhow::bail!("not implemented")
+/// Default node name when `--node-name` is unset: the hostname, as k3s
+/// `pkg/agent/config` does (`nodeName` defaults to `os.Hostname()`).
+fn default_node_name() -> Result<String> {
+    let h = std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .or_else(|_| std::fs::read_to_string("/etc/hostname"))
+        .context("determine hostname; pass --node-name")?;
+    Ok(h.trim().to_lowercase())
+}
+
+/// Host part of the server URL (kubelet `KUBERNETES_SERVICE_HOST` for pods).
+fn server_host(server: &str) -> String {
+    let rest = server.split("://").nth(1).unwrap_or(server);
+    let auth = rest.split('/').next().unwrap_or(rest);
+    match auth.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(v6).to_string(),
+        None => auth.split(':').next().unwrap_or(auth).to_string(),
+    }
+}
+
+/// Kubelet configuration for an agent node. Field mapping mirrors the
+/// all-in-one `main.rs` kubelet block; flag values follow k3s
+/// `pkg/daemons/agent/agent.go` `startKubelet` (`cluster-dns`, `node-ip`,
+/// `hostname-override`).
+fn kubelet_config(a: &crate::cli::AgentArgs, c: &ClusterInfo) -> k3rs_kubelet::KubeletConfig {
+    let node_name = a.node_name.clone().unwrap_or_default();
+    let volume_dir = a
+        .volume_dir
+        .clone()
+        .unwrap_or_else(|| format!("{}/agent/volumes", a.data_dir.trim_end_matches('/')));
+    k3rs_kubelet::KubeletConfig {
+        node_name: node_name.clone(),
+        volume_dir,
+        cluster_dns: c.cluster_dns.clone(),
+        node_ip: a.node_ip.clone().unwrap_or_default(),
+        hostname_override: node_name,
+        kubernetes_service_host: server_host(&a.server),
+        ..Default::default()
+    }
+}
+
+/// kube-proxy configuration: `cluster_cidr` is the ClusterIP (service) CIDR as
+/// in kube-proxy's own main (`--cluster-cidr`); `no_masq_cidrs` are the pod and
+/// service CIDRs, as kube-proxy main's `[pod_cidr, cluster_cidr]`.
+fn kube_proxy_config(node_name: &str, c: &ClusterInfo) -> k3rs_kube_proxy::KubeProxyConfig {
+    k3rs_kube_proxy::KubeProxyConfig {
+        node_name: node_name.to_string(),
+        cluster_cidr: c.service_cidr.clone(),
+        node_net: Some(k3rs_kube_proxy::node_net::NodeNetConfig {
+            node_name: node_name.to_string(),
+            cni_conf_path: "/etc/cni/net.d/10-k3rs.conflist".to_string(),
+            no_masq_cidrs: vec![c.cluster_cidr.clone(), c.service_cidr.clone()],
+        }),
+        ..Default::default()
+    }
+}
+
+/// Build an mTLS `ApiClient` from a kubeconfig written by `join` (same
+/// construction as `crates/kubelet/src/main.rs` / `kube-proxy/src/main.rs`).
+fn client_from_kubeconfig(path: &Path) -> Result<std::sync::Arc<k3rs_client::http::ApiClient>> {
+    use k3rs_client::kubeconfig::KubeConfig;
+    let cfg = KubeConfig::load_from_file(&path.to_path_buf())?;
+    let server = cfg.get_server()?;
+    let ca = cfg.get_ca_cert_pem()?;
+    let cert = cfg.get_client_cert_pem()?.map(String::into_bytes);
+    let key = cfg.get_client_key_pem()?.map(String::into_bytes);
+    Ok(std::sync::Arc::new(
+        k3rs_client::http::ApiClient::with_tls(&server, false, ca, cert, key, None)?
+            .with_default_user_agent(k3rs_common::compatibility::default_kubernetes_user_agent()),
+    ))
+}
+
+pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
+    ensure_crypto_provider();
+    let token = match (&a.token, &a.token_file) {
+        (Some(t), _) => t.clone(),
+        (None, Some(f)) => std::fs::read_to_string(f)
+            .with_context(|| format!("read token file {f}"))?
+            .trim()
+            .to_string(),
+        (None, None) => bail!("--token or --token-file is required"),
+    };
+    let node_name = match a.node_name.clone() {
+        Some(n) => n,
+        None => default_node_name()?,
+    };
+    a.node_name = Some(node_name.clone());
+    let creds = join(&JoinParams {
+        server: a.server.clone(),
+        token,
+        node_name: node_name.clone(),
+        node_ip: a.node_ip.clone(),
+        data_dir: PathBuf::from(&a.data_dir),
+    })
+    .await?;
+
+    let kubelet_client = client_from_kubeconfig(&creds.kubelet_kubeconfig)?;
+    let storage = std::sync::Arc::new(k3rs_storage::StorageBackend::new_api(kubelet_client));
+    let kcfg = kubelet_config(&a, &creds.cluster);
+    let pcfg = kube_proxy_config(&node_name, &creds.cluster);
+    let proxy_client = client_from_kubeconfig(&creds.kube_proxy_kubeconfig)?;
+
+    let mut kubelet = tokio::spawn(async move { k3rs_kubelet::run(storage, kcfg).await });
+    let mut proxy =
+        tokio::spawn(async move { k3rs_kube_proxy::run_with_api(proxy_client, pcfg).await });
+    tracing::info!("k3rs agent started: node {node_name}");
+
+    let shutdown = k3rs_common::signal::setup_signal_context();
+    let res = tokio::select! {
+        r = &mut kubelet => component_exit("kubelet", r),
+        r = &mut proxy => component_exit("kube-proxy", r),
+        _ = shutdown.cancelled() => {
+            tracing::info!("received shutdown signal, stopping k3rs agent");
+            Ok(())
+        }
+    };
+    kubelet.abort();
+    proxy.abort();
+    res
+}
+
+/// A component task must never end on its own: surface any exit as an error.
+fn component_exit(name: &str, r: Result<anyhow::Result<()>, tokio::task::JoinError>) -> Result<()> {
+    match r {
+        Ok(Ok(())) => bail!("{name} exited unexpectedly"),
+        Ok(Err(e)) => Err(e.context(format!("{name} failed"))),
+        Err(e) => Err(anyhow!("{name} task panicked: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod run_tests {
+    use super::*;
+    use clap::Parser;
+
+    fn args() -> crate::cli::AgentArgs {
+        crate::cli::AgentArgs::try_parse_from([
+            "k3rs",
+            "--server",
+            "https://10.0.0.1:6443",
+            "--token",
+            "t",
+            "--node-name",
+            "n1",
+            "--node-ip",
+            "10.0.0.5",
+        ])
+        .unwrap()
+    }
+
+    fn cluster() -> ClusterInfo {
+        ClusterInfo {
+            cluster_cidr: "10.244.0.0/16".into(),
+            service_cidr: "10.96.0.0/12".into(),
+            cluster_dns: "10.96.0.10".into(),
+        }
+    }
+
+    #[test]
+    fn kubelet_config_from_join() {
+        let c = kubelet_config(&args(), &cluster());
+        assert_eq!(c.cluster_dns, "10.96.0.10");
+        assert_eq!(c.node_name, "n1");
+        assert_eq!(c.hostname_override, "n1");
+        assert_eq!(c.node_ip, "10.0.0.5");
+        assert_eq!(c.kubernetes_service_host, "10.0.0.1");
+        assert_eq!(c.volume_dir, "/var/lib/k3rs/agent/volumes");
+    }
+
+    #[test]
+    fn kube_proxy_config_from_join() {
+        let c = kube_proxy_config("n1", &cluster());
+        assert_eq!(c.cluster_cidr, "10.96.0.0/12");
+        let nn = c.node_net.unwrap();
+        assert_eq!(nn.node_name, "n1");
+        assert_eq!(nn.cni_conf_path, "/etc/cni/net.d/10-k3rs.conflist");
+        assert_eq!(nn.no_masq_cidrs, vec!["10.244.0.0/16", "10.96.0.0/12"]);
+    }
+
+    #[test]
+    fn server_host_forms() {
+        assert_eq!(server_host("https://a.b:6443"), "a.b");
+        assert_eq!(server_host("https://[::1]:6443/x"), "::1");
+        assert_eq!(server_host("h:6443"), "h");
+    }
 }
