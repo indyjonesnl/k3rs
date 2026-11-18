@@ -432,6 +432,33 @@ fn scheduler_config_from_args(args: &Args) -> Result<k3rs_scheduler::SchedulerCo
     })
 }
 
+/// What `k3rs server` layers on top of the all-in-one. All `None`
+/// (`Overrides::default()`) is bare `k3rs [flags]`, unchanged.
+#[derive(Default)]
+pub(crate) struct Overrides {
+    /// Builds routes merged into the api-server router (the supervisor's
+    /// `/cacerts`, `/ping`, `/v1-k3rs/*`). A factory rather than a ready
+    /// `axum::Router` because the supervisor needs the shared
+    /// `Arc<StorageBackend>`, which only exists once `run_all_in_one` has
+    /// opened the datastore; it is called exactly once, right after that.
+    #[allow(clippy::type_complexity)]
+    pub extra_router: Option<Box<dyn FnOnce(Arc<StorageBackend>) -> axum::Router + Send>>,
+    /// Node IPAM for the embedded controller-manager (`--allocate-node-cidrs`).
+    pub node_ipam: Option<k3rs_controller_manager::controllers::node_ipam::NodeIpamConfig>,
+    /// kube-proxy's node-network agent (host-gw routes + per-node conflist).
+    pub node_net: Option<k3rs_kube_proxy::node_net::NodeNetConfig>,
+    /// Runs once every component has been started.
+    pub post_start: Option<Box<dyn FnOnce(ServerContext) + Send>>,
+}
+
+/// Handed to `Overrides::post_start`.
+#[allow(dead_code)] // read by the server bootstrap hook.
+pub(crate) struct ServerContext {
+    /// A loopback client to the embedded api-server.
+    pub loopback_client: Arc<k3rs_client::http::ApiClient>,
+    pub node_ip: String,
+}
+
 async fn async_main() -> Result<()> {
     // `fs.Changed` for the legacy authorization flags needs the raw matches.
     let matches = <Args as clap::CommandFactory>::command().get_matches();
@@ -439,6 +466,12 @@ async fn async_main() -> Result<()> {
         .map_err(|e| e.exit())
         .unwrap();
     args.authorization.mark_legacy_flags_set(&matches);
+    run_all_in_one(args, Overrides::default()).await
+}
+
+/// The all-in-one body: everything after argument parsing. `ov` carries the
+/// server-mode additions; `Overrides::default()` is bare `k3rs`.
+pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     args.admission
         .validate_and_install()
         .map_err(|e| anyhow::anyhow!("invalid admission flags: {e}"))?;
@@ -530,6 +563,7 @@ async fn async_main() -> Result<()> {
         authorization_config: args.authorization.authorization_config.clone(),
         authorization_legacy_flags_set: args.authorization.legacy_flags_set,
         request_header: args.request_header.clone(),
+        extra_router: ov.extra_router.map(|build| build(storage.clone())),
         ..Default::default()
     };
     let prepared_tls = k3rs_api_server::prepare_tls_for_config(&api_config)?;
@@ -611,9 +645,10 @@ async fn async_main() -> Result<()> {
         pv_recycler,
         metrics_config,
         ca_cert_pem: cm_ca_pem,
-        // All-in-one does not expose node-IPAM flags; pod-CIDR allocation is a
-        // multi-node compose concern (flannel stack runs the standalone CM).
-        node_ipam: None,
+        // Bare all-in-one does not expose node-IPAM flags; pod-CIDR allocation
+        // is a multi-node concern (flannel stack runs the standalone CM).
+        // `k3rs server` turns it on via `ov` (k3s `--allocate-node-cidrs`).
+        node_ipam: ov.node_ipam,
         csi_attachers,
         attach_detach_controller: args.attach_detach_controller,
         bootstrap_signer_controller: args.bootstrap_signer_controller,
@@ -687,11 +722,12 @@ async fn async_main() -> Result<()> {
                 .unwrap_or_else(|| kube_proxy_cluster_cidr(&service_ranges)),
             // Accept hyphen form as a convenience; iptables wants colon.
             nodeport_range: args.node_port_range.replace('-', ":"),
-            // The all-in-one binary is a single node in a single network
+            // The bare all-in-one binary is a single node in a single network
             // namespace: there is no peer pod CIDR to route to and no per-node
             // conflist to derive, so the node-network agent stays off and the
             // image's cluster-wide CNI config keeps applying (#1691).
-            node_net: None,
+            // `k3rs server` turns it on via `ov`.
+            node_net: ov.node_net,
             // MetricsBindAddress default (defaults.go:52-56).
             metrics_bind_address: k3rs_kube_proxy::serve_metrics::default_metrics_bind_address(""),
         };
@@ -736,6 +772,19 @@ async fn async_main() -> Result<()> {
     }
 
     info!("All components started");
+
+    if let Some(hook) = ov.post_start {
+        let loopback_client = Arc::new(
+            k3rs_client::http::ApiClient::new(&loopback_url, args.tls, None)?
+                .with_default_user_agent(
+                    k3rs_common::compatibility::default_kubernetes_user_agent(),
+                ),
+        );
+        hook(ServerContext {
+            loopback_client,
+            node_ip: args.node_ip.clone(),
+        });
+    }
 
     // The API server task blocks on its listener — wait for it or ctrl-c
     let shutdown_ctx = k3rs_common::signal::setup_signal_context();
@@ -963,6 +1012,22 @@ mod controller_manager_metrics_tests {
         assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
         assert!(ok.contains("cm_marker 1"), "{ok}");
         assert!(get("/nope").await.starts_with("HTTP/1.1 404"));
+    }
+}
+
+#[cfg(test)]
+mod overrides_tests {
+    use super::*;
+
+    /// Bare `k3rs [flags]` runs with no overrides: no supervisor routes, no
+    /// node IPAM, no node-network agent, no post-start hook.
+    #[test]
+    fn bare_overrides_are_all_none() {
+        let ov = Overrides::default();
+        assert!(ov.extra_router.is_none());
+        assert!(ov.node_ipam.is_none());
+        assert!(ov.node_net.is_none());
+        assert!(ov.post_start.is_none());
     }
 }
 
