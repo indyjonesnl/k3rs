@@ -71,6 +71,7 @@ serde_json.workspace = true
 tower-http = { workspace = true, features = ["limit", "timeout"] }
 pem.workspace = true
 rustls.workspace = true
+reqwest.workspace = true
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.9"
@@ -82,5 +83,6 @@ mimalloc = { version = "0.1", optional = true }
 [dev-dependencies]
 serial_test = { workspace = true }
 tempfile = "3"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 rsa = "0.9"
 tower = { workspace = true, features = ["util"] }
