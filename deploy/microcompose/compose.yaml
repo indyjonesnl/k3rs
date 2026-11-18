@@ -1,0 +1,64 @@
+# 3-node k3rs cluster, one microVM per node (microcompose + Cloud Hypervisor).
+#
+#   node1  control plane + worker: rhino (SQLite), api-server, scheduler,
+#          controller-manager, kubelet, kube-proxy
+#   node2  worker: kubelet, kube-proxy
+#   node3  worker: kubelet, kube-proxy
+#
+# Binaries are NOT baked into the image: `sync.sh` scp's target/release-fast/*
+# into /usr/local/bin and restarts the units, so a rebuild is live in seconds.
+# Only the OS layer (containerd, crun, CNI plugins, units) is baked.
+#
+# 1 GiB per VM until each node idles under 512 MiB; then shrink mem_limit.
+#
+#   ./up.sh            # certs, build, boot, sync, bootstrap
+#   ./sync.sh          # after a rebuild: push binaries + restart
+name: k3rs
+
+services:
+  node1:
+    image: debian-13-genericcloud
+    mem_limit: 1g
+    cpus: 2
+    build:
+      context: ./build
+    x-vm:
+      disk_size: 10G
+    labels: { role: control-plane }
+    networks:
+      default: { ipv4_address: 10.72.0.2 }
+    # kubectl from the host: https://127.0.0.1:6443 (cert SAN: localhost)
+    ports:
+      - "127.0.0.1:6443:6443"
+
+  node2:
+    image: debian-13-genericcloud
+    mem_limit: 1g
+    cpus: 2
+    build:
+      context: ./build
+    x-vm:
+      disk_size: 10G
+    labels: { role: worker }
+    networks:
+      default: { ipv4_address: 10.72.0.3 }
+
+  node3:
+    image: debian-13-genericcloud
+    mem_limit: 1g
+    cpus: 2
+    build:
+      context: ./build
+    x-vm:
+      disk_size: 10G
+    labels: { role: worker }
+    networks:
+      default: { ipv4_address: 10.72.0.4 }
+
+# 10.71.0.0/16 is reserved by microcompose; 10.88.0.0/24 is the m2b-* projects.
+# Pod CIDR (10.244.0.0/16) and service CIDR (10.96.0.0/12) must not overlap.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.72.0.0/24

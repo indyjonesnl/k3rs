@@ -1,0 +1,10 @@
+[Unit]
+Description=Map api-server to the control-plane node (cloud-init may regenerate /etc/hosts)
+After=cloud-final.service
+Before=network-online.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c "grep -q ' api-server$' /etc/hosts || echo '10.72.0.2 api-server' >> /etc/hosts"
+[Install]
+WantedBy=multi-user.target

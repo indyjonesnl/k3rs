@@ -1,0 +1,11 @@
+[Unit]
+Description=k3rs scheduler
+After=k3rs-api-server.service
+ConditionPathExists=/usr/local/bin/scheduler
+[Service]
+Environment=RUST_LOG=info
+# Flags mirror manifests/control-plane/kube-scheduler.yaml.
+ExecStart=/usr/local/bin/scheduler --api-server-url https://api-server:6443 --kubeconfig /etc/k3rs/pki/scheduler.conf --interval 1
+Restart=always
+[Install]
+WantedBy=multi-user.target
