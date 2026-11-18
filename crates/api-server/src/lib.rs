@@ -249,6 +249,13 @@ pub struct ApiServerConfig {
     /// calling [`prepare_tls_for_config`] so the CA handed to other components
     /// matches the certificate served by the API server.
     pub prepared_tls: Option<PreparedTlsConfig>,
+    /// Extra routes merged into the api-server router so they share its
+    /// listener and TLS (the k3rs supervisor's `/cacerts`, `/ping`,
+    /// `/v1-k3rs/*`). Merged AFTER `build_router`, so they sit outside every
+    /// authn/authz layer the api-server wraps around its own routes: the
+    /// caller owns their authentication. Paths must not overlap built-in
+    /// routes (axum panics on overlap).
+    pub extra_router: Option<axum::Router>,
     /// `--service-node-port-range` (cmd/kube-apiserver/app/options/options.go:
     /// 124): the range NodePorts are allocated from. A zero-size range means
     /// unspecified and falls back to 30000-32767 (pkg/controlplane/
@@ -412,6 +419,7 @@ impl Default for ApiServerConfig {
             client_ca_file: None,
             request_header: Default::default(),
             prepared_tls: None,
+            extra_router: None,
             service_node_port_range:
                 registry::core::service::portallocator::DEFAULT_SERVICE_NODE_PORT_RANGE,
             service_cluster_ip_range:
@@ -641,7 +649,14 @@ pub async fn run(storage: Arc<StorageBackend>, mut config: ApiServerConfig) -> a
     // every Service stored without one.
     bootstrap::start_service_ip_repair_controllers(&state).await?;
 
-    let app = router::build_router(state, config.console_dir.as_deref());
+    let mut app = router::build_router(state, config.console_dir.as_deref());
+    // Deviation: k3s fronts the API server with the supervisor router
+    // (pkg/server/handlers/router.go `NewHandler`, falling back to the
+    // apiserver); k3rs merges the supervisor routes into the api-server
+    // router instead of fronting it.
+    if let Some(extra) = config.extra_router.take() {
+        app = app.merge(extra);
+    }
 
     if config.tls {
         // Reuse the cert generated/loaded above so the serving cert matches
