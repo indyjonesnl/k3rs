@@ -351,11 +351,37 @@ fn main() -> Result<()> {
     // affected; only the single-runtime all-in-one is. Give workers an 8 MiB
     // stack — virtual reservation only (Linux commits stack pages lazily), so
     // no idle-RAM cost. See #1135.
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_stack_size(8 * 1024 * 1024)
-        .build()?
-        .block_on(async_main())
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all().thread_stack_size(8 * 1024 * 1024);
+    // Idle-RSS sizing (#3852): see `default_worker_threads`.
+    let cpus = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    if let Some(n) = default_worker_threads(std::env::var_os("TOKIO_WORKER_THREADS"), cpus) {
+        builder.worker_threads(n);
+    }
+    builder.build()?.block_on(async_main())
+}
+
+/// Most tokio worker threads the all-in-one starts by default.
+///
+/// DELIBERATE DEVIATION from k3s (docs/PERFORMANCE.md, "Tokio worker threads"): Go sizes
+/// `GOMAXPROCS` to the CPU count and, since Go 1.25, to the cgroup CPU limit
+/// (runtime/cgroup_linux.go `adjustCgroupGOMAXPROCS`), and k3s sets no cap, so
+/// a 24-core host runs 24 Ps. Each tokio worker here also brings a per-thread
+/// allocator heap, so on a many-core host idle RSS grows with the core count
+/// (#3852: 24 cores 428 MiB vs 4 workers 341 MiB with mimalloc). The control
+/// plane is I/O bound, so the cap is a footprint trade; measured in #3852.
+const MAX_DEFAULT_WORKER_THREADS: usize = 4;
+
+/// Worker-thread count to configure on the runtime, or `None` to leave tokio's
+/// own default. `TOKIO_WORKER_THREADS` (any value, even invalid: tokio parses
+/// and validates it) always wins, so operators can still override the cap.
+/// `cpus` is `std::thread::available_parallelism()`, which honours the
+/// affinity mask and the cgroup CPU quota like Go's container-aware GOMAXPROCS.
+fn default_worker_threads(env_override: Option<std::ffi::OsString>, cpus: usize) -> Option<usize> {
+    if env_override.is_some() {
+        return None;
+    }
+    Some(cpus.clamp(1, MAX_DEFAULT_WORKER_THREADS))
 }
 
 /// Apply `--emulated-version`, `--min-compatibility-version` and
@@ -982,5 +1008,38 @@ mod kube_proxy_cluster_cidr_tests {
         }
         let a = Args::try_parse_from(["k3rs"]).unwrap();
         assert!(a.cluster_cidr.is_none());
+    }
+}
+
+#[cfg(test)]
+mod worker_threads_tests {
+    use super::*;
+
+    #[test]
+    fn caps_many_core_hosts() {
+        assert_eq!(
+            default_worker_threads(None, 24),
+            Some(MAX_DEFAULT_WORKER_THREADS)
+        );
+        assert_eq!(
+            default_worker_threads(None, MAX_DEFAULT_WORKER_THREADS + 1),
+            Some(MAX_DEFAULT_WORKER_THREADS)
+        );
+    }
+
+    #[test]
+    fn small_hosts_use_every_cpu() {
+        assert_eq!(default_worker_threads(None, 1), Some(1));
+        assert_eq!(default_worker_threads(None, 0), Some(1));
+        assert_eq!(
+            default_worker_threads(None, MAX_DEFAULT_WORKER_THREADS),
+            Some(MAX_DEFAULT_WORKER_THREADS)
+        );
+    }
+
+    #[test]
+    fn env_override_is_left_to_tokio() {
+        assert_eq!(default_worker_threads(Some("64".into()), 4), None);
+        assert_eq!(default_worker_threads(Some("".into()), 4), None);
     }
 }
