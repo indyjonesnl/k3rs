@@ -70,6 +70,7 @@ pem.workspace = true
 rustls.workspace = true
 sha2 = "0.10"
 hex = "0.4"
+rand = "0.9"
 time = "0.3"
 libc = "0.2"
 dhat = { version = "0.3", optional = true }
