@@ -5,6 +5,7 @@
 //! handling in `pkg/server/server.go` `printTokens` :355-395 (`token`,
 //! `node-token`, `agent-token`).
 //!
+//! A string without the `K10` prefix is wholly the password, user `server`.
 //! Deviation: kubeadm-style bootstrap tokens (`abcdef.0123456789abcdef`) are
 //! out of scope; a bare string is the password with user `server`.
 
@@ -41,23 +42,27 @@ pub fn parse_token(s: &str) -> Result<TokenInfo, TokenError> {
     if s.is_empty() {
         return Err(TokenError::Empty);
     }
-    let (ca_hash, creds) = match s.strip_prefix(TOKEN_PREFIX) {
-        Some(rest) => match rest.split_once("::") {
-            Some((hash, creds)) => {
-                if !hash.is_empty() && hash.len() != CA_HASH_LENGTH {
-                    return Err(TokenError::BadHashLength);
-                }
-                ((!hash.is_empty()).then(|| hash.to_string()), creds)
-            }
-            None => (None, rest),
-        },
-        None => (None, s),
+    // No `K10` prefix: k3s makes it `K10:::` + token, so the whole string is
+    // the password (a colon in it does not split) and the user is `server`.
+    let Some(rest) = s.strip_prefix(TOKEN_PREFIX) else {
+        return Ok(TokenInfo {
+            ca_hash: None,
+            username: DEFAULT_USER.to_string(),
+            password: s.to_string(),
+        });
     };
-    let (username, password) = match creds.split_once(':') {
-        Some((u, p)) => (u, p),
-        // Bare password (k3s: ":::"+token); user defaults to `server`.
-        None if !s.starts_with(TOKEN_PREFIX) => (DEFAULT_USER, creds),
-        None => return Err(TokenError::BadFormat),
+    let (ca_hash, creds) = match rest.split_once("::") {
+        Some((hash, creds)) => {
+            if !hash.is_empty() && hash.len() != CA_HASH_LENGTH {
+                return Err(TokenError::BadHashLength);
+            }
+            ((!hash.is_empty()).then(|| hash.to_string()), creds)
+        }
+        None => (None, rest),
+    };
+    // `K10<hash>::user:pass` splits on the first ':' of the creds part.
+    let Some((username, password)) = creds.split_once(':') else {
+        return Err(TokenError::BadFormat);
     };
     if password.is_empty() {
         return Err(TokenError::BadFormat);
@@ -75,13 +80,12 @@ pub fn parse_token(s: &str) -> Result<TokenInfo, TokenError> {
 }
 
 /// Port of `FormatToken` (token.go:600): `K10<ca-hash>::<user>:<password>`.
-/// A `password` already of the form `user:pass` keeps its user.
 pub fn format_token(ca_hash: &str, password: &str) -> String {
-    if password.contains(':') {
-        format!("{TOKEN_PREFIX}{ca_hash}::{password}")
-    } else {
-        format!("{TOKEN_PREFIX}{ca_hash}::{DEFAULT_USER}:{password}")
-    }
+    format_creds(ca_hash, DEFAULT_USER, password)
+}
+
+fn format_creds(ca_hash: &str, user: &str, password: &str) -> String {
+    format!("{TOKEN_PREFIX}{ca_hash}::{user}:{password}")
 }
 
 /// Writes `<data-dir>/token` (0600) and symlinks `node-token` and
@@ -99,19 +103,20 @@ pub fn load_or_create_token(
         .ok()
         .and_then(|t| parse_token(t.trim()).ok());
 
-    let password = match (preset, &existing) {
-        (Some(p), _) => {
-            let info = parse_token(p.trim())?;
-            format!("{}:{}", info.username, info.password)
-        }
-        (None, Some(info)) => format!("{}:{}", info.username, info.password),
+    let info = match (preset, existing) {
+        (Some(p), _) => parse_token(p.trim())?,
+        (None, Some(info)) => info,
         (None, None) => {
             let mut b = [0u8; 24];
             rand::rng().fill_bytes(&mut b);
-            hex::encode(b)
+            TokenInfo {
+                ca_hash: None,
+                username: DEFAULT_USER.to_string(),
+                password: hex::encode(b),
+            }
         }
     };
-    let token = format_token(ca_hash, &password);
+    let token = format_creds(ca_hash, &info.username, &info.password);
 
     if std::fs::read_to_string(&path)
         .ok()
@@ -200,8 +205,40 @@ mod tests {
 
     #[test]
     fn parse_user_pass() {
+        // k3s turns a bare string into `K10:::` + token: whole string is the password.
         let i = parse_token("bob:pw").unwrap();
-        assert_eq!((i.username.as_str(), i.password.as_str()), ("bob", "pw"));
+        assert_eq!(i.ca_hash, None);
+        assert_eq!(
+            (i.username.as_str(), i.password.as_str()),
+            ("server", "bob:pw")
+        );
+    }
+
+    #[test]
+    fn hash_of_65_chars_rejected() {
+        let t = format!("K10{}::server:pw", "a".repeat(65));
+        assert_eq!(parse_token(&t), Err(TokenError::BadHashLength));
+    }
+
+    #[test]
+    fn empty_hash_is_accepted() {
+        let i = parse_token("K10::server:pw").unwrap();
+        assert_eq!(i.ca_hash, None);
+        assert_eq!((i.username.as_str(), i.password.as_str()), ("server", "pw"));
+    }
+
+    #[test]
+    fn bare_token_with_colon_roundtrips_through_verify_basic() {
+        let d = tempfile::tempdir().unwrap();
+        let t = load_or_create_token(d.path(), &hash(), Some("a:b")).unwrap();
+        let again = load_or_create_token(d.path(), &hash(), None).unwrap();
+        assert_eq!(t, again);
+        let i = parse_token(&t).unwrap();
+        assert_eq!(
+            (i.username.as_str(), i.password.as_str()),
+            ("server", "a:b")
+        );
+        assert!(verify_basic(&i.password, "server", "a:b"));
     }
 
     #[test]
