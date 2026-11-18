@@ -233,13 +233,9 @@ fn rule_matches_device(
     let Some(selector) = &rule.spec.device_selector else {
         return false;
     };
-    if selector.driver.as_deref().is_some_and(|d| d != driver_name)
+    !(selector.driver.as_deref().is_some_and(|d| d != driver_name)
         || selector.pool.as_deref().is_some_and(|p| p != pool_name)
-        || selector.device.as_deref().is_some_and(|d| d != device_name)
-    {
-        return false;
-    }
-    true
+        || selector.device.as_deref().is_some_and(|d| d != device_name))
 }
 
 fn is_no_execute(effect: &Option<DeviceTaintEffect>) -> bool {

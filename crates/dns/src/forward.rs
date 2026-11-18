@@ -371,12 +371,9 @@ impl Forwarder {
                     }
                     Err(e) => {
                         // `incrementFails` (saturating like the overflow guard)
-                        let _ =
-                            proxy
-                                .fails
-                                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
-                                    v.checked_add(1)
-                                });
+                        let _ = proxy
+                            .fails
+                            .try_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1));
                         debug!("health check of {} failed: {e}", proxy.addr);
                     }
                 }

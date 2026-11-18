@@ -21,7 +21,7 @@
 # the git dependency in crates/storage/Cargo.toml; scripts/check-rhino-rev.sh
 # guards the pair). Its binary is `rhino-server` (rhino [[bin]]).
 
-FROM rust:1.99-alpine AS builder
+FROM rust:1.100-alpine AS builder
 
 # Same toolchain set as all-in-one-musl.Dockerfile (ring, bundled SQLite,
 # mimalloc, tonic/prost codegen).

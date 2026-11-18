@@ -360,7 +360,7 @@ Selected flags (run `k3rs --help` for the complete list):
 ## Container images
 
 All runtime images are built **`FROM debian:sid-slim`**. Rust builder stages
-pin `rust:1.99`. The two Dockerfiles that matter for deployment are
+pin `rust:1.100`. The two Dockerfiles that matter for deployment are
 `services.Dockerfile` (per-component) and `all-in-one.Dockerfile` (single
 binary).
 

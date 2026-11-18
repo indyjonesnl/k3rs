@@ -29,7 +29,6 @@ version = "0.1.0"
 edition = "2021"
 authors = ["k3rs Contributors"]
 license = "Apache-2.0"
-repository = "https://github.com/k3rs/k3rs"
 
 [workspace.dependencies]
 tokio = { version = "1.40", features = ["full"] }
