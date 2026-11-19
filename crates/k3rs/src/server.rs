@@ -68,6 +68,7 @@ pub(crate) fn join_line(node_ip: &str, port: u16, token: &str) -> String {
 /// under `<data-dir>/db` (k3s `<data-dir>/server/db/state.db`).
 pub(crate) fn server_argv(a: &ServerArgs, node_name: &str, node_ip: &str) -> Vec<String> {
     let dir = a.data_dir.trim_end_matches('/');
+    let dns_bind = dns_bind(node_ip);
     let tls = format!("{dir}/tls");
     let issuer = format!("https://kubernetes.default.svc.{CLUSTER_DOMAIN}");
     let mut v: Vec<String> = [
@@ -113,6 +114,8 @@ pub(crate) fn server_argv(a: &ServerArgs, node_name: &str, node_ip: &str) -> Vec
         node_name,
         "--node-ip",
         node_ip,
+        "--dns-bind",
+        &dns_bind,
         "--skip-auth",
     ]
     .iter()
@@ -125,6 +128,21 @@ pub(crate) fn server_argv(a: &ServerArgs, node_name: &str, node_ip: &str) -> Vec
         v.push("--disable-proxy".into());
     }
     v
+}
+
+/// Where the in-process k3rs-dns listens: the node IP the kube-dns
+/// EndpointSlice advertises (`bootstrap::objects`, first address), port 53.
+/// k3rs-only (k3s runs CoreDNS as a pod, in its own netns). Not the
+/// all-in-one's `0.0.0.0:53`: on a host running a stub resolver
+/// (systemd-resolved on 127.0.0.53:53 / 127.0.0.54:53, e.g. Debian cloud
+/// images) the wildcard bind fails with EADDRINUSE and the cluster has no DNS.
+pub(crate) fn dns_bind(node_ip: &str) -> String {
+    let ip = node_ip.split(',').next().unwrap_or(node_ip).trim();
+    if ip.contains(':') {
+        format!("[{ip}]:53")
+    } else {
+        format!("{ip}:53")
+    }
 }
 
 /// Parse an all-in-one argv the way `async_main` does, including the raw
@@ -310,6 +328,8 @@ mod tests {
         assert_eq!(args.volume_dir, "/srv/k3rs/agent/volumes");
         assert_eq!(args.service_cluster_ip_range, SERVICE_CIDR);
         assert_eq!(args.cluster_dns, CLUSTER_DNS);
+        // k3rs-dns binds the node IP the kube-dns EndpointSlice advertises.
+        assert_eq!(args.dns_bind, "192.0.2.10:53");
         assert_eq!(
             args.service_account.service_account_key_file,
             ["/srv/k3rs/tls/sa.pub"]
@@ -356,6 +376,23 @@ mod tests {
             "authorization is disabled (--skip-auth): any client that can reach :6443 has full API access; RBAC is a follow-up"
         );
         assert!(skip_auth_warning(16443).contains(":16443 has full API access"));
+    }
+
+    /// Must match the address `bootstrap::objects` puts in the kube-dns
+    /// EndpointSlice (first node IP), and never be the wildcard, which
+    /// collides with a host stub resolver on 127.0.0.53:53.
+    #[test]
+    fn dns_binds_the_advertised_node_ip() {
+        assert_eq!(dns_bind("10.72.0.2"), "10.72.0.2:53");
+        assert_eq!(dns_bind("10.72.0.2, fd00::2"), "10.72.0.2:53");
+        assert_eq!(dns_bind("fd00::2"), "[fd00::2]:53");
+        let eps = k3rs::bootstrap::objects("10.72.0.2,fd00::2");
+        let advertised = serde_json::to_string(&eps.iter().map(|o| &o.body).collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert!(advertised.contains("\"10.72.0.2\""));
+        assert!(dns_bind("10.72.0.2,fd00::2")
+            .parse::<std::net::SocketAddr>()
+            .is_ok());
     }
 
     #[test]
