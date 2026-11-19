@@ -775,6 +775,7 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
         )?))),
         None => storage.clone(),
     };
+    let kubelet_sa = kubelet_service_account(&args.service_account, creds.is_some());
     let kubelet_config = k3rs_kubelet::KubeletConfig {
         node_name: args.node_name.clone(),
         volume_dir: args.volume_dir,
@@ -786,7 +787,7 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
         node_ip: args.node_ip.clone(),
         cloud_provider: args.cloud_provider.clone(),
         hostname_override: args.hostname_override.clone(),
-        service_account: args.service_account.to_options(),
+        service_account: kubelet_sa,
         kubernetes_service_host: args
             .kubernetes_service_host
             .clone()
@@ -900,6 +901,25 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// The embedded kubelet's service-account options. Bare all-in-one: the
+/// api-server's, so the storage-direct kubelet self-mints SA tokens with the
+/// in-process signing key. With component identities: none, like a joined
+/// agent (`agent::kubelet_config`). The API-mode kubelet gets tokens only
+/// through TokenRequest as `system:node:<node>`; holding the signing key would
+/// let `token_manager::request_token` turn a Node/RBAC/NodeRestriction denial
+/// into a self-signed token the api-server accepts. Upstream's kubelet never
+/// signs (it only calls TokenRequest, `pkg/kubelet/token/token_manager.go`).
+fn kubelet_service_account(
+    api_server: &k3rs_api_server::ServiceAccountArgs,
+    component_creds: bool,
+) -> k3rs_common::auth::ServiceAccountOptions {
+    if component_creds {
+        Default::default()
+    } else {
+        api_server.to_options()
+    }
 }
 
 /// The api-server port from `--bind-address` (`host:port`); 6443 when it does
@@ -1180,6 +1200,39 @@ mod overrides_tests {
             .expect("missing kubeconfig must fail")
             .to_string();
         assert!(err.contains("scheduler client credentials"), "{err}");
+    }
+
+    /// The server-node kubelet must not hold the SA signing key (or any SA
+    /// key): its tokens come from TokenRequest under Node authz only. Bare
+    /// all-in-one keeps the api-server's options.
+    #[test]
+    fn server_mode_kubelet_has_no_sa_signing_key() {
+        let argv = crate::server::server_argv(
+            &<k3rs::cli::ServerArgs as clap::Parser>::try_parse_from([
+                "server",
+                "--data-dir",
+                "/srv/k3rs",
+            ])
+            .unwrap(),
+            "node-a",
+            "192.0.2.10",
+        );
+        let args = crate::server::parse_args_from(argv).unwrap();
+        assert_eq!(
+            args.service_account
+                .to_options()
+                .signing_key_file
+                .as_deref(),
+            Some("/srv/k3rs/tls/sa.key")
+        );
+        let sa = kubelet_service_account(&args.service_account, true);
+        assert!(sa.signing_key_file.is_none());
+        assert!(sa.key_files.is_empty());
+        let bare = kubelet_service_account(&args.service_account, false);
+        assert_eq!(
+            bare.signing_key_file.as_deref(),
+            Some("/srv/k3rs/tls/sa.key")
+        );
     }
 
     /// The minted kubeconfigs load into cert-bearing clients for every
