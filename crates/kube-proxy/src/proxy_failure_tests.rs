@@ -47,6 +47,7 @@ async fn failed_sync_is_not_cached() {
         node_name: "n".into(),
         last_sync_hash: 0,
         service_health_server: None,
+        host_ports: true,
     };
     assert!(
         proxy.sync().await.is_err(),

@@ -118,6 +118,15 @@ async fn run_proxy<S: Storage + Send + Sync + 'static>(
         config.nodeport_range.clone(),
         config.node_name.clone(),
     )?));
+    // With the node-network agent on, this node's CNI conflist chains the
+    // `portmap` plugin (`node_net::conflist`), so hostPorts are the CNI
+    // runtime's job, as on k3s (flannel conflist: bridge -> portmap) and as
+    // upstream, whose kube-proxy has no Pod informer at all
+    // (cmd/kube-proxy/app/server.go: Service, EndpointSlice, Node informers).
+    // The KUBE-HOSTPORTS path, and with it the cluster-wide Pod list/watch
+    // that the seeded `system:node-proxier` role does not grant, is then off.
+    let host_ports = config.node_net.is_none();
+    kube_proxy.lock().await.set_host_ports(host_ports);
 
     // newProxyServer's configz registration is fatal on duplicate names and
     // stores the effective component config (server.go:189-193). Serialize the
@@ -211,6 +220,9 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
     }
 
     let sync_interval = tokio::time::Duration::from_secs(config.sync_interval);
+    // See `run_proxy`: hostPorts belong to CNI `portmap` when the node-network
+    // agent writes the conflist.
+    let host_ports = config.node_net.is_none();
 
     let queue = WorkQueue::new();
 
@@ -243,7 +255,16 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .expect("install SIGTERM handler");
 
+    let mut watch_broken = false;
     loop {
+        if watch_broken {
+            // A watch that ends or errors is re-established after a pause, as
+            // the reflector backs off between ListAndWatch attempts
+            // (client-go tools/cache/reflector.go:282, 800ms initial).
+            // Re-watching at once spins when the stream fails on arrival
+            // (e.g. a 403).
+            tokio::time::sleep(sync_interval.max(std::time::Duration::from_millis(800))).await;
+        }
         queue.add(RECONCILE_ALL_SENTINEL.into()).await;
 
         // Watch services, endpoints, AND endpointslices for fast iptables updates.
@@ -254,7 +275,11 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
         let es_watch = storage.watch("/registry/endpointslices/").await;
         // Watch pods so that hostPort changes (new pod scheduled, pod IP
         // assigned, pod deleted) trigger a fast KUBE-HOSTPORTS rebuild.
-        let pod_watch = storage.watch("/registry/pods/").await;
+        let pod_watch = if host_ports {
+            storage.watch("/registry/pods/").await
+        } else {
+            Ok(futures::stream::pending().boxed())
+        };
 
         let mut svc_watch = match svc_watch {
             Ok(w) => w,
@@ -294,7 +319,7 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
         let mut resync = tokio::time::interval(std::time::Duration::from_secs(10));
         resync.tick().await; // consume the immediate first tick
 
-        let mut watch_broken = false;
+        watch_broken = false;
         while !watch_broken {
             tokio::select! {
                 event = svc_watch.next() => {
