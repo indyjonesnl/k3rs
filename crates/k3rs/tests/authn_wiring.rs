@@ -26,6 +26,16 @@ pub async fn start_authn_api(
     pki: &Pki,
     storage: Arc<StorageBackend>,
 ) -> (String, JoinHandle<anyhow::Result<()>>) {
+    start_authn_api_with(pki, storage, true).await
+}
+
+/// As [`start_authn_api`], with `--anonymous-auth` set to `anonymous_auth`
+/// (`k3rs server` passes `false`, like k3s `apiServer` :222).
+pub async fn start_authn_api_with(
+    pki: &Pki,
+    storage: Arc<StorageBackend>,
+    anonymous_auth: bool,
+) -> (String, JoinHandle<anyhow::Result<()>>) {
     k3rs::agent::ensure_crypto_provider();
     let port = TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -41,6 +51,7 @@ pub async fn start_authn_api(
         skip_auth: false,
         authorization_mode: vec!["Node".into(), "RBAC".into()],
         client_ca_file: Some(ca_path.to_string_lossy().into()),
+        anonymous_auth,
         ..Default::default()
     };
     let h = tokio::spawn(run(storage, cfg));
@@ -76,6 +87,10 @@ struct Env {
 }
 
 async fn boot() -> Env {
+    boot_with(true).await
+}
+
+async fn boot_with(anonymous_auth: bool) -> Env {
     let dir = tempfile::tempdir().unwrap();
     let pki = Pki::load_or_create(dir.path(), &["localhost".to_string()]).unwrap();
     let storage = Arc::new(StorageBackend::new_memory());
@@ -92,7 +107,7 @@ async fn boot() -> Env {
             .await
             .unwrap();
     }
-    let (base, h) = start_authn_api(&pki, storage).await;
+    let (base, h) = start_authn_api_with(&pki, storage, anonymous_auth).await;
     // Wait until the bootstrap RBAC policy is served: admin listing succeeds
     // (system:masters is also allowed by the authorizer before policy lands,
     // so additionally wait for the scheduler ClusterRole to exist).
@@ -239,4 +254,97 @@ async fn component_clients_authenticate_over_loopback() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("403") || err.contains("401"), "{err}");
+}
+
+/// The unauthenticated-reachable paths `k3rs server` must close: discovery,
+/// the health probes, metrics, version and the OIDC discovery documents.
+const ANON_PATHS: &[&str] = &[
+    "/api",
+    "/healthz",
+    "/livez",
+    "/readyz",
+    "/metrics",
+    "/version",
+    "/.well-known/openid-configuration",
+    "/openid/v1/jwks",
+];
+
+/// GET `url` until it is not 503 (readyz reports not-ready while post-start
+/// hooks finish), at most ~20 s.
+async fn status_ready(c: &reqwest::Client, url: String) -> u16 {
+    for _ in 0..200 {
+        let s = status(c, url.clone()).await;
+        if s != 503 {
+            return s;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    status(c, url).await
+}
+
+/// Task 3b: `--anonymous-auth=false` (k3s `apiServer`, pkg/daemons/control/
+/// server.go:222). With no anonymous authenticator in the union
+/// (pkg/kubeapiserver/authenticator/config.go:242-246) a request that no
+/// authenticator accepts hits `WithAuthentication`'s `Unauthorized` handler
+/// (staging/src/k8s.io/apiserver/pkg/endpoints/filters/authentication.go):
+/// 401 with a `Status` body, on every path, health probes included.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn anonymous_disabled_rejects_unauthenticated_with_401() {
+    let e = boot_with(false).await;
+    let c = base_builder(&e.pki).build().unwrap();
+    for p in ANON_PATHS {
+        let r = c.get(format!("{}{p}", e.base)).send().await.unwrap();
+        assert_eq!(r.status().as_u16(), 401, "anonymous {p}");
+        let body: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(body["kind"], "Status", "{p}: {body}");
+        assert_eq!(body["reason"], "Unauthorized", "{p}: {body}");
+        assert_eq!(body["code"], 401, "{p}: {body}");
+    }
+}
+
+/// Authenticated callers are unchanged: the admin cert (system:masters) is
+/// authorized on every one of those paths.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn anonymous_disabled_admin_cert_still_served() {
+    let e = boot_with(false).await;
+    let c = client_for(&e.pki, "system:admin", &["system:masters"]);
+    for p in ANON_PATHS {
+        let s = status_ready(&c, format!("{}{p}", e.base)).await;
+        if *p == "/openid/v1/jwks" {
+            // No --service-account-key-file in this harness: the handler's
+            // own answer (200 or 404), never an authn/authz refusal.
+            assert!(s != 401 && s != 403, "admin {p} -> {s}");
+        } else {
+            assert_eq!(s, 200, "admin {p}");
+        }
+    }
+}
+
+/// A node identity still reads discovery and the public-info paths
+/// (`system:discovery` / `system:public-info-viewer` are bound to
+/// `system:authenticated`, bootstrappolicy/policy.go).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn anonymous_disabled_node_cert_reads_api() {
+    let e = boot_with(false).await;
+    let c = client_for(&e.pki, "system:node:n2", &["system:nodes"]);
+    assert_eq!(status(&c, format!("{}/api", e.base)).await, 200);
+    assert_eq!(status(&c, format!("{}/version", e.base)).await, 200);
+    assert_eq!(status_ready(&c, format!("{}/healthz", e.base)).await, 200);
+    assert_eq!(status(&c, format!("{}/api/v1/nodes/n2", e.base)).await, 200);
+}
+
+/// `anonymous_auth` defaults to true (`WithAnonymous`, authentication.go:
+/// 186-191), which is exactly the behaviour before Task 3b: anonymous health
+/// probes and `/version` are served, anonymous API calls are `system:anonymous`
+/// and RBAC answers 403.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn anonymous_enabled_by_default_is_unchanged() {
+    assert!(ApiServerConfig::default().anonymous_auth);
+    let e = boot().await;
+    let c = base_builder(&e.pki).build().unwrap();
+    for p in ["/healthz", "/livez", "/version", "/metrics"] {
+        assert_eq!(status(&c, format!("{}{p}", e.base)).await, 200, "{p}");
+    }
+    assert_eq!(status_ready(&c, format!("{}/readyz", e.base)).await, 200);
+    assert_eq!(status(&c, format!("{}/api", e.base)).await, 403);
 }

@@ -3000,6 +3000,25 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
     // protected_routes so they are authenticated and authorized (#3436).
     protected_routes = crate::zpages::install(protected_routes);
 
+    // Upstream has no unauthenticated route split: every path runs the whole
+    // `DefaultBuildHandlerChain` (server/config.go), and the health probes,
+    // `/version` and OIDC discovery are reachable anonymously only because
+    // the anonymous authenticator turns the caller into `system:anonymous`,
+    // which `system:public-info-viewer` /
+    // `system:service-account-issuer-discovery` admit. With
+    // `--anonymous-auth=false` that authenticator is gone
+    // (pkg/kubeapiserver/authenticator/config.go:242-246), so those routes
+    // join the authenticated and authorized chain and an unauthenticated
+    // probe gets 401 like any other request. With anonymous auth on (the
+    // default) they stay on the public router, exactly as before.
+    let anonymous_auth = state.anonymous_auth;
+    let public_routes = if !skip_auth && !anonymous_auth {
+        protected_routes = protected_routes.merge(public_routes);
+        Router::new()
+    } else {
+        public_routes
+    };
+
     // Conditionally apply authentication middleware
     if skip_auth {
         // In skip-auth mode, inject a default admin user context
@@ -3166,6 +3185,9 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
             .layer(axum_middleware::from_fn(
                 crate::apiserver_request_metrics::with_latency_trackers_filter,
             ))
+            .layer(Extension(middleware::AnonymousAuth {
+                enabled: anonymous_auth,
+            }))
             .layer(Extension(state.token_manager.clone()))
             .layer(Extension(state.bootstrap_token_manager.clone()))
             .layer(Extension(state.storage.clone()))

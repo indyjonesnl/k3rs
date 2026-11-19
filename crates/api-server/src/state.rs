@@ -28,6 +28,11 @@ pub struct ApiServerState {
     pub unfiltered_authorizer: Arc<dyn Authorizer>,
     pub metrics: Arc<MetricsRegistry>,
     pub skip_auth: bool,
+    /// `--anonymous-auth` (`Anonymous.Enabled`, pkg/kubeapiserver/options/
+    /// authentication.go:589-601; default true, `WithAnonymous` :186-191).
+    /// When false and authentication is on, unauthenticated requests get 401
+    /// on every route, the health probes included (`router::build_router`).
+    pub anonymous_auth: bool,
     /// The ClusterIP allocator of the primary (IPv4) family: IPAddress
     /// objects out of the ServiceCIDRs.
     pub cluster_ip_allocators: Arc<ClusterIpAllocators<StorageBackend>>,
@@ -125,6 +130,7 @@ impl ApiServerState {
             unfiltered_authorizer: authorizer,
             metrics,
             skip_auth,
+            anonymous_auth: true,
             cluster_ip_allocators,
             node_port_allocator,
             node_port_registry,
@@ -179,6 +185,12 @@ impl ApiServerState {
     /// Set `--event-ttl`, in seconds; `0` keeps events forever.
     pub fn with_event_ttl(mut self, seconds: u64) -> Self {
         self.event_ttl = seconds;
+        self
+    }
+
+    /// `--anonymous-auth`; see [`Self::anonymous_auth`].
+    pub fn with_anonymous_auth(mut self, enabled: bool) -> Self {
+        self.anonymous_auth = enabled;
         self
     }
 

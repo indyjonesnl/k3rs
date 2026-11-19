@@ -10,16 +10,15 @@
 //! node IPAM, node-network agent, per-component client certs).
 //!
 //! Authentication: like k3s (`apiServer` :216-224, `client-ca-file`,
-//! `authorization-mode=Node,RBAC`), the api-server authenticates client certs
-//! against the client CA and authorizes with Node,RBAC; every embedded
+//! `authorization-mode=Node,RBAC`, `anonymous-auth=false`), the api-server
+//! authenticates client certs against the client CA, rejects unauthenticated
+//! requests with 401 and authorizes with Node,RBAC; every embedded
 //! component uses its own cert identity minted by
 //! `Pki::ensure_component_creds` (k3s `deps.go:330-420`).
 //!
 //! Deliberate deviations: default service CIDR / cluster DNS are the k3rs
 //! defaults `10.96.0.0/12` / `10.96.0.10` (k3s: `10.43.0.0/16` /
-//! `10.43.0.10`), pod CIDR `10.244.0.0/16` (k3s `10.42.0.0/16`). k3s also
-//! sets `anonymous-auth=false`; the k3rs api-server has no enforced
-//! anonymous-auth switch (see `server_argv`).
+//! `10.43.0.10`), pod CIDR `10.244.0.0/16` (k3s `10.42.0.0/16`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -59,14 +58,11 @@ pub(crate) fn join_line(node_ip: &str, port: u16, token: &str) -> String {
 /// (:217-221), front-proxy request-header flags, service-account key pair,
 /// issuer and audiences; sqlite datastore under `<data-dir>/db` (k3s
 /// `<data-dir>/server/db/state.db`). No `--skip-auth`: requests are
-/// authenticated (x509 client cert, SA/bootstrap tokens) and authorized.
-///
-/// `anonymous-auth=false` (:222-226) has no enforced equivalent in the k3rs
-/// api-server (`--anonymous-auth=false` is accepted but ignored by the
-/// standalone binary, `upstream_flags.rs`): an unauthenticated request is
-/// `system:anonymous`, which RBAC denies on API routes (403, not k3s' 401),
-/// while `/healthz`, `/livez`, `/readyz`, `/metrics` and `/version` stay
-/// unauthenticated public routes.
+/// authenticated (x509 client cert, SA/bootstrap tokens) and authorized, and
+/// `--anonymous-auth=false` (:222) makes an unauthenticated request 401 on
+/// every route, `/healthz`, `/livez`, `/readyz`, `/metrics`, `/version` and
+/// OIDC discovery included. Readiness is probed with the admin cert
+/// (`run_all_in_one`) or the supervisor's unauthenticated `/ping`.
 pub(crate) fn server_argv(a: &ServerArgs, node_name: &str, node_ip: &str) -> Vec<String> {
     let dir = a.data_dir.trim_end_matches('/');
     let dns_bind = dns_bind(node_ip);
@@ -120,6 +116,7 @@ pub(crate) fn server_argv(a: &ServerArgs, node_name: &str, node_ip: &str) -> Vec
         "--authorization-mode",
         "Node,RBAC",
         "--skip-auth=false",
+        "--anonymous-auth=false",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -387,8 +384,14 @@ mod tests {
             .position(|a| a == "--authorization-mode")
             .unwrap();
         assert_eq!(argv[at + 1], "Node,RBAC");
+        // k3s `apiServer` :222: `anonymous-auth=false`.
+        assert!(
+            argv.iter().any(|a| a == "--anonymous-auth=false"),
+            "{argv:?}"
+        );
         let args = parse_args_from(argv).unwrap();
         assert!(!args.skip_auth);
+        assert!(!args.anonymous_auth);
         assert_eq!(args.authorization.authorization_mode, ["Node", "RBAC"]);
         assert_eq!(
             args.client_ca_file.as_deref(),

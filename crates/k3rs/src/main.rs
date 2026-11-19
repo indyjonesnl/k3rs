@@ -281,6 +281,22 @@ struct Args {
     )]
     skip_auth: bool,
 
+    /// Enables anonymous requests to the secure port of the API server.
+    /// Requests that are not rejected by another authentication method are
+    /// treated as anonymous requests (`--anonymous-auth`,
+    /// pkg/kubeapiserver/options/authentication.go:358-363, default true).
+    /// `k3rs server` sets it false, like k3s (pkg/daemons/control/
+    /// server.go:222); then unauthenticated requests get 401.
+    #[arg(
+        long,
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+    )]
+    anonymous_auth: bool,
+
     /// Disable kube-proxy (useful when iptables is not available)
     #[arg(long)]
     disable_proxy: bool,
@@ -601,6 +617,7 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
         tls_self_signed: args.tls,
         tls_san: args.tls_san.clone(),
         skip_auth: args.skip_auth,
+        anonymous_auth: args.anonymous_auth,
         console_dir: args.console_dir.map(std::path::PathBuf::from),
         client_ca_file: args.client_ca_file.clone(),
         service_cluster_ip_range: args.service_cluster_ip_range.clone(),
@@ -1169,6 +1186,8 @@ mod overrides_tests {
     fn bare_all_in_one_argv_unchanged() {
         let a = Args::try_parse_from(["k3rs"]).unwrap();
         assert!(a.skip_auth);
+        // `--anonymous-auth` defaults to true (authentication.go `WithAnonymous`).
+        assert!(a.anonymous_auth);
         assert!(!a.tls);
         assert!(a.client_ca_file.is_none());
         assert!(a.authorization.authorization_mode.is_empty());
@@ -1182,6 +1201,11 @@ mod overrides_tests {
             !Args::try_parse_from(["k3rs", "--skip-auth=false"])
                 .unwrap()
                 .skip_auth
+        );
+        assert!(
+            !Args::try_parse_from(["k3rs", "--anonymous-auth=false"])
+                .unwrap()
+                .anonymous_auth
         );
     }
 

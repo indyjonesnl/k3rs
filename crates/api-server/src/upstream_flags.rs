@@ -6,8 +6,9 @@
 //!   (`--encryption-provider-config`): refuse to start, never silently store
 //!   plaintext;
 //! - everything else: accept and log a WARN naming the flag
-//!   (`--anonymous-auth=false`, `--tls-min-version` and `--tls-cipher-suites`
-//!   are called out as SECURITY because ignoring them is fail-open).
+//!   (`--tls-min-version` and `--tls-cipher-suites` are called out as
+//!   SECURITY because ignoring them is fail-open). `--anonymous-auth` is
+//!   enforced (`ApiServerState::anonymous_auth`).
 //!
 //! Flag names/types: apiserver/pkg/server/options/{serving,etcd,feature,
 //! api_enablement}.go, cmd/kube-apiserver/app/options/options.go,
@@ -35,8 +36,9 @@ pub struct UpstreamCompatArgs {
     #[arg(long)]
     pub encryption_provider_config: Option<String>,
 
-    /// `--anonymous-auth` (authentication.go:359, default true). Accepted;
-    /// `false` is not enforced.
+    /// `--anonymous-auth` (authentication.go:359, default true). `false`
+    /// removes the anonymous authenticator: unauthenticated requests get 401
+    /// (`ApiServerState::anonymous_auth`).
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     pub anonymous_auth: Option<bool>,
 
@@ -224,13 +226,6 @@ impl UpstreamCompatArgs {
             })
             .collect();
         // Ignoring these leaves the server less strict than asked.
-        if self.anonymous_auth == Some(false) {
-            out.push(
-                "SECURITY: --anonymous-auth=false is accepted but NOT enforced; \
-                 unauthenticated requests are handled as before"
-                    .into(),
-            );
-        }
         if let Some(v) = &self.tls_min_version {
             out.push(format!(
                 "SECURITY: --tls-min-version={v} is accepted but NOT enforced"
@@ -349,7 +344,9 @@ mod tests {
             "0.0.0.0:6443"
         );
         let ignored = a.upstream.ignored_flags().join("\n");
-        assert!(ignored.contains("SECURITY: --anonymous-auth=false"));
+        // `--anonymous-auth=false` is enforced, so it is not reported.
+        assert!(!ignored.contains("--anonymous-auth"));
+        assert_eq!(a.upstream.anonymous_auth, Some(false));
         assert!(ignored.contains("SECURITY: --tls-min-version=VersionTLS13"));
         // --profiling=false is a no-op, not a warning.
         assert!(!ignored.contains("--profiling"));

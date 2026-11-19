@@ -216,6 +216,13 @@ pub struct ApiServerConfig {
     pub tls_self_signed: bool,
     pub tls_san: String,
     pub skip_auth: bool,
+    /// `--anonymous-auth` (pkg/kubeapiserver/options/authentication.go:
+    /// 358-363, default true). `false` removes the anonymous authenticator
+    /// (authenticator/config.go:242-246): with authentication on, a request
+    /// no authenticator accepts is 401 on every route, `/healthz`, `/livez`,
+    /// `/readyz`, `/metrics`, `/version` and OIDC discovery included. k3s
+    /// sets it false (pkg/daemons/control/server.go:222).
+    pub anonymous_auth: bool,
     /// `--authorization-mode`; empty means the default `Node,RBAC` (#2854).
     pub authorization_mode: Vec<String>,
     /// `--authorization-policy-file` for ABAC mode.
@@ -407,6 +414,7 @@ impl Default for ApiServerConfig {
             tls_self_signed: false,
             tls_san: "localhost,127.0.0.1".to_string(),
             skip_auth: true,
+            anonymous_auth: true,
             authorization_mode: Vec::new(),
             authorization_policy_file: String::new(),
             authorization_webhook: Default::default(),
@@ -641,6 +649,7 @@ pub async fn run(storage: Arc<StorageBackend>, mut config: ApiServerConfig) -> a
         .with_crd_controllers(crd_controllers)
         .with_service_node_port_range(config.service_node_port_range)
         .with_event_ttl(config.event_ttl)
+        .with_anonymous_auth(config.anonymous_auth)
         .with_prometheus_client(prom_client),
     );
 

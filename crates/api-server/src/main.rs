@@ -956,6 +956,8 @@ async fn main() -> Result<()> {
                 size: args.service_node_port_range.size,
             })
             .with_event_ttl(args.event_ttl)
+            // `--anonymous-auth` (authentication.go:358-363, default true).
+            .with_anonymous_auth(args.upstream.anonymous_auth.unwrap_or(true))
             .with_prometheus_client(prometheus_client),
     );
 
