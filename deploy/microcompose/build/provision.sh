@@ -1,6 +1,6 @@
 #!/bin/sh
 # Bake: runs ONCE in a throwaway VM; context is at /mnt/microcompose-build (cwd).
-# OS layer only — no k3rs binaries (sync.sh pushes those). Versions track
+# OS layer only — no k3rs binary (sync.sh pushes it and writes /etc/k3rs/node.env). Versions track
 # containerd.Dockerfile; config.toml is staged from deploy/containerd/ by up.sh.
 set -eu
 CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.2.4}"
@@ -18,9 +18,10 @@ mkdir -p /opt/cni/bin /etc/cni/net.d
 curl -fsSL --retry 5 "https://github.com/containernetworking/plugins/releases/download/v${CNI_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_VERSION}.tgz" | tar -xz -C /opt/cni/bin
 ln -sf "$(command -v crun)" /usr/local/sbin/runc
 
-mkdir -p /etc/containerd /etc/k3rs/pki /var/lib/k3rs
+mkdir -p /etc/containerd /etc/k3rs /var/lib/k3rs
 cp ./payload/containerd-config.toml /etc/containerd/config.toml
 cp ./payload/units/*.service /etc/systemd/system/
 printf 'overlay\nbr_netfilter\n' > /etc/modules-load.d/k3rs.conf
 printf 'net.ipv4.ip_forward=1\nnet.bridge.bridge-nf-call-iptables=1\nfs.inotify.max_user_instances=1024\nfs.inotify.max_user_watches=1048576\n' > /etc/sysctl.d/90-k3rs.conf
-systemctl enable containerd k3rs-hosts
+systemctl enable containerd
+# k3rs.service is enabled by sync.sh once the binary and /etc/k3rs/node.env exist.

@@ -1,18 +1,18 @@
 # 3-node k3rs cluster, one microVM per node (microcompose + Cloud Hypervisor).
 #
-#   node1  control plane + worker: rhino (SQLite), api-server, scheduler,
-#          controller-manager, kubelet, kube-proxy
-#   node2  worker: kubelet, kube-proxy
-#   node3  worker: kubelet, kube-proxy
+#   node1  `k3rs server`: control plane (SQLite) + kubelet/kube-proxy + k3rs-dns
+#   node2  `k3rs agent --server https://node1:6443 --token-file /etc/k3rs/token`
+#   node3  `k3rs agent ...` (same)
 #
-# Binaries are NOT baked into the image: `sync.sh` scp's target/release-fast/*
-# into /usr/local/bin and restarts the units, so a rebuild is live in seconds.
-# Only the OS layer (containerd, crun, CNI plugins, units) is baked.
+# The binary is NOT baked into the image: `sync.sh` scp's the one `k3rs`
+# binary into /usr/local/bin and restarts k3rs.service, so a rebuild is live in
+# seconds. Only the OS layer (containerd, crun, CNI plugins, units) is baked.
 #
 # 1 GiB per VM until each node idles under 512 MiB; then shrink mem_limit.
 #
-#   ./up.sh            # certs, build, boot, sync, bootstrap
-#   ./sync.sh          # after a rebuild: push binaries + restart
+#   ./up.sh            # build, boot, sync (server, token, agents)
+#   ./sync.sh          # after a rebuild: push k3rs + restart
+#   ./acceptance.sh    # milestone-1 checks
 name: k3rs
 
 services:
