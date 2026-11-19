@@ -33,9 +33,14 @@
 //!   `server.go:124`); same RBAC subjects, same seeded roles.
 //! - the in-process DNS uses User `system:k3rs-dns` bound to a ClusterRole
 //!   narrowed to what it reads (k3s ships CoreDNS with `system:coredns`).
-//! - k3rs-only controllers with no upstream role (LoadBalancer, Service,
-//!   PriorityClass, APIServiceAvailability, VolumeSnapshot, StorageClass,
-//!   Events, VPA, NetworkPolicy, Ingress, CSIAttacher) keep the
+//! - the k3rs-only Events controller (no upstream counterpart: upstream
+//!   expires Events by lease TTL) runs as
+//!   `system:serviceaccount:kube-system:event-gc-controller`, bound to the
+//!   k3rs ClusterRole `system:k3rs-event-gc` (core `events` only,
+//!   `bootstrap::event_gc_rbac`).
+//! - other k3rs-only controllers with no upstream role (LoadBalancer,
+//!   Service, PriorityClass, APIServiceAvailability, VolumeSnapshot,
+//!   StorageClass, VPA, NetworkPolicy, Ingress, CSIAttacher) keep the
 //!   `system:kube-controller-manager` identity and no extra grant; writes
 //!   they make beyond that role are denied in server mode.
 

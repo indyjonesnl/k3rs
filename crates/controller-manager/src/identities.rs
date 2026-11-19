@@ -39,6 +39,10 @@ pub enum ControllerIdentity {
 
 use ControllerIdentity::{ControllerManager, ServiceAccount, Unmapped};
 
+/// The k3rs-only Events controller's ServiceAccount name (no upstream role;
+/// see `CONTROLLER_IDENTITIES` "Events").
+pub const EVENT_GC_SERVICE_ACCOUNT: &str = "event-gc-controller";
+
 /// Every `storage_for` name [`crate::spawn_controllers`] can use, with its
 /// identity. Client names cite `cmd/kube-controller-manager/app/*.go`.
 pub const CONTROLLER_IDENTITIES: &[(&str, ControllerIdentity)] = &[
@@ -104,10 +108,14 @@ pub const CONTROLLER_IDENTITIES: &[(&str, ControllerIdentity)] = &[
     ("Endpoints", ServiceAccount("endpoint-controller")),
     // discovery.go:39
     ("EndpointSlice", ServiceAccount("endpointslice-controller")),
-    (
-        "Events",
-        Unmapped("no kube-controller-manager equivalent: Events are written by the component that observes them"),
-    ),
+    // k3rs-only, NO upstream counterpart: upstream has no Events controller
+    // (Events are written by the component that observes them and expire by
+    // the api-server's etcd lease, `--event-ttl`). This janitor emits pod
+    // lifecycle Events and deletes Events older than 1 h. It gets its own
+    // ServiceAccount-style identity bound to the k3rs ClusterRole
+    // `system:k3rs-event-gc` (crates/k3rs/src/bootstrap.rs `event_gc_rbac`,
+    // Events only) instead of a grant on `system:kube-controller-manager`.
+    ("Events", ServiceAccount(EVENT_GC_SERVICE_ACCOUNT)),
     // core.go:588-593
     ("ResourceQuota", ServiceAccount("resourcequota-controller")),
     // core.go:760-770

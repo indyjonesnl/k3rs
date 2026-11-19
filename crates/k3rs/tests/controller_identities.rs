@@ -17,7 +17,7 @@
 
 mod common;
 
-use common::{boot_with, client_from_files, send, status, Env};
+use common::{apply_bootstrap, boot_with, client_from_files, send, status, Env};
 use k3rs::pki::{controller_cred_name, ComponentCreds};
 use k3rs_controller_manager::identities::{
     controller_identity, controller_service_accounts, ControllerIdentity, CONTROLLER_IDENTITIES,
@@ -64,6 +64,8 @@ async fn every_controller_service_account_has_a_seeded_binding() {
                 "{}/apis/rbac.authorization.k8s.io/v1/namespaces/kube-system/rolebindings/system:controller:{sa}",
                 e.base
             ),
+            // k3rs-only (no upstream role): bound by k3rs bootstrap, below.
+            k3rs_controller_manager::identities::EVENT_GC_SERVICE_ACCOUNT => continue,
             _ => format!(
                 "{}/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/system:controller:{sa}",
                 e.base
@@ -885,5 +887,129 @@ async fn mirrored_endpointslice_survives_under_endpointslice_identity() {
             .0,
         404,
         "mirrored slice kept after its Endpoints was deleted"
+    );
+}
+
+// ---- k3rs-only Events controller identity (`system:k3rs-event-gc`) --------
+
+const EVENT_GC: &str = k3rs_controller_manager::identities::EVENT_GC_SERVICE_ACCOUNT;
+
+/// An Event in `default` whose lastTimestamp is two hours old.
+async fn post_old_event(e: &Env, admin: &reqwest::Client, name: &str) {
+    let old = (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339();
+    assert_eq!(
+        send(
+            admin,
+            Method::POST,
+            format!("{}/api/v1/namespaces/default/events", e.base),
+            Some(json!({"apiVersion": "v1", "kind": "Event",
+                "metadata": {"name": name, "namespace": "default"},
+                "involvedObject": {"kind": "Pod", "namespace": "default", "name": "gone"},
+                "reason": "Old", "message": "old", "type": "Normal",
+                "firstTimestamp": old, "lastTimestamp": old, "count": 1})),
+        )
+        .await,
+        201
+    );
+}
+
+/// The bootstrap ClusterRole binds the Events controller's identity to
+/// list/get/delete Events, and to nothing else: no Pod delete, no Secrets.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn event_gc_identity_deletes_events_but_not_pods_or_secrets() {
+    let (e, creds) = setup().await;
+    apply_bootstrap(&e, &creds).await;
+    let admin = client_from_files(&e.pki, &creds.cert("admin"), &creds.key("admin"));
+    post_old_event(&e, &admin, "old-1").await;
+    let gc = sa_client(&e, &creds, EVENT_GC);
+    let ev = format!("{}/api/v1/namespaces/default/events", e.base);
+    assert_eq!(status(&gc, ev.clone()).await, 200, "list events");
+    assert_eq!(status(&gc, format!("{ev}/old-1")).await, 200, "get event");
+    assert_eq!(
+        send(&gc, Method::DELETE, format!("{ev}/old-1"), None).await,
+        200,
+        "delete event"
+    );
+    assert_eq!(
+        send(
+            &gc,
+            Method::DELETE,
+            format!("{}/api/v1/namespaces/default/pods/p", e.base),
+            None
+        )
+        .await,
+        403,
+        // Authorization runs before the lookup: an allowed DELETE of this
+        // absent pod would be 404.
+        "delete pod"
+    );
+    assert_eq!(
+        status(
+            &gc,
+            format!("{}/api/v1/namespaces/kube-system/secrets", e.base)
+        )
+        .await,
+        403,
+        "list secrets"
+    );
+}
+
+/// The Events controller's janitor pass, built exactly as `k3rs server`
+/// builds it (`identity_storage_for("Events")`), removes an Event older than
+/// 1 h and is never denied.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn event_gc_janitor_pass_deletes_old_events_without_denials() {
+    let cap = std::sync::Arc::new(Capture(Default::default()));
+    k3rs_api_server::audit::install_audit(k3rs_api_server::audit::AuditConfig {
+        policy: k3rs_api_server::audit::Policy::from_yaml(
+            "apiVersion: audit.k8s.io/v1\nkind: Policy\nrules:\n- level: Metadata\n",
+        )
+        .unwrap(),
+        sink: cap.clone(),
+    });
+    let (e, creds) = setup().await;
+    apply_bootstrap(&e, &creds).await;
+    let admin = client_from_files(&e.pki, &creds.cert("admin"), &creds.key("admin"));
+    post_old_event(&e, &admin, "old-2").await;
+
+    let kc = |name: &str| {
+        k3rs::util::client_from_kubeconfig(&creds.kubeconfig(name), Some(&e.base)).unwrap()
+    };
+    let root = std::sync::Arc::new(kc("controller-manager"));
+    let mut identities = k3rs_controller_manager::ControllerCredentials::new();
+    for sa in controller_service_accounts() {
+        identities.insert(sa, kc(&controller_cred_name(sa)));
+    }
+    let storage_for = k3rs_controller_manager::identity_storage_for(root, identities).unwrap();
+    let ctrl = k3rs_controller_manager::controllers::events::EventsController::new(
+        storage_for("Events"),
+        2,
+    );
+    ctrl.reconcile_all()
+        .await
+        .map_err(|e| e.to_string())
+        .unwrap();
+
+    assert_eq!(
+        status(
+            &admin,
+            format!("{}/api/v1/namespaces/default/events/old-2", e.base)
+        )
+        .await,
+        404,
+        "old event deleted"
+    );
+    let gc_user = k3rs_controller_manager::identities::service_account_username(EVENT_GC);
+    let denied: Vec<String> = cap
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|ev| ev.response_status.as_ref().map(|s| s.code) == Some(403))
+        .map(|ev| format!("{} {} {:?}", ev.user.username, ev.verb, ev.object_ref))
+        .collect();
+    assert!(
+        denied.is_empty(),
+        "denied requests during the janitor pass ({gc_user}): {denied:#?}"
     );
 }

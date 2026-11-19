@@ -84,6 +84,56 @@ fn dns_rbac() -> Vec<BootstrapObject> {
     ]
 }
 
+/// ClusterRole (and binding) for the controller-manager's k3rs-only Events
+/// controller.
+pub const EVENT_GC_CLUSTER_ROLE: &str = "system:k3rs-event-gc";
+
+/// RBAC for the k3rs-only Events controller
+/// (`crates/controller-manager/src/controllers/events.rs`).
+///
+/// Deviation, cited: upstream has no such controller, so there is no seeded
+/// `system:controller:*` role to reuse. It runs under its own
+/// ServiceAccount-style identity (`kube-system/event-gc-controller`,
+/// `identities::EVENT_GC_SERVICE_ACCOUNT`), bound like the seeded controller
+/// roles (`addControllerRole`, bootstrappolicy/controller_policy.go:34-51),
+/// and the rules are exactly the core `events` verbs it uses: get (dedup /
+/// `EventRecorder` lookup), create and update (`EventRecorder`
+/// `create_with_ttl` / `update_with_ttl`), delete (the 1 h cleanup), list
+/// and watch (its event watch and cleanup listing). No other resource; its
+/// Pod listing goes through the controller-manager's root informer client.
+fn event_gc_rbac() -> Vec<BootstrapObject> {
+    let labels = json!({"kubernetes.io/bootstrapping": "rbac-defaults"});
+    let sa = k3rs_controller_manager::identities::EVENT_GC_SERVICE_ACCOUNT;
+    let role = json!({
+        "apiVersion": "rbac.authorization.k8s.io/v1",
+        "kind": "ClusterRole",
+        "metadata": {"name": EVENT_GC_CLUSTER_ROLE, "labels": labels},
+        "rules": [
+            {"apiGroups": [""], "resources": ["events"],
+             "verbs": ["create", "delete", "get", "list", "update", "watch"]}
+        ]
+    });
+    let binding = json!({
+        "apiVersion": "rbac.authorization.k8s.io/v1",
+        "kind": "ClusterRoleBinding",
+        "metadata": {"name": EVENT_GC_CLUSTER_ROLE, "labels": labels},
+        "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": EVENT_GC_CLUSTER_ROLE},
+        "subjects": [{"kind": "ServiceAccount", "name": sa, "namespace": "kube-system"}]
+    });
+    vec![
+        BootstrapObject {
+            path: "/apis/rbac.authorization.k8s.io/v1/clusterroles".into(),
+            name: EVENT_GC_CLUSTER_ROLE.into(),
+            body: role,
+        },
+        BootstrapObject {
+            path: "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings".into(),
+            name: EVENT_GC_CLUSTER_ROLE.into(),
+            body: binding,
+        },
+    ]
+}
+
 /// How long `apply_all` keeps retrying while the api-server is not answering.
 const APPLY_DEADLINE: Duration = Duration::from_secs(120);
 
@@ -144,6 +194,7 @@ pub fn objects(node_ip: &str) -> Vec<BootstrapObject> {
         }]
     });
     let mut objs = dns_rbac();
+    objs.extend(event_gc_rbac());
     objs.extend([
         BootstrapObject {
             path: "/api/v1/namespaces/kube-system/services".into(),
@@ -328,6 +379,34 @@ mod tests {
         );
     }
 
+    /// The Events controller's k3rs-only role covers exactly core `events`
+    /// with the verbs events.rs / EventRecorder use, bound to its
+    /// ServiceAccount identity.
+    #[test]
+    fn event_gc_rbac_is_events_only_and_binds_the_controller_identity() {
+        let objs = objects("192.0.2.10");
+        let role = objs
+            .iter()
+            .find(|o| o.path.ends_with("/clusterroles") && o.name == EVENT_GC_CLUSTER_ROLE)
+            .unwrap();
+        assert_eq!(
+            role.body["rules"],
+            json!([{"apiGroups": [""], "resources": ["events"],
+                "verbs": ["create", "delete", "get", "list", "update", "watch"]}])
+        );
+        let binding = objs
+            .iter()
+            .find(|o| o.path.ends_with("/clusterrolebindings") && o.name == EVENT_GC_CLUSTER_ROLE)
+            .unwrap();
+        assert_eq!(binding.body["roleRef"]["name"], EVENT_GC_CLUSTER_ROLE);
+        assert_eq!(
+            binding.body["subjects"],
+            json!([{"kind": "ServiceAccount",
+                "name": k3rs_controller_manager::identities::EVENT_GC_SERVICE_ACCOUNT,
+                "namespace": "kube-system"}])
+        );
+    }
+
     #[tokio::test]
     async fn apply_all_skips_existing() {
         let objs = objects("192.0.2.10");
@@ -339,6 +418,9 @@ mod tests {
         assert_eq!(
             got,
             vec![
+                // DNS role + binding, Events-controller role + binding.
+                "/apis/rbac.authorization.k8s.io/v1/clusterroles".to_string(),
+                "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings".to_string(),
                 "/apis/rbac.authorization.k8s.io/v1/clusterroles".to_string(),
                 "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings".to_string(),
                 "/apis/discovery.k8s.io/v1/namespaces/kube-system/endpointslices".to_string()
