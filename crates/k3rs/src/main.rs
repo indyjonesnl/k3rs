@@ -902,6 +902,10 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
             node_net: ov.node_net,
             // MetricsBindAddress default (defaults.go:52-56).
             metrics_bind_address: k3rs_kube_proxy::serve_metrics::default_metrics_bind_address(""),
+            // `k3rs server` (component identities): hostPorts via the node
+            // conflist's CNI portmap, as on an agent; the bare all-in-one
+            // keeps KUBE-HOSTPORTS (`KubeProxyConfig::host_ports`).
+            host_ports: creds.is_none(),
         };
         tokio::spawn(async move {
             let res = match proxy_source {

@@ -54,6 +54,11 @@ Like k3s (`pkg/daemons/control/server.go` `apiServer`, `pkg/daemons/agent/agent.
   controller (k3s `use-service-account-credentials`), `system:k3rs-dns`,
   `system:kube-proxy`, `system:node:<node>`. Agents fetch their kubelet /
   kube-proxy certs with the join token into `/var/lib/k3rs/agent/`.
+- **kube-proxy** (`system:kube-proxy`, seeded `system:node-proxier`, no Pod
+  access): on k3rs server/agent nodes only, hostPorts are left to the node
+  conflist's CNI `portmap` plugin (as k3s), so it lists/watches no Pods. The
+  standalone kube-proxy (compose/conformance stacks) and the bare all-in-one
+  keep KUBE-HOSTPORTS unchanged.
 - **kubelet :10250** on every node: TLS with the node's `serving-kubelet`
   cert, anonymous off, x509 against the client CA, authorization by
   SubjectAccessReview (`nodes/proxy` etc.). The api-server reaches it for

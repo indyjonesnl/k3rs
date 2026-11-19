@@ -36,6 +36,16 @@ pub struct KubeProxyConfig {
     /// server listens; empty disables it. Defaults per
     /// [`serve_metrics::default_metrics_bind_address`].
     pub metrics_bind_address: String,
+    /// k3rs-only KUBE-HOSTPORTS programming, which needs a cluster-wide Pod
+    /// list/watch. `true` (default) keeps it, as the standalone kube-proxy
+    /// (also with `--configure-node-network`, the conformance and compose
+    /// stacks) and the bare all-in-one need. `k3rs server`/`agent` set
+    /// `false`: there hostPorts are the CNI `portmap` plugin's job (the node
+    /// conflist chains it, as k3s' flannel conflist does), upstream kube-proxy
+    /// has no Pod informer (cmd/kube-proxy/app/server.go), and the seeded
+    /// `system:node-proxier` role their `system:kube-proxy` identity is bound
+    /// to grants no Pod access.
+    pub host_ports: bool,
 }
 
 impl Default for KubeProxyConfig {
@@ -47,6 +57,7 @@ impl Default for KubeProxyConfig {
             nodeport_range: iptables::DEFAULT_NODEPORT_RANGE.to_string(),
             node_net: None,
             metrics_bind_address: serve_metrics::default_metrics_bind_address(""),
+            host_ports: true,
         }
     }
 }
@@ -118,14 +129,8 @@ async fn run_proxy<S: Storage + Send + Sync + 'static>(
         config.nodeport_range.clone(),
         config.node_name.clone(),
     )?));
-    // With the node-network agent on, this node's CNI conflist chains the
-    // `portmap` plugin (`node_net::conflist`), so hostPorts are the CNI
-    // runtime's job, as on k3s (flannel conflist: bridge -> portmap) and as
-    // upstream, whose kube-proxy has no Pod informer at all
-    // (cmd/kube-proxy/app/server.go: Service, EndpointSlice, Node informers).
-    // The KUBE-HOSTPORTS path, and with it the cluster-wide Pod list/watch
-    // that the seeded `system:node-proxier` role does not grant, is then off.
-    let host_ports = config.node_net.is_none();
+    // See `KubeProxyConfig::host_ports` (off for k3rs server/agent only).
+    let host_ports = config.host_ports;
     kube_proxy.lock().await.set_host_ports(host_ports);
 
     // newProxyServer's configz registration is fatal on duplicate names and
@@ -220,9 +225,8 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
     }
 
     let sync_interval = tokio::time::Duration::from_secs(config.sync_interval);
-    // See `run_proxy`: hostPorts belong to CNI `portmap` when the node-network
-    // agent writes the conflist.
-    let host_ports = config.node_net.is_none();
+    // See `KubeProxyConfig::host_ports` (off for k3rs server/agent only).
+    let host_ports = config.host_ports;
 
     let queue = WorkQueue::new();
 
@@ -257,12 +261,14 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
 
     let mut watch_broken = false;
     loop {
-        if watch_broken {
-            // A watch that ends or errors is re-established after a pause, as
-            // the reflector backs off between ListAndWatch attempts
-            // (client-go tools/cache/reflector.go:282, 800ms initial).
-            // Re-watching at once spins when the stream fails on arrival
-            // (e.g. a 403).
+        if watch_broken && !host_ports {
+            // k3rs server/agent only: a watch that ends or errors is
+            // re-established after a fixed 800 ms pause, a partial port of the
+            // reflector's back-off between ListAndWatch attempts (client-go
+            // tools/cache/reflector.go:282 starts an exponential back-off at
+            // 800 ms; this is fixed, not exponential). Re-watching at once
+            // spins when the stream fails on arrival (e.g. a 403). The default
+            // path keeps its previous immediate re-watch timing.
             tokio::time::sleep(sync_interval.max(std::time::Duration::from_millis(800))).await;
         }
         queue.add(RECONCILE_ALL_SENTINEL.into()).await;

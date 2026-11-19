@@ -401,6 +401,9 @@ fn kube_proxy_config(node_name: &str, c: &ClusterInfo) -> k3rs_kube_proxy::KubeP
         node_name: node_name.to_string(),
         cluster_cidr: c.service_cidr.clone(),
         node_net: Some(crate::util::node_net_config(node_name, c)),
+        // hostPorts via the conflist's CNI portmap, not KUBE-HOSTPORTS
+        // (`KubeProxyConfig::host_ports`).
+        host_ports: false,
         ..Default::default()
     }
 }
@@ -553,6 +556,8 @@ mod run_tests {
     fn kube_proxy_config_from_join() {
         let c = kube_proxy_config("n1", &cluster());
         assert_eq!(c.cluster_cidr, "10.96.0.0/12");
+        // hostPorts are CNI portmap's job on a k3rs agent.
+        assert!(!c.host_ports);
         let nn = c.node_net.unwrap();
         assert_eq!(nn.node_name, "n1");
         assert_eq!(nn.cni_conf_path, "/etc/cni/net.d/10-k3rs.conflist");
