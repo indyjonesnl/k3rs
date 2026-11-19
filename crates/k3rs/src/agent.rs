@@ -391,21 +391,6 @@ fn kube_proxy_config(node_name: &str, c: &ClusterInfo) -> k3rs_kube_proxy::KubeP
     }
 }
 
-/// Build an mTLS `ApiClient` from a kubeconfig written by `join` (same
-/// construction as `crates/kubelet/src/main.rs` / `kube-proxy/src/main.rs`).
-fn client_from_kubeconfig(path: &Path) -> Result<std::sync::Arc<k3rs_client::http::ApiClient>> {
-    use k3rs_client::kubeconfig::KubeConfig;
-    let cfg = KubeConfig::load_from_file(&path.to_path_buf())?;
-    let server = cfg.get_server()?;
-    let ca = cfg.get_ca_cert_pem()?;
-    let cert = cfg.get_client_cert_pem()?.map(String::into_bytes);
-    let key = cfg.get_client_key_pem()?.map(String::into_bytes);
-    Ok(std::sync::Arc::new(
-        k3rs_client::http::ApiClient::with_tls(&server, false, ca, cert, key, None)?
-            .with_default_user_agent(k3rs_common::compatibility::default_kubernetes_user_agent()),
-    ))
-}
-
 pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
     ensure_crypto_provider();
     let token = match (&a.token, &a.token_file) {
@@ -442,11 +427,17 @@ pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
     eprintln!("WARNING: {}", crate::util::KUBELET_ANON_WARNING);
     tracing::warn!("{}", crate::util::KUBELET_ANON_WARNING);
 
-    let kubelet_client = client_from_kubeconfig(&creds.kubelet_kubeconfig)?;
+    let kubelet_client = std::sync::Arc::new(crate::util::client_from_kubeconfig(
+        &creds.kubelet_kubeconfig,
+        None,
+    )?);
     let storage = std::sync::Arc::new(k3rs_storage::StorageBackend::new_api(kubelet_client));
     let kcfg = kubelet_config(&a, &creds.cluster)?;
     let pcfg = kube_proxy_config(&node_name, &creds.cluster);
-    let proxy_client = client_from_kubeconfig(&creds.kube_proxy_kubeconfig)?;
+    let proxy_client = std::sync::Arc::new(crate::util::client_from_kubeconfig(
+        &creds.kube_proxy_kubeconfig,
+        None,
+    )?);
 
     let mut kubelet = tokio::spawn(async move { k3rs_kubelet::run(storage, kcfg).await });
     let mut proxy =
