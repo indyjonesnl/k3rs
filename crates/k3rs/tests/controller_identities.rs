@@ -1112,3 +1112,65 @@ async fn resourcequota_controller_populates_status_under_its_identity() {
     let denied = denials(&cap);
     assert!(denied.is_empty(), "denied requests: {denied:#?}");
 }
+
+/// `system:controller:pod-garbage-collector` grants pods delete/list/watch,
+/// nodes get/list/watch and `pods/status` patch only. A Running pod bound to
+/// a node that does not exist is orphaned: `gcOrphaned` marks it Failed with
+/// `utilpod.PatchPodStatus` (a strategic-merge PATCH of `pods/status`, no GET,
+/// no PUT; pkg/util/pod/pod.go:34-48) and deletes it with grace 0
+/// (`markFailedAndDeletePodWithCondition`, pkg/controller/podgc/gc_controller.go:346-366).
+/// The old GET + PUT /status 403'd, so the pod was never deleted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn podgc_deletes_orphaned_running_pod_under_its_identity() {
+    let cap = capture_audit();
+    let (e, creds) = setup().await;
+    default_service_account(&e, &creds).await;
+    let pods = "/api/v1/namespaces/default/pods";
+    let (s, b) = admin_json(
+        &e,
+        &creds,
+        Method::POST,
+        pods,
+        Some(json!({"apiVersion": "v1", "kind": "Pod",
+            "metadata": {"name": "orphan", "namespace": "default"},
+            "spec": {"nodeName": "ghost",
+                "containers": [{"name": "c", "image": "busybox"}]}})),
+    )
+    .await;
+    assert_eq!(s, 201, "{b}");
+    let admin = client_from_files(&e.pki, &creds.cert("admin"), &creds.key("admin"));
+    let r = admin
+        .patch(format!("{}{pods}/orphan/status", e.base))
+        .header("content-type", "application/merge-patch+json")
+        .body(
+            json!({"status": {"phase": "Running",
+            "conditions": [{"type": "Ready", "status": "True"}]}})
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    let storage_for = identity_storage(&e, &creds);
+    let gcc = k3rs_controller_manager::controllers::podgc::PodGcController::new_internal(
+        storage_for("PodGarbageCollector"),
+        k3rs_controller_manager::controllers::podgc::DEFAULT_TERMINATED_POD_GC_THRESHOLD,
+        k3rs_controller_manager::controllers::podgc::GC_CHECK_PERIOD,
+        std::time::Duration::ZERO,
+    );
+    // A zero quarantine is ready within the same pass.
+    gcc.gc(chrono::Utc::now()).await;
+
+    let patched = gcc.patched.lock().unwrap().clone();
+    assert_eq!(patched.len(), 1, "one status patch: {patched:?}");
+    assert_eq!(
+        patched[0].1.phase,
+        Some(k3rs_common::types::Phase::Failed),
+        "{patched:?}"
+    );
+    let (s, p) = admin_json(&e, &creds, Method::GET, &format!("{pods}/orphan"), None).await;
+    assert_eq!(s, 404, "orphaned pod not deleted: {p}");
+    let denied = denials(&cap);
+    assert!(denied.is_empty(), "denied requests: {denied:#?}");
+}

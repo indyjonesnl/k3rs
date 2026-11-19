@@ -25,8 +25,9 @@
 //! so the lister snapshot (taken at the top of a pass) and the confirming GET
 //! (taken later) are the lagging/live pair. The delaying queue is a map of
 //! `node -> ready time` (`AddAfter` on a waiting item keeps the earlier time).
-//! The status patch is a CAS-free `update_status` of the new status after a UID
-//! check rather than a two-way strategic merge patch.
+//! The status patch is the `pods/status` strategic-merge PATCH of
+//! `utilpod.PatchPodStatus`, with the two-way diff hand-built for the status
+//! shape PodGC writes ([`pod_status_patch`]).
 
 use crate::controllers::podgc_metrics as metrics;
 use crate::controllers::taint_eviction::update_pod_condition;
@@ -432,42 +433,112 @@ impl<S: Storage + 'static> PodGcController<S> {
         Ok(())
     }
 
-    /// `utilpod.PatchPodStatus` (pkg/util/pod/pod.go:34-48): the UID rides in
-    /// the patch as a precondition, so a pod recreated under the same name is
-    /// never touched.
+    /// `utilpod.PatchPodStatus` (pkg/util/pod/pod.go:34-48): a strategic-merge
+    /// PATCH of the `pods/status` subresource carrying the delta between the
+    /// listed pod's status and `new_status`, with the pod's UID in
+    /// `metadata.uid` as a precondition, so a pod recreated under the same name
+    /// is never touched. No GET and no PUT: the seeded
+    /// `system:controller:pod-garbage-collector` role grants `pods/status`
+    /// `patch` only (no `get` on pods, no `update` on status), so a
+    /// read-modify-write here is a 403 under the controller's own identity.
     async fn patch_pod_status(
         &self,
         pod: &Pod,
         key: &str,
         new_status: k3rs_common::resources::PodStatus,
     ) -> Result<()> {
-        let mut current: Pod = self
-            .storage
-            .get(key)
-            .await
-            .map_err(|e| anyhow!("failed to patch status for pod {key:?}: {e}"))?;
-        if current.metadata.uid != pod.metadata.uid {
-            return Err(anyhow!(
-                "failed to patch status for pod {key:?}: Precondition failed: UID in precondition: {}, UID in object meta: {}",
-                pod.metadata.uid,
-                current.metadata.uid
-            ));
-        }
-        // `unchanged` short-circuit (pod.go:39-41).
-        if serde_json::to_value(&pod.status)? == serde_json::to_value(Some(&new_status))? {
+        // `preparePatchBytesForPodStatus` (pod.go:50-70) + `unchanged`
+        // short-circuit (pod.go:39-41).
+        let old_status = pod.status.clone().unwrap_or_default();
+        let Some(patch) = pod_status_patch(&pod.metadata.uid, &old_status, &new_status)? else {
             return Ok(());
-        }
+        };
         self.patched
             .lock()
             .unwrap()
             .push((pod.metadata.name.clone(), new_status.clone()));
-        current.status = Some(new_status);
+        // The REST scope's kind picks the patch schema (strategicPatchObject);
+        // a listed Pod may carry no TypeMeta.
+        let mut full = pod.clone();
+        full.type_meta = k3rs_common::types::TypeMeta {
+            kind: "Pod".to_string(),
+            api_version: "v1".to_string(),
+        };
+        full.status = Some(new_status);
         self.storage
-            .update_status(key, &current)
+            .patch_status_strategic_merge::<Pod>(key, &patch, &full)
             .await
-            .map_err(|e| anyhow!("failed to patch status for pod {key:?}: {e}"))?;
+            .map_err(|e| anyhow!("failed to patch status {patch} for pod {key:?}: {e}"))?;
         Ok(())
     }
+}
+
+/// `preparePatchBytesForPodStatus` (pkg/util/pod/pod.go:50-70):
+/// `strategicpatch.CreateTwoWayMergePatch(Pod{Status: old}, Pod{UID: uid,
+/// Status: new}, v1.Pod{})`. `None` when the patch would hold nothing but the
+/// UID (`unchanged`).
+///
+/// Rust has no reflection-driven two-way diff, so this is the diff for the one
+/// shape PodGC produces (a status grafted from the old one): changed status
+/// fields are set, removed ones are `null`, and `conditions` — a list with
+/// strategic merge key `type` (core/v1 `PodStatus.Conditions`
+/// `patchMergeKey:"type"`) — carries only the added/changed entries, a
+/// `$patch: delete` for each removed one, and `$setElementOrder/conditions`,
+/// as `diffListsOfMaps` emits.
+pub fn pod_status_patch(
+    uid: &str,
+    old: &k3rs_common::resources::PodStatus,
+    new: &k3rs_common::resources::PodStatus,
+) -> Result<Option<serde_json::Value>> {
+    use serde_json::{json, Map, Value};
+    let old_v = serde_json::to_value(old)?;
+    let new_v = serde_json::to_value(new)?;
+    let empty = Map::new();
+    let old_m = old_v.as_object().unwrap_or(&empty);
+    let new_m = new_v.as_object().unwrap_or(&empty);
+    let mut delta = Map::new();
+    for (k, nv) in new_m {
+        if old_m.get(k) == Some(nv) {
+            continue;
+        }
+        if k == "conditions" {
+            let by_type = |v: Option<&Value>| -> Vec<Value> {
+                v.and_then(|l| l.as_array()).cloned().unwrap_or_default()
+            };
+            let olds = by_type(old_m.get(k));
+            let news = by_type(Some(nv));
+            let ty = |c: &Value| c.get("type").cloned().unwrap_or(Value::Null);
+            let mut list: Vec<Value> = news
+                .iter()
+                .filter(|c| !olds.iter().any(|o| o == *c))
+                .cloned()
+                .collect();
+            for o in &olds {
+                if !news.iter().any(|c| ty(c) == ty(o)) {
+                    list.push(json!({"type": ty(o), "$patch": "delete"}));
+                }
+            }
+            delta.insert(
+                "$setElementOrder/conditions".to_string(),
+                Value::Array(news.iter().map(|c| json!({"type": ty(c)})).collect()),
+            );
+            delta.insert(k.clone(), Value::Array(list));
+        } else {
+            delta.insert(k.clone(), nv.clone());
+        }
+    }
+    for k in old_m.keys() {
+        if !new_m.contains_key(k) {
+            delta.insert(k.clone(), Value::Null);
+        }
+    }
+    if delta.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(json!({
+        "metadata": {"uid": uid},
+        "status": Value::Object(delta),
+    })))
 }
 
 fn pod_node_name(pod: &Pod) -> &str {
