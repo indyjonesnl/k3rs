@@ -376,6 +376,249 @@ impl Pki {
     }
 }
 
+/// A static per-component client identity. Ported from k3s
+/// `pkg/daemons/control/deps/deps.go:330-420` (`genClientCerts`: admin,
+/// controller-manager, scheduler, kube-proxy, apiserver, plus the node's
+/// kubelet cert which is minted separately because its CN carries the node name).
+pub struct Identity {
+    pub name: &'static str,
+    pub cn: &'static str,
+    pub orgs: &'static [&'static str],
+}
+
+/// Identities minted for every server; the node identity is added by
+/// [`Pki::ensure_component_creds`]. k3s: `system:admin`/`system:masters`
+/// (deps.go:339), `system:kube-controller-manager` (:351),
+/// `system:kube-scheduler` (:365), `system:kube-proxy` (:381),
+/// `system:apiserver`/`system:masters` (:373, the apiserver->kubelet client).
+/// `system:k3rs-dns` is k3rs-specific (k3s runs CoreDNS as a pod).
+pub const COMPONENT_IDENTITIES: &[Identity] = &[
+    Identity {
+        name: "admin",
+        cn: "system:admin",
+        orgs: &["system:masters"],
+    },
+    Identity {
+        name: "controller-manager",
+        cn: "system:kube-controller-manager",
+        orgs: &[],
+    },
+    Identity {
+        name: "scheduler",
+        cn: "system:kube-scheduler",
+        orgs: &[],
+    },
+    Identity {
+        name: "kube-proxy",
+        cn: "system:kube-proxy",
+        orgs: &[],
+    },
+    Identity {
+        name: "dns",
+        cn: "system:k3rs-dns",
+        orgs: &[],
+    },
+    Identity {
+        name: "apiserver",
+        cn: "system:apiserver",
+        orgs: &["system:masters"],
+    },
+];
+
+/// Reuse a leaf only while it has at least this long left.
+const REUSE_MARGIN: i64 = 30 * 24 * 3600;
+const LOOPBACK_SERVER: &str = "https://127.0.0.1:6443";
+
+/// Locations of the minted component credentials under `<data-dir>`.
+#[derive(Clone, Debug)]
+pub struct ComponentCreds {
+    pub dir: PathBuf,
+}
+
+impl ComponentCreds {
+    pub fn cert(&self, name: &str) -> PathBuf {
+        self.dir.join("tls").join(format!("client-{name}.crt"))
+    }
+    pub fn key(&self, name: &str) -> PathBuf {
+        self.dir.join("tls").join(format!("client-{name}.key"))
+    }
+    pub fn kubeconfig(&self, name: &str) -> PathBuf {
+        self.dir.join("cred").join(format!("{name}.kubeconfig"))
+    }
+    pub fn serving_cert(&self) -> PathBuf {
+        self.dir.join("tls").join("serving-kubelet.crt")
+    }
+    pub fn serving_key(&self) -> PathBuf {
+        self.dir.join("tls").join("serving-kubelet.key")
+    }
+}
+
+fn leaf_pem_der(pem_str: &str) -> Option<Vec<u8>> {
+    ::pem::parse(pem_str).ok().map(|p| p.into_contents())
+}
+
+/// Whether the leaf at `crt`/`key` can be kept: it parses, has the expected
+/// subject (and SANs when `sans` is given), is unexpired with margin, was
+/// signed by `ca_pem`, and matches the private key on disk.
+fn leaf_is_current(
+    crt: &Path,
+    key: &Path,
+    ca_pem: &str,
+    cn: &str,
+    orgs: &[&str],
+    sans: Option<&[String]>,
+) -> bool {
+    use x509_parser::prelude::*;
+    let (Ok(crt_pem), Ok(key_pem)) = (std::fs::read_to_string(crt), std::fs::read_to_string(key))
+    else {
+        return false;
+    };
+    let (Some(der), Some(ca_der), Ok(kp)) = (
+        leaf_pem_der(&crt_pem),
+        leaf_pem_der(ca_pem),
+        KeyPair::from_pem(&key_pem),
+    ) else {
+        return false;
+    };
+    let (Ok((_, cert)), Ok((_, ca))) = (
+        X509Certificate::from_der(&der),
+        X509Certificate::from_der(&ca_der),
+    ) else {
+        return false;
+    };
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    if cert.validity().not_after.timestamp() < now + REUSE_MARGIN
+        || cert.validity().not_before.timestamp() > now
+    {
+        return false;
+    }
+    if cert.verify_signature(Some(ca.public_key())).is_err() {
+        return false;
+    }
+    if cert.public_key().subject_public_key.data.as_ref() != kp.public_key_raw() {
+        return false;
+    }
+    let got_cn = cert
+        .subject()
+        .iter_common_name()
+        .next()
+        .and_then(|c| c.as_str().ok());
+    let got_orgs: Vec<&str> = cert
+        .subject()
+        .iter_organization()
+        .filter_map(|o| o.as_str().ok())
+        .collect();
+    if got_cn != Some(cn) || got_orgs != orgs {
+        return false;
+    }
+    if let Some(want) = sans {
+        let mut have: Vec<String> = match cert.subject_alternative_name() {
+            Ok(Some(e)) => e
+                .value
+                .general_names
+                .iter()
+                .filter_map(|g| match g {
+                    GeneralName::DNSName(d) => Some(d.to_string()),
+                    GeneralName::IPAddress(b) => match b.len() {
+                        4 => Some(IpAddr::from(<[u8; 4]>::try_from(*b).ok()?).to_string()),
+                        16 => Some(IpAddr::from(<[u8; 16]>::try_from(*b).ok()?).to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let mut want: Vec<String> = want.iter().map(|w| canonical_san(w)).collect();
+        have.sort();
+        want.sort();
+        if have != want {
+            return false;
+        }
+    }
+    true
+}
+
+fn canonical_san(s: &str) -> String {
+    IpAddr::from_str(s).map_or_else(|_| s.to_string(), |ip| ip.to_string())
+}
+
+fn component_kubeconfig(ca_pem: &str, crt: &Path, key: &Path) -> String {
+    let ca = base64::engine::general_purpose::STANDARD.encode(ca_pem);
+    format!(
+        "apiVersion: v1\nkind: Config\nclusters:\n- name: local\n  cluster:\n    server: {LOOPBACK_SERVER}\n    certificate-authority-data: {ca}\ncontexts:\n- name: Default\n  context:\n    cluster: local\n    user: default\ncurrent-context: Default\nusers:\n- name: default\n  user:\n    client-certificate: {}\n    client-key: {}\n",
+        crt.display(),
+        key.display(),
+    )
+}
+
+impl Pki {
+    /// Mint (or reuse) the per-component client identities, the node's kubelet
+    /// client cert (`system:node:<node_name>` / `system:nodes`, name
+    /// `kubelet`), its serving cert, and one kubeconfig per identity under
+    /// `<data-dir>/cred/`. Mirrors k3s `deps.go:330-420`.
+    ///
+    /// A leaf is reused only if it parses, has margin left, matches its key
+    /// and verifies against the CURRENT CA; otherwise it is re-minted, so a
+    /// regenerated CA never leaves stale leaves behind.
+    pub fn ensure_component_creds(
+        &self,
+        node_name: &str,
+        node_ip: &str,
+    ) -> Result<ComponentCreds, PkiError> {
+        self.ensure_component_creds_inner(node_name, node_ip)
+            .map_err(|e| PkiError::Sign(format!("{e:#}")))
+    }
+
+    fn ensure_component_creds_inner(
+        &self,
+        node_name: &str,
+        node_ip: &str,
+    ) -> Result<ComponentCreds> {
+        let data_dir = self.dir.parent().unwrap_or(&self.dir).to_path_buf();
+        let creds = ComponentCreds { dir: data_dir };
+        std::fs::create_dir_all(creds.dir.join("tls"))?;
+        std::fs::create_dir_all(creds.dir.join("cred"))?;
+
+        let node_cn = format!("system:node:{node_name}");
+        let mut all: Vec<(&str, &str, &[&str])> = COMPONENT_IDENTITIES
+            .iter()
+            .map(|i| (i.name, i.cn, i.orgs))
+            .collect();
+        all.push(("kubelet", node_cn.as_str(), &["system:nodes"]));
+
+        for (name, cn, orgs) in all {
+            let (crt, key) = (creds.cert(name), creds.key(name));
+            if !leaf_is_current(&crt, &key, &self.client.pem, cn, orgs, Some(&[])) {
+                let k = KeyPair::generate()?;
+                let pem = issue_leaf(&self.client, cn, orgs, Usage::ClientAuth, &[], &k)?;
+                write_key(&key, &k)?;
+                write_file(&crt, &pem, 0o644)?;
+            }
+            let kc = creds.kubeconfig(name);
+            let want = component_kubeconfig(&self.server.pem, &crt, &key);
+            if std::fs::read_to_string(&kc).ok().as_deref() != Some(want.as_str()) {
+                write_file(&kc, &want, 0o600)?;
+            }
+        }
+
+        // Kubelet serving cert (k3s `ServingKubeletCert`, handlers.go): SANs
+        // node name, node IP, plus loopback.
+        let mut sans: Vec<String> = vec![node_name.into(), node_ip.into()];
+        sans.extend(["localhost", "127.0.0.1", "::1"].map(String::from));
+        let mut seen = std::collections::HashSet::new();
+        sans.retain(|s| !s.is_empty() && seen.insert(canonical_san(s)));
+        let (crt, key) = (creds.serving_cert(), creds.serving_key());
+        if !leaf_is_current(&crt, &key, &self.server.pem, node_name, &[], Some(&sans)) {
+            let k = KeyPair::generate()?;
+            let pem = issue_leaf(&self.server, node_name, &[], Usage::ServerAuth, &sans, &k)?;
+            write_key(&key, &k)?;
+            write_file(&crt, &pem, 0o644)?;
+        }
+        Ok(creds)
+    }
+}
+
 fn rustls_pki_der(b: &[u8]) -> rustls::pki_types::CertificateSigningRequestDer<'static> {
     rustls::pki_types::CertificateSigningRequestDer::from(b.to_vec())
 }
@@ -406,6 +649,7 @@ fn check_p256(csr_der: &[u8]) -> Result<(), PkiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use std::os::unix::fs::PermissionsExt;
     use x509_parser::prelude::*;
 
@@ -608,6 +852,164 @@ mod tests {
         let nb = cert.validity().not_before.timestamp();
         let now = ::time::OffsetDateTime::now_utc().unix_timestamp();
         assert!(nb <= now - 4 * 60, "notBefore {nb} now {now}");
+    }
+
+    fn read_cert(p: &Path) -> Vec<u8> {
+        pem_der(&std::fs::read_to_string(p).unwrap())
+    }
+
+    #[test]
+    fn creds_have_expected_subjects() {
+        let (_d, pki) = mk();
+        let c = pki.ensure_component_creds("node1", "10.1.2.3").unwrap();
+        let ca_der = pem_der(pki.client_ca_pem());
+        let (_, ca) = X509Certificate::from_der(&ca_der).unwrap();
+        let mut want: Vec<(&str, String, Vec<&str>)> = COMPONENT_IDENTITIES
+            .iter()
+            .map(|i| (i.name, i.cn.to_string(), i.orgs.to_vec()))
+            .collect();
+        want.push(("kubelet", "system:node:node1".into(), vec!["system:nodes"]));
+        for (name, cn, orgs) in want {
+            let der = read_cert(&c.cert(name));
+            let (_, cert) = X509Certificate::from_der(&der).unwrap();
+            assert_eq!(
+                cert.subject()
+                    .iter_common_name()
+                    .next()
+                    .unwrap()
+                    .as_str()
+                    .unwrap(),
+                cn
+            );
+            let got: Vec<&str> = cert
+                .subject()
+                .iter_organization()
+                .map(|o| o.as_str().unwrap())
+                .collect();
+            assert_eq!(got, orgs, "{name}");
+            assert_eq!(cert.issuer(), ca.subject());
+            cert.verify_signature(Some(ca.public_key())).unwrap();
+            assert!(
+                cert.extended_key_usage()
+                    .unwrap()
+                    .unwrap()
+                    .value
+                    .client_auth
+            );
+        }
+        let der = read_cert(&c.serving_cert());
+        let (_, cert) = X509Certificate::from_der(&der).unwrap();
+        let sca_der = pem_der(pki.server_ca_pem());
+        let (_, sca) = X509Certificate::from_der(&sca_der).unwrap();
+        cert.verify_signature(Some(sca.public_key())).unwrap();
+        assert!(
+            cert.extended_key_usage()
+                .unwrap()
+                .unwrap()
+                .value
+                .server_auth
+        );
+        let san = cert.subject_alternative_name().unwrap().unwrap();
+        let n = &san.value.general_names;
+        let dns = |d: &str| {
+            n.iter()
+                .any(|g| matches!(g, GeneralName::DNSName(x) if *x == d))
+        };
+        let ip = |b: &[u8]| {
+            n.iter()
+                .any(|g| matches!(g, GeneralName::IPAddress(x) if *x == b))
+        };
+        assert!(dns("node1") && dns("localhost"));
+        assert!(ip(&[10, 1, 2, 3]) && ip(&[127, 0, 0, 1]));
+        assert!(ip(&Ipv6Addr::LOCALHOST.octets()));
+    }
+
+    #[test]
+    fn creds_idempotent_and_0600() {
+        let (d, pki) = mk();
+        let c = pki.ensure_component_creds("node1", "10.1.2.3").unwrap();
+        let files: Vec<PathBuf> = COMPONENT_IDENTITIES
+            .iter()
+            .map(|i| i.name)
+            .chain(["kubelet"])
+            .flat_map(|n| [c.cert(n), c.key(n), c.kubeconfig(n)])
+            .chain([c.serving_cert(), c.serving_key()])
+            .collect();
+        let before: Vec<_> = files.iter().map(|f| std::fs::read(f).unwrap()).collect();
+        let pki2 = Pki::load_or_create(d.path(), &[]).unwrap();
+        pki2.ensure_component_creds("node1", "10.1.2.3").unwrap();
+        let after: Vec<_> = files.iter().map(|f| std::fs::read(f).unwrap()).collect();
+        assert_eq!(before, after);
+        for f in files
+            .iter()
+            .filter(|f| f.extension().is_some_and(|e| e == "key"))
+        {
+            let m = std::fs::metadata(f).unwrap();
+            assert_eq!(m.permissions().mode() & 0o777, 0o600, "{}", f.display());
+        }
+    }
+
+    #[test]
+    fn changed_node_ip_remints_serving_cert() {
+        let (_d, pki) = mk();
+        let c = pki.ensure_component_creds("node1", "10.1.2.3").unwrap();
+        let before = std::fs::read(c.serving_cert()).unwrap();
+        pki.ensure_component_creds("node1", "10.9.9.9").unwrap();
+        assert_ne!(before, std::fs::read(c.serving_cert()).unwrap());
+    }
+
+    #[test]
+    fn stale_leaf_reminted_after_ca_regen() {
+        let (d, pki) = mk();
+        let c = pki.ensure_component_creds("node1", "10.1.2.3").unwrap();
+        let old = read_cert(&c.cert("scheduler"));
+        let old_serving = read_cert(&c.serving_cert());
+        let tls = d.path().join("tls");
+        for f in [
+            "client-ca.crt",
+            "client-ca.key",
+            "server-ca.crt",
+            "server-ca.key",
+        ] {
+            std::fs::remove_file(tls.join(f)).unwrap();
+        }
+        let pki2 = Pki::load_or_create(d.path(), &[]).unwrap();
+        pki2.ensure_component_creds("node1", "10.1.2.3").unwrap();
+        assert_ne!(old, read_cert(&c.cert("scheduler")));
+        assert_ne!(old_serving, read_cert(&c.serving_cert()));
+        let ca_der = pem_der(pki2.client_ca_pem());
+        let (_, ca) = X509Certificate::from_der(&ca_der).unwrap();
+        for n in ["admin", "scheduler", "kubelet", "apiserver"] {
+            let der = read_cert(&c.cert(n));
+            let (_, cert) = X509Certificate::from_der(&der).unwrap();
+            cert.verify_signature(Some(ca.public_key())).unwrap();
+        }
+        let sca_der = pem_der(pki2.server_ca_pem());
+        let (_, sca) = X509Certificate::from_der(&sca_der).unwrap();
+        let der = read_cert(&c.serving_cert());
+        let (_, cert) = X509Certificate::from_der(&der).unwrap();
+        cert.verify_signature(Some(sca.public_key())).unwrap();
+        // kubeconfig embeds the new server CA.
+        let kc = std::fs::read_to_string(c.kubeconfig("scheduler")).unwrap();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(pki2.server_ca_pem());
+        assert!(kc.contains(&b64));
+    }
+
+    #[test]
+    fn kubeconfig_points_at_loopback_with_embedded_ca() {
+        let (_d, pki) = mk();
+        let c = pki.ensure_component_creds("node1", "10.1.2.3").unwrap();
+        let kc = std::fs::read_to_string(c.kubeconfig("scheduler")).unwrap();
+        assert!(kc.contains("server: https://127.0.0.1:6443"));
+        let b64 = base64::engine::general_purpose::STANDARD.encode(pki.server_ca_pem());
+        assert!(kc.contains(&format!("certificate-authority-data: {b64}")));
+        assert!(kc.contains(&format!(
+            "client-certificate: {}",
+            c.cert("scheduler").display()
+        )));
+        assert!(kc.contains(&format!("client-key: {}", c.key("scheduler").display())));
+        let m = std::fs::metadata(c.kubeconfig("scheduler")).unwrap();
+        assert_eq!(m.permissions().mode() & 0o777, 0o600);
     }
 
     #[test]
