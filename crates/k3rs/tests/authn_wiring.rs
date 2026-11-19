@@ -319,6 +319,26 @@ async fn kubelet_api_authenticates_against_the_api_server() {
     assert_eq!(status(&admin, url.clone()).await, 200, "system:admin");
     let n3 = client_for(&e.pki, "system:node:n3", &["system:nodes"]);
     assert_eq!(status(&n3, url.clone()).await, 403, "system:node:n3");
+
+    // POST /exec is verb `create` on `nodes/proxy` (kubelet
+    // pkg/kubelet/server/auth.go `GetRequestAttributes`): the api-server's
+    // exec/attach proxy identity passes authz (whatever the handler then
+    // answers without a runtime), another node is 403, anonymous 401.
+    let exec = format!("https://127.0.0.1:{port}/exec/default/p/c?command=true&output=1");
+    let post = |c: reqwest::Client, u: String| async move {
+        c.post(u).send().await.unwrap().status().as_u16()
+    };
+    let code = post(apiserver.clone(), exec.clone()).await;
+    assert!(
+        code != 401 && code != 403,
+        "system:apiserver POST /exec -> {code}"
+    );
+    assert_eq!(
+        post(n3, exec.clone()).await,
+        403,
+        "system:node:n3 POST /exec"
+    );
+    assert_eq!(post(anon, exec).await, 401, "anonymous POST /exec");
 }
 
 /// A SubjectAccessReview keeps its `subresource` (`ResourceAttributesFrom`,

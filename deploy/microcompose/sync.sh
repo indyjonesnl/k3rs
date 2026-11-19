@@ -15,6 +15,10 @@ BIN="${1:-$BIN_DIR/k3rs}"
 [ -x "$BIN" ] || { echo "k3rs binary not found: $BIN (make build-fast ARGS=\"-p k3rs --bin k3rs\")" >&2; exit 1; }
 TOKEN_FILE=/var/lib/k3rs/token
 TOKEN_WAIT="${TOKEN_WAIT:-120}"
+# The server logs each denied request (`Forbidden uri=...`) at debug;
+# acceptance.sh check 14 counts them. EnvironmentFile overrides the unit's
+# Environment=RUST_LOG.
+SERVER_RUST_LOG="${SERVER_RUST_LOG:-info,k3rs_api_server::authorization_filter=debug}"
 
 # push <node> <role> <role-args>: install binary + node.env, restart k3rs.
 push() {
@@ -32,6 +36,7 @@ cat > /etc/k3rs/node.env <<ENV
 K3RS_ROLE=$role
 NODE_IP=$ip
 K3RS_ARGS=$args
+$( [ "$role" = server ] && echo "RUST_LOG=$SERVER_RUST_LOG" )
 ENV
 systemctl daemon-reload
 systemctl enable k3rs >/dev/null 2>&1

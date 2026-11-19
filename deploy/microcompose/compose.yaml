@@ -12,7 +12,7 @@
 #
 #   ./up.sh            # build, boot, sync (server, token, agents)
 #   ./sync.sh          # after a rebuild: push k3rs + restart
-#   ./acceptance.sh    # milestone-1 checks
+#   ./acceptance.sh    # cluster + authn/RBAC acceptance (14 checks)
 name: k3rs
 
 services:

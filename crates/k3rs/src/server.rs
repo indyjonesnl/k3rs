@@ -16,9 +16,28 @@
 //! component uses its own cert identity minted by
 //! `Pki::ensure_component_creds` (k3s `deps.go:330-420`).
 //!
-//! Deliberate deviations: default service CIDR / cluster DNS are the k3rs
-//! defaults `10.96.0.0/12` / `10.96.0.10` (k3s: `10.43.0.0/16` /
-//! `10.43.0.10`), pod CIDR `10.244.0.0/16` (k3s `10.42.0.0/16`).
+//! The kubelet API (:10250) on this node and on every agent runs with
+//! anonymous auth off, x509 against the client CA and SubjectAccessReview
+//! authorization (k3s `pkg/daemons/agent/agent.go`, upstream
+//! `cmd/kubelet/app/auth.go`); the api-server reaches it for exec/logs as
+//! `system:apiserver` / `system:masters` (k3s `deps.go:395`,
+//! `user.APIServerUser`), via `K3RS_KUBELET_CLIENT_{CERT,KEY}`.
+//!
+//! Deliberate deviations:
+//! - default service CIDR / cluster DNS are the k3rs defaults
+//!   `10.96.0.0/12` / `10.96.0.10` (k3s: `10.43.0.0/16` / `10.43.0.10`), pod
+//!   CIDR `10.244.0.0/16` (k3s `10.42.0.0/16`).
+//! - controllers authenticate with per-controller x509 certs carrying the
+//!   ServiceAccount user info (`system:serviceaccount:kube-system:<sa>`)
+//!   instead of ServiceAccount tokens (k3s `use-service-account-credentials`,
+//!   `server.go:124`); same RBAC subjects, same seeded roles.
+//! - the in-process DNS uses User `system:k3rs-dns` bound to a ClusterRole
+//!   narrowed to what it reads (k3s ships CoreDNS with `system:coredns`).
+//! - k3rs-only controllers with no upstream role (LoadBalancer, Service,
+//!   PriorityClass, APIServiceAvailability, VolumeSnapshot, StorageClass,
+//!   Events, VPA, NetworkPolicy, Ingress, CSIAttacher) keep the
+//!   `system:kube-controller-manager` identity and no extra grant; writes
+//!   they make beyond that role are denied in server mode.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
