@@ -596,3 +596,171 @@ async fn rss_of_controller_identities() {
     );
     drop((clones, ids));
 }
+
+// ---- Reads that feed destructive actions go through the informer path ------
+
+/// `storage_for` exactly as `run_with_api_identities` builds it.
+fn identity_storage(
+    e: &Env,
+    creds: &ComponentCreds,
+) -> impl Fn(&'static str) -> std::sync::Arc<k3rs_storage::api_storage::ApiStorage> {
+    let kc = |name: &str| {
+        k3rs::util::client_from_kubeconfig(&creds.kubeconfig(name), Some(&e.base)).unwrap()
+    };
+    let root = std::sync::Arc::new(kc("controller-manager"));
+    let mut ids = k3rs_controller_manager::ControllerCredentials::new();
+    for sa in controller_service_accounts() {
+        ids.insert(sa, kc(&controller_cred_name(sa)));
+    }
+    k3rs_controller_manager::identity_storage_for(root, ids).unwrap()
+}
+
+async fn admin_json(
+    e: &Env,
+    creds: &ComponentCreds,
+    method: Method,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> (u16, serde_json::Value) {
+    let admin = client_from_files(&e.pki, &creds.cert("admin"), &creds.key("admin"));
+    let mut r = admin.request(method, format!("{}{path}", e.base));
+    if let Some(b) = body {
+        r = r.json(&b);
+    }
+    let r = r.send().await.unwrap();
+    let code = r.status().as_u16();
+    (code, r.json().await.unwrap_or_default())
+}
+
+/// A node whose status heartbeat is old but whose Lease keeps renewing stays
+/// Ready (`tryUpdateNodeHealth`, node_lifecycle_controller.go:921-935: the
+/// lease renewal refreshes the probe timestamp). The node-controller
+/// ServiceAccount has no `get` on leases, so the Lease must be read through
+/// the informer path; a live GET would 403, the renewal would be missed and
+/// the node marked Unknown (then tainted and its pods evicted).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn node_with_renewing_lease_stays_ready_under_node_controller_identity() {
+    let (e, creds) = setup().await;
+    let t0 = chrono::Utc::now() - chrono::Duration::hours(1);
+    let hb = t0.to_rfc3339();
+    let node = json!({"apiVersion": "v1", "kind": "Node",
+        "metadata": {"name": "n9"},
+        "status": {"conditions": [{"type": "Ready", "status": "True",
+            "lastHeartbeatTime": hb, "lastTransitionTime": hb}]}});
+    let (s, _) = admin_json(&e, &creds, Method::POST, "/api/v1/nodes", Some(node)).await;
+    assert_eq!(s, 201);
+    // The api-server may drop status on create: write it via /status too.
+    let (_, mut n) = admin_json(&e, &creds, Method::GET, "/api/v1/nodes/n9", None).await;
+    n["status"] = json!({"conditions": [{"type": "Ready", "status": "True",
+        "lastHeartbeatTime": hb, "lastTransitionTime": hb}]});
+    let (s, _) = admin_json(&e, &creds, Method::PUT, "/api/v1/nodes/n9/status", Some(n)).await;
+    assert_eq!(s, 200);
+    let lease = |renew: chrono::DateTime<chrono::Utc>, rv: Option<&str>| {
+        let mut l = json!({"apiVersion": "coordination.k8s.io/v1", "kind": "Lease",
+            "metadata": {"name": "n9", "namespace": "kube-node-lease"},
+            "spec": {"holderIdentity": "n9", "leaseDurationSeconds": 40,
+                "renewTime": renew.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)}});
+        if let Some(rv) = rv {
+            l["metadata"]["resourceVersion"] = json!(rv);
+        }
+        l
+    };
+    let leases = "/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases";
+    let (s, _) = admin_json(&e, &creds, Method::POST, leases, Some(lease(t0, None))).await;
+    assert_eq!(s, 201);
+
+    let storage_for = identity_storage(&e, &creds);
+    let c = k3rs_controller_manager::controllers::node::NodeController::new(storage_for("Node"));
+    c.monitor_node_health().await.unwrap();
+    c.advance_clock_for_test(chrono::Duration::seconds(30));
+    let (_, cur) = admin_json(&e, &creds, Method::GET, &format!("{leases}/n9"), None).await;
+    let rv = cur["metadata"]["resourceVersion"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (s, _) = admin_json(
+        &e,
+        &creds,
+        Method::PUT,
+        &format!("{leases}/n9"),
+        Some(lease(t0 + chrono::Duration::seconds(10), Some(&rv))),
+    )
+    .await;
+    assert_eq!(s, 200);
+    c.monitor_node_health().await.unwrap();
+    c.advance_clock_for_test(chrono::Duration::seconds(30));
+    c.monitor_node_health().await.unwrap();
+    let (_, n) = admin_json(&e, &creds, Method::GET, "/api/v1/nodes/n9", None).await;
+    let ready = n["status"]["conditions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["type"] == "Ready")
+        .unwrap()["status"]
+        .clone();
+    assert_eq!(ready, "True", "{n}");
+}
+
+/// The endpointslice-controller ServiceAccount has no `get` on endpoints.
+/// Mirrored EndpointSlices are deleted only when the source Endpoints is
+/// gone; reading it with a live GET (403) made every mirrored slice look
+/// orphaned. Through the informer path the slice survives while its
+/// Endpoints exists, and is still cleaned up once it is deleted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mirrored_endpointslice_survives_under_endpointslice_identity() {
+    let (e, creds) = setup().await;
+    let svc = json!({"apiVersion": "v1", "kind": "Service",
+        "metadata": {"name": "ext", "namespace": "default"},
+        "spec": {"ports": [{"port": 80}]}});
+    let ep = json!({"apiVersion": "v1", "kind": "Endpoints",
+        "metadata": {"name": "ext", "namespace": "default"},
+        "subsets": [{"addresses": [{"ip": "192.0.2.50"}], "ports": [{"port": 80}]}]});
+    let slice = json!({"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
+        "metadata": {"name": "ext", "namespace": "default",
+            "labels": {"kubernetes.io/service-name": "ext",
+                "endpointslice.kubernetes.io/managed-by": "endpointslice-mirroring-controller.k8s.io"}},
+        "addressType": "IPv4",
+        "endpoints": [{"addresses": ["192.0.2.50"]}],
+        "ports": [{"port": 80}]});
+    for (path, body) in [
+        ("/api/v1/namespaces/default/services", svc),
+        ("/api/v1/namespaces/default/endpoints", ep),
+        (
+            "/apis/discovery.k8s.io/v1/namespaces/default/endpointslices",
+            slice,
+        ),
+    ] {
+        let (s, b) = admin_json(&e, &creds, Method::POST, path, Some(body)).await;
+        assert_eq!(s, 201, "{path}: {b}");
+    }
+    let storage_for = identity_storage(&e, &creds);
+    let c = k3rs_controller_manager::controllers::endpointslice::EndpointSliceController::new(
+        storage_for("EndpointSlice"),
+    );
+    let slice_path = "/apis/discovery.k8s.io/v1/namespaces/default/endpointslices/ext";
+    c.cleanup_orphans().await.unwrap();
+    assert_eq!(
+        admin_json(&e, &creds, Method::GET, slice_path, None)
+            .await
+            .0,
+        200,
+        "mirrored slice deleted while its Endpoints exists"
+    );
+    let (s, _) = admin_json(
+        &e,
+        &creds,
+        Method::DELETE,
+        "/api/v1/namespaces/default/endpoints/ext",
+        None,
+    )
+    .await;
+    assert_eq!(s, 200);
+    c.cleanup_orphans().await.unwrap();
+    assert_eq!(
+        admin_json(&e, &creds, Method::GET, slice_path, None)
+            .await
+            .0,
+        404,
+        "mirrored slice kept after its Endpoints was deleted"
+    );
+}

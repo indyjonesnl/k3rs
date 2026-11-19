@@ -1643,14 +1643,25 @@ impl<S: Storage + 'static> NodeController<S> {
         // kubelet never posted the node status, but continues renewing the
         // heartbeat leases, the node controller will assume the node is healthy
         // and take no action (:921-929).
-        let observed_lease: Option<LeaseObservation> = self
-            .storage
-            .get::<Lease>(&build_key("leases", Some("kube-node-lease"), node_name))
-            .await
-            .ok()
-            .map(|l| LeaseObservation {
-                renew_time: l.spec.and_then(|s| s.renew_time),
-            });
+        //
+        // Upstream reads the Lease from the lease informer
+        // (`nc.leaseLister.Leases(v1.NamespaceNodeLease).Get(node.Name)`,
+        // :932) and ignores the error. Read it through the listing too:
+        // the node-controller ServiceAccount has no `get` on leases, so a
+        // live GET is a 403, the renewals are never seen and healthy nodes
+        // go Unknown and get evicted (`lister::get_via_list`).
+        let observed_lease: Option<LeaseObservation> = super::lister::get_via_list::<_, Lease>(
+            self.storage.as_ref(),
+            "leases",
+            Some("kube-node-lease"),
+            node_name,
+        )
+        .await
+        .ok()
+        .flatten()
+        .map(|l| LeaseObservation {
+            renew_time: l.spec.and_then(|s| s.renew_time),
+        });
         if let Some(observed) = observed_lease {
             if saved_lease.is_none_or(|saved| saved.renewed_before(&observed)) {
                 health.lease = Some(observed);
