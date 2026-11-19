@@ -42,6 +42,9 @@ in-process node-network agent writes `/etc/cni/net.d/10-k3rs.conflist` and
 host-gw routes (all VMs share one L2 bridge, 10.72.0.0/24). DNS: k3rs-dns on
 node1 binds `10.72.0.2:53` (not `0.0.0.0`: systemd-resolved owns
 127.0.0.53/54:53 in the guest); `kube-dns` 10.96.0.10 points at it.
+`kubectl exec`/`attach`/`port-forward`: the kubelet proxies to containerd's
+CRI stream server on the same VM (`CONTAINERD_STREAM_HOST=127.0.0.1`, port
+10010, set in `k3rs.service`).
 
 ## acceptance.sh
 
@@ -58,9 +61,9 @@ are pulled from Docker Hub (the VMs have outbound access); override with
 
 | node | used / total MiB | k3rs RSS | containerd RSS |
 |---|---|---|---|
-| node1 (server) | 303 / 964 | 165 | 49 |
-| node2 (agent)  | 280 / 964 | 50  | 63 |
-| node3 (agent)  | 295 / 964 | 51  | 74 |
+| node1 (server) | 299 / 964 | 163 | 49 |
+| node2 (agent)  | 264 / 964 | 51  | 63 |
+| node3 (agent)  | 307 / 964 | 51  | 74 |
 
 ## Notes
 

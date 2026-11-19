@@ -7,6 +7,11 @@ ConditionPathExists=/etc/k3rs/node.env
 [Service]
 Environment=RUST_LOG=info RUST_MIN_STACK=8388608
 Environment=CONTAINER_RUNTIME_ENDPOINT=unix:///run/containerd/containerd.sock
+# exec/attach/portForward: the kubelet proxies to containerd's CRI stream
+# server (stream_server_port 10010, deploy/containerd/config.toml). The
+# default target host is the compose service name `containerd`; here
+# containerd runs on the same host as the kubelet.
+Environment=CONTAINERD_STREAM_HOST=127.0.0.1 CONTAINERD_STREAM_PORT=10010
 # Written by sync.sh:
 #   K3RS_ROLE  server | agent
 #   NODE_IP    this VM's address on the microcompose network
