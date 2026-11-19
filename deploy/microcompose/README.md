@@ -128,6 +128,22 @@ list/watch but not get on them. Upstream does that work inside kube-apiserver;
 here the api-server already allocates ClusterIPs/NodePorts at create and marks
 local APIServices Available, so nothing is lost.
 
+## Known functional gaps in server mode
+
+Controllers with no upstream ServiceAccount are unmapped
+(`crates/controller-manager/src/identities.rs`) and run as
+`system:kube-controller-manager`, which can list/watch but not write what they
+manage:
+
+- `type: LoadBalancer` Services stay `<pending>`: the LoadBalancer (ServiceLB)
+  controller is unmapped (k3s runs it in its cloud-controller-manager) and
+  cannot write Service status or its DaemonSets.
+- The other unmapped addon controllers do not take effect either: CSIAttacher,
+  VolumeSnapshot, StorageClass, VerticalPodAutoscaler, NetworkPolicy, Ingress,
+  PriorityClass, Service and APIServiceAvailability (the last two are covered
+  by the api-server, see above).
+- `kubectl exec` over WebSocket falls back to SPDY.
+
 ## Notes
 
 - Uses the release build of microcompose main (`$CARGO_TARGET_DIR/release/microcompose`);
