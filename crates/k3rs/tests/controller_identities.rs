@@ -1013,3 +1013,102 @@ async fn event_gc_janitor_pass_deletes_old_events_without_denials() {
         "denied requests during the janitor pass ({gc_user}): {denied:#?}"
     );
 }
+
+/// Install an audit sink capturing every request, as the other end-to-end
+/// tests here do, and return it.
+fn capture_audit() -> std::sync::Arc<Capture> {
+    let cap = std::sync::Arc::new(Capture(Default::default()));
+    k3rs_api_server::audit::install_audit(k3rs_api_server::audit::AuditConfig {
+        policy: k3rs_api_server::audit::Policy::from_yaml(
+            "apiVersion: audit.k8s.io/v1\nkind: Policy\nrules:\n- level: Metadata\n",
+        )
+        .unwrap(),
+        sink: cap.clone(),
+    });
+    cap
+}
+
+/// The `default` ServiceAccount in `default` (no ServiceAccount controller
+/// runs here; ServiceAccount admission refuses a pod without it).
+async fn default_service_account(e: &Env, creds: &ComponentCreds) {
+    let (s, b) = admin_json(
+        e,
+        creds,
+        Method::POST,
+        "/api/v1/namespaces/default/serviceaccounts",
+        Some(json!({"apiVersion": "v1", "kind": "ServiceAccount",
+            "metadata": {"name": "default", "namespace": "default"}})),
+    )
+    .await;
+    assert!(s == 201 || s == 409, "{s}: {b}");
+}
+
+/// Every request answered 403 so far, as `user verb objectRef`.
+fn denials(cap: &Capture) -> Vec<String> {
+    cap.0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|ev| ev.response_status.as_ref().map(|s| s.code) == Some(403))
+        .map(|ev| format!("{} {} {:?}", ev.user.username, ev.verb, ev.object_ref))
+        .collect()
+}
+
+/// `system:controller:resourcequota-controller` has list/watch on `*/*` and
+/// update on `resourcequotas/status`, and no `get`. Upstream
+/// `syncResourceQuotaFromKey` reads the quota from its lister
+/// (pkg/controller/resourcequota/resource_quota_controller.go:340-364) and
+/// writes `UpdateStatus`. A live GET 403'd, was taken for "deleted", and the
+/// status was never written, so quota admission refused every create in the
+/// namespace ("status unknown for quota"). Under its own identity the
+/// controller must populate status.hard/used, and a pod create must then be
+/// admitted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn resourcequota_controller_populates_status_under_its_identity() {
+    let cap = capture_audit();
+    let (e, creds) = setup().await;
+    default_service_account(&e, &creds).await;
+    let quotas = "/api/v1/namespaces/default/resourcequotas";
+    let (s, b) = admin_json(
+        &e,
+        &creds,
+        Method::POST,
+        quotas,
+        Some(json!({"apiVersion": "v1", "kind": "ResourceQuota",
+            "metadata": {"name": "q", "namespace": "default"},
+            "spec": {"hard": {"pods": "5"}}})),
+    )
+    .await;
+    assert_eq!(s, 201, "{b}");
+
+    let storage_for = identity_storage(&e, &creds);
+    let c = k3rs_controller_manager::controllers::resource_quota::ResourceQuotaController::new(
+        storage_for("ResourceQuota"),
+    );
+    c.reconcile_one("default", "q")
+        .await
+        .map_err(|e| e.to_string())
+        .unwrap();
+    // A quota that is gone is "deleted", not an error (lister NotFound).
+    c.reconcile_one("default", "absent")
+        .await
+        .map_err(|e| e.to_string())
+        .unwrap();
+
+    let (_, q) = admin_json(&e, &creds, Method::GET, &format!("{quotas}/q"), None).await;
+    assert_eq!(q["status"]["hard"]["pods"], "5", "{q}");
+    assert_eq!(q["status"]["used"]["pods"], "0", "{q}");
+    let (s, b) = admin_json(
+        &e,
+        &creds,
+        Method::POST,
+        "/api/v1/namespaces/default/pods",
+        Some(json!({"apiVersion": "v1", "kind": "Pod",
+            "metadata": {"name": "under-quota", "namespace": "default"},
+            "spec": {"containers": [{"name": "c", "image": "busybox"}]}})),
+    )
+    .await;
+    assert_eq!(s, 201, "pod create under a synced quota: {b}");
+    let denied = denials(&cap);
+    assert!(denied.is_empty(), "denied requests: {denied:#?}");
+}
