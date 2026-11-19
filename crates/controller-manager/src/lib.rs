@@ -1,5 +1,6 @@
 // Library interface for controller-manager
 pub mod controllers;
+pub mod identities;
 pub use controllers::*;
 
 use controllers::{
@@ -46,8 +47,9 @@ use controllers::{
 use k3rs_client::http::ApiClient;
 use k3rs_storage::api_storage::ApiStorage;
 use k3rs_storage::{Storage, StorageBackend};
+use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Run a controller loop under crash supervision.
 ///
@@ -207,6 +209,72 @@ pub async fn run_with_api(
         config,
     )
     .await
+}
+
+/// Per-ServiceAccount client credentials for [`run_with_api_identities`]:
+/// key = ServiceAccount name ([`identities::controller_service_accounts`]),
+/// value = a client authenticating as `system:serviceaccount:kube-system:<key>`.
+/// Only its credentials are used ([`ApiClient::with_credentials_from`]);
+/// URL, rate limits and User-Agent come from the root client.
+pub type ControllerCredentials = HashMap<&'static str, ApiClient>;
+
+/// [`run_with_api`] with `--use-service-account-credentials` semantics (k3s
+/// always sets it, `pkg/daemons/control/server.go:124`): each controller's
+/// own API calls authenticate as its upstream ServiceAccount
+/// ([`identities::CONTROLLER_IDENTITIES`]), so the seeded
+/// `system:controller:<name>` roles apply; list/watch/discovery (upstream's
+/// shared informers) and the controllers upstream runs under the root client
+/// use `root`, the controller-manager's own identity
+/// (`createClientBuilders` / `CreateControllerContext`,
+/// cmd/kube-controller-manager/app/controllermanager.go:471-510, :758-773).
+///
+/// Fails before spawning anything if `credentials` lacks a ServiceAccount the
+/// table names: a controller must never silently fall back to another
+/// identity.
+pub async fn run_with_api_identities(
+    root: Arc<ApiClient>,
+    credentials: ControllerCredentials,
+    config: ControllerManagerConfig,
+) -> anyhow::Result<()> {
+    let storage_for = identity_storage_for(root, credentials)?;
+    run_controllers(storage_for, config).await
+}
+
+/// The `storage_for` of [`run_with_api_identities`], exposed for tests.
+pub fn identity_storage_for(
+    root: Arc<ApiClient>,
+    credentials: ControllerCredentials,
+) -> anyhow::Result<impl Fn(&'static str) -> Arc<ApiStorage>> {
+    let missing: Vec<&str> = identities::controller_service_accounts()
+        .into_iter()
+        .filter(|sa| !credentials.contains_key(sa))
+        .collect();
+    if !missing.is_empty() {
+        anyhow::bail!(
+            "controller-manager: no client credentials for ServiceAccount(s) {}",
+            missing.join(", ")
+        );
+    }
+    let base = ApiStorage::new(Arc::clone(&root));
+    Ok(move |name: &'static str| {
+        // Root identity, this controller's own limiter (#1863).
+        let informer = controller_client(&root, name);
+        let client = match identities::controller_identity(name) {
+            Some(identities::ControllerIdentity::ServiceAccount(sa)) => {
+                // Same limiter as `informer`: one bucket per controller.
+                Arc::new(informer.with_credentials_from(&credentials[sa]))
+            }
+            Some(_) => Arc::clone(&informer),
+            None => {
+                warn!(
+                    "controller {name} has no entry in CONTROLLER_IDENTITIES; \
+                     it runs as the controller-manager's own identity"
+                );
+                Arc::clone(&informer)
+            }
+        };
+        Arc::new(base.with_clients(informer, client))
+    })
 }
 
 /// The api client one controller talks through: a clone of `skeleton` with its

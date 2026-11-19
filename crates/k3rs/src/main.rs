@@ -518,6 +518,28 @@ fn embedded_client(
     }
 }
 
+/// One client per controller ServiceAccount
+/// (`k3rs_controller_manager::identities::controller_service_accounts`), from
+/// the `controller-<sa>` kubeconfigs `Pki::ensure_component_creds` mints.
+fn controller_credentials(
+    creds: Option<&k3rs::pki::ComponentCreds>,
+    loopback_url: &str,
+    tls: bool,
+) -> Result<k3rs_controller_manager::ControllerCredentials> {
+    k3rs_controller_manager::identities::controller_service_accounts()
+        .into_iter()
+        .map(|sa| {
+            let c = embedded_client(
+                creds,
+                &k3rs::pki::controller_cred_name(sa),
+                loopback_url,
+                tls,
+            )?;
+            Ok((sa, c))
+        })
+        .collect()
+}
+
 /// Handed to `Overrides::post_start`.
 pub(crate) struct ServerContext {
     /// A loopback client to the embedded api-server.
@@ -691,21 +713,24 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     // The HPA metrics client talks to the in-process api-server over loopback
     // using client-cert mTLS (only when cert+key are configured).
     let metrics_config = match creds {
-        // The controller-manager identity, verifying the serving cert against
-        // the server CA. Its `system:kube-controller-manager` role lists any
-        // resource (`*/*` list/watch), which covers the metrics.k8s.io and
-        // custom.metrics.k8s.io lists the HPA makes.
-        Some(c) => Some(
+        // The HPA's own ServiceAccount identity, verifying the serving cert
+        // against the server CA: upstream builds the metrics clients from
+        // `ClientBuilder.Config("horizontal-pod-autoscaler")`
+        // (cmd/kube-controller-manager/app/autoscaling.go:44-76), and
+        // `system:controller:horizontal-pod-autoscaler` grants the
+        // metrics.k8s.io / custom.metrics / external.metrics reads.
+        Some(c) => Some({
+            let hpa = k3rs::pki::controller_cred_name("horizontal-pod-autoscaler");
             k3rs_controller_manager::controllers::hpa_metrics_client::HttpMetricsConfig {
                 api_server_url: loopback_url.clone(),
                 ca_pem: None,
                 ca_cert_path: Some(c.dir.join("tls/server-ca.crt").to_string_lossy().into()),
-                client_cert_path: Some(c.cert("controller-manager").to_string_lossy().into()),
-                client_key_path: Some(c.key("controller-manager").to_string_lossy().into()),
+                client_cert_path: Some(c.cert(&hpa).to_string_lossy().into()),
+                client_key_path: Some(c.key(&hpa).to_string_lossy().into()),
                 token: None,
                 insecure_skip_tls_verify: false,
-            },
-        ),
+            }
+        }),
         None => args
             .tls_cert_file
             .as_ref()
@@ -768,10 +793,24 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
             // (`clientbuilder/client_builder.go:40-47`).
             .with_rate_limit(args.kube_api_qps, args.kube_api_burst),
     );
+    // `k3rs server`: `--use-service-account-credentials` (k3s server.go:124).
+    // Each controller authenticates as its upstream ServiceAccount through
+    // the minted `controller-<sa>` cert; `cm_client` (system:kube-controller-
+    // manager) stays the root client for informer reads.
+    let cm_credentials = match creds {
+        Some(_) => Some(controller_credentials(creds, &loopback_url, args.tls)?),
+        None => None,
+    };
     info!("Controller manager reading cluster state from embedded api-server at {loopback_url}");
     spawn_controller_manager_metrics(args.controller_manager_metrics_port);
     tokio::spawn(async move {
-        if let Err(e) = k3rs_controller_manager::run_with_api(cm_client, cm_config).await {
+        let r = match cm_credentials {
+            Some(c) => {
+                k3rs_controller_manager::run_with_api_identities(cm_client, c, cm_config).await
+            }
+            None => k3rs_controller_manager::run_with_api(cm_client, cm_config).await,
+        };
+        if let Err(e) = r {
             error!("Controller manager error: {}", e);
         }
     });
@@ -1308,6 +1347,25 @@ mod overrides_tests {
             embedded_client(Some(&creds), name, "https://127.0.0.1:16443", true)
                 .unwrap_or_else(|e| panic!("{name}: {e:#}"));
         }
+        // Every controller ServiceAccount the controller-manager needs.
+        let cm = controller_credentials(Some(&creds), "https://127.0.0.1:16443", true).unwrap();
+        assert_eq!(
+            cm.len(),
+            k3rs_controller_manager::identities::controller_service_accounts().len()
+        );
+        assert!(k3rs_controller_manager::identity_storage_for(
+            std::sync::Arc::new(
+                embedded_client(
+                    Some(&creds),
+                    "controller-manager",
+                    "https://127.0.0.1:16443",
+                    true
+                )
+                .unwrap()
+            ),
+            cm
+        )
+        .is_ok());
     }
 }
 

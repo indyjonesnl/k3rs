@@ -14,8 +14,8 @@ use anyhow::Result;
 use base64::Engine;
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, CertificateSigningRequestParams,
-    DistinguishedName, DnType, ExtendedKeyUsagePurpose, Ia5String, IsCa, KeyPair, KeyUsagePurpose,
-    SanType,
+    DistinguishedName, DnType, DnValue, ExtendedKeyUsagePurpose, Ia5String, IsCa, KeyPair,
+    KeyUsagePurpose, SanType,
 };
 use sha2::{Digest, Sha256};
 use time::{Duration, OffsetDateTime};
@@ -72,11 +72,34 @@ fn write_key(path: &Path, kp: &KeyPair) -> Result<()> {
     write_file(path, &kp.serialize_pem(), 0o600)
 }
 
+/// `organizationName` (id-at-organizationName, 2.5.4.10).
+const OID_ORGANIZATION_NAME: &[u64] = &[2, 5, 4, 10];
+
+/// Subject `CN=cn, O=orgs[0], O=orgs[1]`. The x509 authenticator maps every
+/// O to a group (`Subject.Organization`,
+/// staging/src/k8s.io/apiserver/pkg/authentication/request/x509/x509.go
+/// `CommonNameUserConversion`), and a ServiceAccount identity needs two
+/// (`system:serviceaccounts`, `system:serviceaccounts:<ns>`).
+///
+/// rcgen 0.13 keys a `DistinguishedName` by attribute type, so a second
+/// `OrganizationName` would replace the first; the second O is pushed as a
+/// custom attribute carrying the same OID, which encodes to the identical
+/// RDN. Two is the most a key can hold this way.
 fn dn(cn: &str, orgs: &[&str]) -> DistinguishedName {
+    assert!(
+        orgs.len() <= 2,
+        "at most two O attributes per subject: {orgs:?}"
+    );
     let mut d = DistinguishedName::new();
     d.push(DnType::CommonName, cn);
-    for o in orgs {
+    if let Some(o) = orgs.first() {
         d.push(DnType::OrganizationName, *o);
+    }
+    if let Some(o) = orgs.get(1) {
+        d.push(
+            DnType::CustomDnType(OID_ORGANIZATION_NAME.to_vec()),
+            DnValue::Utf8String((*o).to_string()),
+        );
     }
     d
 }
@@ -425,6 +448,15 @@ pub const COMPONENT_IDENTITIES: &[Identity] = &[
     },
 ];
 
+use k3rs_controller_manager::identities as controller_identities;
+
+/// The [`ComponentCreds`] name of the client identity for controller
+/// ServiceAccount `sa` (`kube-system/<sa>`): files `tls/client-controller-<sa>.{crt,key}`
+/// and `cred/controller-<sa>.kubeconfig`.
+pub fn controller_cred_name(sa: &str) -> String {
+    format!("controller-{sa}")
+}
+
 /// Reuse a leaf only while it has at least this long left.
 const REUSE_MARGIN: i64 = 30 * 24 * 3600;
 const LOOPBACK_SERVER: &str = "https://127.0.0.1:6443";
@@ -585,14 +617,34 @@ impl Pki {
         std::fs::create_dir_all(creds.dir.join("tls"))?;
         std::fs::create_dir_all(creds.dir.join("cred"))?;
 
-        let node_cn = format!("system:node:{node_name}");
-        let mut all: Vec<(&str, &str, &[&str])> = COMPONENT_IDENTITIES
+        let mut all: Vec<(String, String, &[&str])> = COMPONENT_IDENTITIES
             .iter()
-            .map(|i| (i.name, i.cn, i.orgs))
+            .map(|i| (i.name.to_string(), i.cn.to_string(), i.orgs))
             .collect();
-        all.push(("kubelet", node_cn.as_str(), &["system:nodes"]));
+        all.push((
+            "kubelet".into(),
+            format!("system:node:{node_name}"),
+            &["system:nodes"],
+        ));
+        // One identity per controller ServiceAccount, for the
+        // controller-manager's `--use-service-account-credentials` mode (k3s
+        // `server.go:124`). Upstream authenticates each controller with its
+        // `kube-system` ServiceAccount's token (DynamicControllerClientBuilder);
+        // k3rs presents a client cert carrying the same user info
+        // (`serviceaccount.MakeUsername` / `MakeGroupNames`,
+        // staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go),
+        // so the seeded `system:controller:*` bindings to those
+        // ServiceAccounts apply.
+        for sa in controller_identities::controller_service_accounts() {
+            all.push((
+                controller_cred_name(sa),
+                controller_identities::service_account_username(sa),
+                controller_identities::SERVICE_ACCOUNT_GROUPS,
+            ));
+        }
 
-        for (name, cn, orgs) in all {
+        for (name, cn, orgs) in &all {
+            let (name, cn) = (name.as_str(), cn.as_str());
             let (crt, key) = (creds.cert(name), creds.key(name));
             if !leaf_is_current(&crt, &key, &self.client.pem, cn, orgs, Some(&[])) {
                 let k = KeyPair::generate()?;
@@ -869,12 +921,31 @@ mod tests {
         let c = pki.ensure_component_creds("node1", "10.1.2.3").unwrap();
         let ca_der = pem_der(pki.client_ca_pem());
         let (_, ca) = X509Certificate::from_der(&ca_der).unwrap();
-        let mut want: Vec<(&str, String, Vec<&str>)> = COMPONENT_IDENTITIES
+        let mut want: Vec<(String, String, Vec<&str>)> = COMPONENT_IDENTITIES
             .iter()
-            .map(|i| (i.name, i.cn.to_string(), i.orgs.to_vec()))
+            .map(|i| (i.name.to_string(), i.cn.to_string(), i.orgs.to_vec()))
             .collect();
-        want.push(("kubelet", "system:node:node1".into(), vec!["system:nodes"]));
+        want.push((
+            "kubelet".into(),
+            "system:node:node1".into(),
+            vec!["system:nodes"],
+        ));
+        // Controller ServiceAccount identities (upstream SA user info).
+        for sa in controller_identities::controller_service_accounts() {
+            want.push((
+                controller_cred_name(sa),
+                format!("system:serviceaccount:kube-system:{sa}"),
+                vec![
+                    "system:serviceaccounts",
+                    "system:serviceaccounts:kube-system",
+                ],
+            ));
+        }
+        assert!(want
+            .iter()
+            .any(|(_, cn, _)| cn == "system:serviceaccount:kube-system:replicaset-controller"));
         for (name, cn, orgs) in want {
+            let name = name.as_str();
             let der = read_cert(&c.cert(name));
             let (_, cert) = X509Certificate::from_der(&der).unwrap();
             assert_eq!(
@@ -935,9 +1006,14 @@ mod tests {
         let c = pki.ensure_component_creds("node1", "10.1.2.3").unwrap();
         let files: Vec<PathBuf> = COMPONENT_IDENTITIES
             .iter()
-            .map(|i| i.name)
-            .chain(["kubelet"])
-            .flat_map(|n| [c.cert(n), c.key(n), c.kubeconfig(n)])
+            .map(|i| i.name.to_string())
+            .chain(["kubelet".to_string()])
+            .chain(
+                controller_identities::controller_service_accounts()
+                    .into_iter()
+                    .map(controller_cred_name),
+            )
+            .flat_map(|n| [c.cert(&n), c.key(&n), c.kubeconfig(&n)])
             .chain([c.serving_cert(), c.serving_key()])
             .collect();
         let before: Vec<_> = files.iter().map(|f| std::fs::read(f).unwrap()).collect();
@@ -968,6 +1044,8 @@ mod tests {
         let (d, pki) = mk();
         let c = pki.ensure_component_creds("node1", "10.1.2.3").unwrap();
         let old = read_cert(&c.cert("scheduler"));
+        let rs = controller_cred_name("replicaset-controller");
+        let old_rs = read_cert(&c.cert(&rs));
         let old_serving = read_cert(&c.serving_cert());
         let tls = d.path().join("tls");
         for f in [
@@ -981,10 +1059,11 @@ mod tests {
         let pki2 = Pki::load_or_create(d.path(), &[]).unwrap();
         pki2.ensure_component_creds("node1", "10.1.2.3").unwrap();
         assert_ne!(old, read_cert(&c.cert("scheduler")));
+        assert_ne!(old_rs, read_cert(&c.cert(&rs)));
         assert_ne!(old_serving, read_cert(&c.serving_cert()));
         let ca_der = pem_der(pki2.client_ca_pem());
         let (_, ca) = X509Certificate::from_der(&ca_der).unwrap();
-        for n in ["admin", "scheduler", "kubelet", "apiserver"] {
+        for n in ["admin", "scheduler", "kubelet", "apiserver", rs.as_str()] {
             let der = read_cert(&c.cert(n));
             let (_, cert) = X509Certificate::from_der(&der).unwrap();
             cert.verify_signature(Some(ca.public_key())).unwrap();
