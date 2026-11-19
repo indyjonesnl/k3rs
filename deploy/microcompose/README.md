@@ -35,7 +35,9 @@ KUBECONFIG=$PWD/.kubeconfig kubectl get nodes -o wide   # written by acceptance.
 Admin kubeconfig: `node1:/var/lib/k3rs/tls/admin.kubeconfig` (server
 `https://127.0.0.1:6443`); `acceptance.sh` copies it to `./.kubeconfig`.
 The server runs with `--skip-auth` (milestone 1): anything that reaches
-:6443 is cluster-admin.
+:6443 is cluster-admin, and anything that reaches the kubelet's :10250 gets
+anonymous exec/attach/run/portForward/pprof/debug (client-CA authn is a
+follow-up).
 
 Pod networking: node IPAM gives each node a /24 of 10.244.0.0/16; the
 in-process node-network agent writes `/etc/cni/net.d/10-k3rs.conflist` and

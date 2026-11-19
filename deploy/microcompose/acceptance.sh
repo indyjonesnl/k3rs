@@ -39,10 +39,13 @@ wait_for() {
 }
 
 # --- kubeconfig from node1 (server already 127.0.0.1:6443; forced anyway) ---
-nssh "$CP" 'sudo cat /var/lib/k3rs/tls/admin.kubeconfig' > "$KUBECONFIG.tmp" \
+KC_TMP="$(mktemp "$HERE/.kubeconfig.tmp.XXXXXX")"   # holds admin creds: never left behind
+trap 'rm -f "$KC_TMP"' EXIT
+chmod 600 "$KC_TMP"
+nssh "$CP" 'sudo cat /var/lib/k3rs/tls/admin.kubeconfig' > "$KC_TMP" \
   || fail 0 "could not read $CP:/var/lib/k3rs/tls/admin.kubeconfig (is k3rs server up? ./sync.sh)"
-sed -E 's#(server: )https://[^ ]+#\1https://127.0.0.1:6443#' "$KUBECONFIG.tmp" > "$KUBECONFIG"
-rm -f "$KUBECONFIG.tmp"; chmod 600 "$KUBECONFIG"
+sed -E 's#(server: )https://[^ ]+#\1https://127.0.0.1:6443#' "$KC_TMP" > "$KUBECONFIG"
+chmod 600 "$KUBECONFIG"
 echo "KUBECONFIG=$KUBECONFIG"
 
 # --- 1. three nodes Ready -------------------------------------------------

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-shot: build k3rs → bake/boot → sync (server, token, agents).
-# Local-first (see CLAUDE.local.md): `make build-fast`, incremental, no sccache.
+# Local-first (see CLAUDE.md): `make build-fast`, incremental, no sccache.
 # No certs, no rhino, no bootstrap script: `k3rs server` mints its PKI, join
 # token and bootstrap objects (kube-dns Service etc.) itself.
 set -euo pipefail
