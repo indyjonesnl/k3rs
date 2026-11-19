@@ -174,7 +174,7 @@ pub async fn run(storage: Arc<StorageBackend>, config: KubeletConfig) -> anyhow:
 
     let metrics_addr = format!("0.0.0.0:{}", config.metrics_port);
     info!(
-        "Starting kubelet API server on {} (metrics + configz)",
+        "Starting kubelet API server on {} (exec/attach/portForward/logs, metrics)",
         metrics_addr
     );
 
@@ -186,6 +186,9 @@ pub async fn run(storage: Arc<StorageBackend>, config: KubeletConfig) -> anyhow:
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/kubelet"));
+    // `getCheckpointsDir` (kubelet_getters.go:89): `<rootDir>/checkpoints`,
+    // with the same root as above.
+    let checkpoints_dir = eviction_root.join("checkpoints");
 
     let k = Arc::new(
         kubelet::Kubelet::new_with_eviction(
@@ -234,49 +237,14 @@ pub async fn run(storage: Arc<StorageBackend>, config: KubeletConfig) -> anyhow:
         server_auth::resolve_auth_config(None, &server_auth::AuthFlags::default());
     let (auth, _client_ca) =
         server_auth::build_auth(&config.node_name, None, &authn_config, &authz_config)?;
+    let app = api_router(
+        server_state,
+        metrics_clone,
+        kubelet_config_clone,
+        checkpoints_dir,
+        auth,
+    );
     tokio::spawn(async move {
-        use axum::{routing::get, Json, Router};
-        let app = Router::new()
-            .route("/metrics", get(|| async move { metrics_clone.gather() }))
-            .route(
-                "/configz",
-                get(|| async move { Json(kubelet_config_clone.as_ref().clone()) }),
-            )
-            .merge(server::read_only_router(server_state));
-        // The all-in-one binary has no kubelet config file: upstream defaults
-        // (enableDebuggingHandlers / enableSystemLogHandler = true).
-        let app = server_logs::install_logs_handlers(
-            app,
-            true,
-            true,
-            false,
-            std::path::PathBuf::from(server_logs::NODE_LOG_DIR),
-        );
-        // server.go:328 `installStatusZ()`: last, over the routes registered so far.
-        // No kubelet config file here: `EnableDebuggingHandlers` defaults to
-        // true; the exec/attach/run handlers are not part of this binary.
-        // Only `Container.Handle`d paths are registered (see
-        // `server::registered_handle_paths`); this binary serves /metrics,
-        // /healthz and /configz of those.
-        let registered: Vec<String> = [
-            "/healthz",
-            "/healthz/ping",
-            "/healthz/log",
-            "/healthz/syncloop",
-            "/metrics",
-            "/configz",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        let app = server::install_statusz(app, registered);
-        let app = server_auth::install_auth_filter(app, Some(auth));
-        // server.go:1176 `ServeHTTP`: request metrics outside the auth filter.
-        let app = server::install_metrics_filter(
-            app,
-            server::MetricsBuckets::new_server(server::server_bucket_options(true)),
-            true,
-        );
         // Serve the kubelet API port over HTTPS (#1644) — a Kubernetes
         // api-server proxies logs/exec/attach/metrics via `https://…:10250`.
         let addr: std::net::SocketAddr = metrics_addr.parse().expect("valid metrics addr");
@@ -291,4 +259,31 @@ pub async fn run(storage: Arc<StorageBackend>, config: KubeletConfig) -> anyhow:
     k.run().await?;
 
     Ok(())
+}
+
+/// The kubelet API (`:10250`) router `run()` serves: `NewServer`'s handlers
+/// via the standalone kubelet's `server::build_server_router` (same
+/// implementation, so exec/attach/portForward/containerLogs/run that the
+/// api-server proxies to are served), with `NewServer`'s defaults for a
+/// kubelet without a config file (`ServerRouterOptions::from_config(None)`),
+/// wrapped in the auth filter (`InstallAuthFilter`, server.go:312-314) and
+/// the request-metrics filter (`ServeHTTP`, server.go:1176).
+pub fn api_router(
+    state: server::ServerState,
+    metrics: Arc<k3rs_common::observability::MetricsRegistry>,
+    kubelet_config: Arc<KubeletConfiguration>,
+    checkpoints_dir: std::path::PathBuf,
+    auth: Arc<server_auth::KubeletAuth>,
+) -> axum::Router {
+    let opts = server::ServerRouterOptions::from_config(
+        None,
+        checkpoints_dir,
+        std::path::PathBuf::from(server_logs::NODE_LOG_DIR),
+    );
+    let buckets = server::MetricsBuckets::new_server(server::server_bucket_options(
+        opts.enable_debugging_handlers,
+    ));
+    let app = server::build_server_router(state, metrics, kubelet_config, opts);
+    let app = server_auth::install_auth_filter(app, Some(auth));
+    server::install_metrics_filter(app, buckets, true)
 }
