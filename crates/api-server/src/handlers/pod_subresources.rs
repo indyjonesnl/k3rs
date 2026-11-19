@@ -436,23 +436,22 @@ type LogByteStream = std::pin::Pin<
     >,
 >;
 
-/// Load the api-server's kubelet client identity (kubeadm
-/// `apiserver-kubelet-client` cert+key) as a reqwest [`Identity`], if present.
-/// Mirrors [`k3rs_streamproxy::tls`]'s connector loading — same paths,
-/// same trust model — but for the reqwest client used by the websocket log
-/// fetch. Returns `None` when the files are absent (k3rs' own cluster).
-fn load_kubelet_client_identity() -> Option<reqwest::Identity> {
-    const CERT: &str = "/etc/kubernetes/pki/apiserver-kubelet-client.crt";
-    const KEY: &str = "/etc/kubernetes/pki/apiserver-kubelet-client.key";
-    let mut pem = std::fs::read(CERT).ok()?;
-    pem.push(b'\n');
-    pem.extend_from_slice(&std::fs::read(KEY).ok()?);
+/// Load the api-server's kubelet client identity as a reqwest [`Identity`], if
+/// present. Paths come from the single resolver in `k3rs_streamproxy`
+/// (`K3RS_KUBELET_CLIENT_CERT`/`_KEY`, else the kubeadm default). `Ok(None)`
+/// when the default files are absent; `Err` for a misconfigured explicit
+/// identity (never silently anonymous).
+fn load_kubelet_client_identity() -> Result<Option<reqwest::Identity>> {
+    let Some(pem) = k3rs_streamproxy::kubelet_client_identity_pem()
+        .map_err(|e| Error::Internal(format!("kubelet client identity: {e}")))?
+    else {
+        return Ok(None);
+    };
     match reqwest::Identity::from_pem(&pem) {
-        Ok(id) => Some(id),
-        Err(e) => {
-            tracing::warn!("failed to build kubelet client identity: {e}");
-            None
-        }
+        Ok(id) => Ok(Some(id)),
+        Err(e) => Err(Error::Internal(format!(
+            "failed to build kubelet client identity: {e}"
+        ))),
     }
 }
 
@@ -472,7 +471,8 @@ pub fn kubelet_dialer() -> Option<crate::egress_selector::Dialer> {
 fn kubelet_egress_connector(
     dialer: crate::egress_selector::Dialer,
 ) -> Result<crate::egress_http::EgressConnector> {
-    let identity = k3rs_streamproxy::kubelet_client_identity_pem();
+    let identity = k3rs_streamproxy::kubelet_client_identity_pem()
+        .map_err(|e| Error::Internal(format!("kubelet client identity: {e}")))?;
     let tls = crate::egress_http::tls_client_config(None, true, identity.as_deref())
         .map_err(|e| Error::Internal(format!("failed to build kubelet client: {e}")))?;
     Ok(crate::egress_http::EgressConnector::new(dialer, tls, None))
@@ -585,7 +585,7 @@ pub async fn fetch_kubelet_log_stream(
     // vanilla kubelet (`--anonymous-auth=false`) authenticates the api-server's
     // websocket log fetch instead of returning 401 (#1670). Absent on
     // k3rs' own cluster, whose kubelet needs no client cert.
-    if let Some(identity) = load_kubelet_client_identity() {
+    if let Some(identity) = load_kubelet_client_identity()? {
         builder = builder.identity(identity);
     }
     let client = builder

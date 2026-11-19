@@ -4,7 +4,10 @@ use axum::extract::Request;
 use axum::response::{IntoResponse, Response};
 use http::{StatusCode, Uri};
 use http_body_util::BodyExt;
-pub use tls::kubelet_client_identity_pem;
+pub use tls::{
+    kubelet_client_identity_pem, kubelet_client_paths, KubeletClientPaths, KUBELET_CLIENT_CERT_ENV,
+    KUBELET_CLIENT_KEY_ENV,
+};
 use tracing::{debug, warn};
 
 /// Returns true for the standard set of hop-by-hop headers that must NOT be

@@ -191,6 +191,27 @@ pub(crate) fn link_cluster_ca(tls_dir: &Path) -> Result<()> {
         .with_context(|| format!("symlink {}", link.display()))
 }
 
+/// The `K3RS_KUBELET_CLIENT_{CERT,KEY}` pairs naming the minted
+/// `system:apiserver` identity.
+fn kubelet_client_env(creds: &k3rs::pki::ComponentCreds) -> [(&'static str, PathBuf); 2] {
+    [
+        (
+            k3rs_streamproxy::KUBELET_CLIENT_CERT_ENV,
+            creds.cert("apiserver"),
+        ),
+        (
+            k3rs_streamproxy::KUBELET_CLIENT_KEY_ENV,
+            creds.key("apiserver"),
+        ),
+    ]
+}
+
+fn apply_kubelet_client_env(creds: &k3rs::pki::ComponentCreds) {
+    for (k, v) in kubelet_client_env(creds) {
+        std::env::set_var(k, v);
+    }
+}
+
 pub async fn run_server(a: ServerArgs) -> Result<()> {
     // Node name and IP defaults: `util.GetHostnameAndIPs`
     // (k3s pkg/cli/server/server.go:293, pkg/util/net.go:138-168).
@@ -251,6 +272,14 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
         .ensure_component_creds(&node_name, first_ip)
         .context("component credentials")?;
     k3rs::agent::ensure_crypto_provider();
+    // api-server -> kubelet client identity (kube-apiserver
+    // `--kubelet-client-certificate/--kubelet-client-key`; k3s
+    // pkg/daemons/control/server.go). The api-server runs in-process and reads
+    // these when it builds a kubelet connector (per request), so they are set
+    // here, at the top of run_server, before run_all_in_one spawns anything.
+    // std::env::set_var is safe (edition 2021) and no other thread exists yet
+    // that mutates the environment.
+    apply_kubelet_client_env(&component_creds);
 
     let args = parse_args_from(server_argv(&a, &node_name, &node_ip))?;
     let info = cluster_info(&a);
@@ -287,6 +316,18 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn run_server_points_kubelet_client_env_at_apiserver_pair() {
+        let creds = k3rs::pki::ComponentCreds {
+            dir: PathBuf::from("/d"),
+        };
+        let env = kubelet_client_env(&creds);
+        assert_eq!(env[0].0, "K3RS_KUBELET_CLIENT_CERT");
+        assert_eq!(env[0].1, creds.cert("apiserver"));
+        assert_eq!(env[1].0, "K3RS_KUBELET_CLIENT_KEY");
+        assert_eq!(env[1].1, creds.key("apiserver"));
+    }
 
     fn server_args(dir: &str) -> k3rs::cli::ServerArgs {
         k3rs::cli::ServerArgs::try_parse_from(["server", "--data-dir", dir]).unwrap()

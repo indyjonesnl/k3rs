@@ -48,6 +48,7 @@ dhat-heap = ["dep:dhat"]
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
+k3rs-streamproxy = { path = "../streamproxy" }
 k3rs-api-server = { path = "../api-server" }
 k3rs-scheduler = { path = "../scheduler" }
 k3rs-controller-manager = { path = "../controller-manager" }

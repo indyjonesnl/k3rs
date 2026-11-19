@@ -2302,6 +2302,7 @@ dependencies = [
  "k3rs-kubelet",
  "k3rs-scheduler",
  "k3rs-storage",
+ "k3rs-streamproxy",
  "libc",
  "mimalloc",
  "pem",
@@ -2879,6 +2880,8 @@ dependencies = [
  "hyper-util",
  "rustls",
  "rustls-pemfile",
+ "serial_test",
+ "tempfile",
  "tokio",
  "tracing",
 ]
