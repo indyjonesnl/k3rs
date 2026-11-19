@@ -357,7 +357,16 @@ fn main() -> Result<()> {
     match mode {
         Mode::AllInOne => rt.block_on(async_main()),
         Mode::Server(a) => rt.block_on(server::run_server(a)),
-        Mode::Agent(a) => rt.block_on(k3rs::agent::run_agent(a)),
+        Mode::Agent(a) => {
+            // Server/all-in-one initialise tracing in `async_main`
+            // (`run_all_in_one`); the agent has no such path, so without this
+            // every kubelet/kube-proxy log line is dropped. Same level
+            // default as the all-in-one `--log-level` (`info`), `RUST_LOG`
+            // overrides.
+            k3rs_common::tracing::init_basic_tracing("k3rs-agent", "info")?;
+            k3rs_common::dump::install_panic_hook("k3rs-agent");
+            rt.block_on(k3rs::agent::run_agent(a))
+        }
     }
 }
 
