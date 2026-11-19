@@ -7,13 +7,19 @@
 //! (`apiServer` :210-263, `controllerManager` :116-118). Instead of exec'ing
 //! components with flag maps, the flags are synthesised into the all-in-one
 //! `Args` and the all-in-one runs with server `Overrides` (supervisor routes,
-//! node IPAM, node-network agent).
+//! node IPAM, node-network agent, per-component client certs).
 //!
-//! Milestone-1 deviations (deliberate): `--skip-auth` stays on (k3s sets
-//! `anonymous-auth=false` and `authorization-mode=Node,RBAC`; the Node/RBAC
-//! wiring is a queued follow-up); default service CIDR / cluster DNS are the
-//! k3rs defaults `10.96.0.0/12` / `10.96.0.10` (k3s: `10.43.0.0/16` /
-//! `10.43.0.10`), pod CIDR `10.244.0.0/16` (k3s `10.42.0.0/16`).
+//! Authentication: like k3s (`apiServer` :216-224, `client-ca-file`,
+//! `authorization-mode=Node,RBAC`), the api-server authenticates client certs
+//! against the client CA and authorizes with Node,RBAC; every embedded
+//! component uses its own cert identity minted by
+//! `Pki::ensure_component_creds` (k3s `deps.go:330-420`).
+//!
+//! Deliberate deviations: default service CIDR / cluster DNS are the k3rs
+//! defaults `10.96.0.0/12` / `10.96.0.10` (k3s: `10.43.0.0/16` /
+//! `10.43.0.10`), pod CIDR `10.244.0.0/16` (k3s `10.42.0.0/16`). k3s also
+//! sets `anonymous-auth=false`; the k3rs api-server has no enforced
+//! anonymous-auth switch (see `server_argv`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -36,21 +42,6 @@ const CLUSTER_DOMAIN: &str = "cluster.local";
 /// = `system:auth-proxy` for its own front-proxy cert; the allowed name must
 /// match the cert this PKI issues.
 const FRONT_PROXY_CN: &str = "front-proxy-client";
-/// Milestone 1 runs the api-server with `--skip-auth` (AlwaysAllow
-/// authorizer) and optional client certs, so anyone who can reach the API
-/// port is cluster-admin. k3s instead sets `anonymous-auth=false` and
-/// `authorization-mode=Node,RBAC` (pkg/daemons/control/server.go:216-224).
-const SKIP_AUTH_WARNING: &str = "authorization is disabled (--skip-auth): any client that can reach :{port} has full API access; RBAC is a follow-up";
-
-/// The operator-facing `--skip-auth` warning for the API port.
-pub(crate) fn skip_auth_warning(port: u16) -> String {
-    format!(
-        "{}; {}",
-        SKIP_AUTH_WARNING.replace("{port}", &port.to_string()),
-        k3rs::util::KUBELET_ANON_WARNING
-    )
-}
-
 /// `printToken` (pkg/server/server.go:496-498), with the node IP as the
 /// advertise address and the token inline rather than a `${VAR}` placeholder.
 pub(crate) fn join_line(node_ip: &str, port: u16, token: &str) -> String {
@@ -64,9 +55,18 @@ pub(crate) fn join_line(node_ip: &str, port: u16, token: &str) -> String {
 }
 
 /// The all-in-one argv for a server (pkg/daemons/control/server.go `apiServer`
-/// argsMap :226-263): serving cert, client CA, front-proxy request-header
-/// flags, service-account key pair, issuer and audiences; sqlite datastore
-/// under `<data-dir>/db` (k3s `<data-dir>/server/db/state.db`).
+/// argsMap :210-263): serving cert, client CA, `authorization-mode=Node,RBAC`
+/// (:217-221), front-proxy request-header flags, service-account key pair,
+/// issuer and audiences; sqlite datastore under `<data-dir>/db` (k3s
+/// `<data-dir>/server/db/state.db`). No `--skip-auth`: requests are
+/// authenticated (x509 client cert, SA/bootstrap tokens) and authorized.
+///
+/// `anonymous-auth=false` (:222-226) has no enforced equivalent in the k3rs
+/// api-server (`--anonymous-auth=false` is accepted but ignored by the
+/// standalone binary, `upstream_flags.rs`): an unauthenticated request is
+/// `system:anonymous`, which RBAC denies on API routes (403, not k3s' 401),
+/// while `/healthz`, `/livez`, `/readyz`, `/metrics` and `/version` stay
+/// unauthenticated public routes.
 pub(crate) fn server_argv(a: &ServerArgs, node_name: &str, node_ip: &str) -> Vec<String> {
     let dir = a.data_dir.trim_end_matches('/');
     let dns_bind = dns_bind(node_ip);
@@ -117,7 +117,9 @@ pub(crate) fn server_argv(a: &ServerArgs, node_name: &str, node_ip: &str) -> Vec
         node_ip,
         "--dns-bind",
         &dns_bind,
-        "--skip-auth",
+        "--authorization-mode",
+        "Node,RBAC",
+        "--skip-auth=false",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -237,11 +239,21 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
     );
     let port = api_port(&a.bind_address);
     println!("{}", join_line(&node_ip, port, &token));
-    // stderr so it shows without a tracing subscriber (tracing is initialised
-    // later, inside run_all_in_one); warn! for embedders that already have one.
-    let warning = skip_auth_warning(port);
-    eprintln!("WARNING: {warning}");
-    tracing::warn!("{warning}");
+    // The node's kubelet API still serves anonymously until it gets x509
+    // authn + webhook authz. stderr so it shows without a tracing subscriber
+    // (tracing is initialised later, inside run_all_in_one).
+    eprintln!("WARNING: {}", k3rs::util::KUBELET_ANON_WARNING);
+    tracing::warn!("{}", k3rs::util::KUBELET_ANON_WARNING);
+
+    // Per-component client identities (k3s `genClientCerts`,
+    // pkg/daemons/control/deps/deps.go:330-420), plus this node's kubelet
+    // identity and serving cert. The first node IP goes into the serving
+    // cert's SANs.
+    let first_ip = node_ip.split(',').next().unwrap_or(&node_ip).trim();
+    let component_creds = pki
+        .ensure_component_creds(&node_name, first_ip)
+        .context("component credentials")?;
+    k3rs::agent::ensure_crypto_provider();
 
     let args = parse_args_from(server_argv(&a, &node_name, &node_ip))?;
     let info = cluster_info(&a);
@@ -269,6 +281,7 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
                 }
             });
         })),
+        component_creds: Some(component_creds),
     };
     run_all_in_one(args, ov).await
 }
@@ -287,7 +300,7 @@ mod tests {
         let argv = server_argv(&server_args("/srv/k3rs"), "node-a", "192.0.2.10");
         let args = parse_args_from(argv).unwrap();
         assert!(args.tls);
-        assert!(args.skip_auth);
+        assert!(!args.skip_auth);
         assert_eq!(
             args.tls_cert_file.as_deref(),
             Some("/srv/k3rs/tls/serving.crt")
@@ -360,14 +373,27 @@ mod tests {
         assert_eq!(api_port(&a.bind_address), 16443);
     }
 
+    /// k3s `apiServer` (pkg/daemons/control/server.go:217-221, :259): client
+    /// CA set, `authorization-mode=Node,RBAC`; never the all-in-one's
+    /// `--skip-auth` default.
     #[test]
-    fn skip_auth_warning_names_the_port() {
+    fn server_argv_has_no_skip_auth_and_sets_authz() {
+        let argv = server_argv(&server_args("/srv/k3rs"), "node-a", "192.0.2.10");
+        assert!(!argv.iter().any(|a| a == "--skip-auth"), "{argv:?}");
+        let at = argv.iter().position(|a| a == "--client-ca-file").unwrap();
+        assert_eq!(argv[at + 1], "/srv/k3rs/tls/client-ca.crt");
+        let at = argv
+            .iter()
+            .position(|a| a == "--authorization-mode")
+            .unwrap();
+        assert_eq!(argv[at + 1], "Node,RBAC");
+        let args = parse_args_from(argv).unwrap();
+        assert!(!args.skip_auth);
+        assert_eq!(args.authorization.authorization_mode, ["Node", "RBAC"]);
         assert_eq!(
-            skip_auth_warning(6443),
-            "authorization is disabled (--skip-auth): any client that can reach :6443 has full API access; RBAC is a follow-up; the kubelet API on :10250 is anonymous (AlwaysAllow): exec/attach/run/portForward/pprof/debug are open to any client that can reach it; client-CA authn is a follow-up"
+            args.client_ca_file.as_deref(),
+            Some("/srv/k3rs/tls/client-ca.crt")
         );
-        assert!(skip_auth_warning(6443).contains(":10250"));
-        assert!(skip_auth_warning(16443).contains(":16443 has full API access"));
     }
 
     /// Must match the address `bootstrap::objects` puts in the kube-dns

@@ -8,7 +8,7 @@
 //!   k3rs --data-dir /var/lib/k3rs.db # custom path
 //!   k3rs --etcd-servers http://etcd:2379    # use etcd instead
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use k3rs::cli::{parse_mode, Mode};
 use k3rs_storage::{StorageBackend, StorageConfig};
@@ -268,8 +268,17 @@ struct Args {
     #[arg(long, default_value = k3rs_kube_proxy::iptables::DEFAULT_NODEPORT_RANGE)]
     node_port_range: String,
 
-    /// Skip authentication (insecure, for development)
-    #[arg(long, default_value = "true")]
+    /// Skip authentication (insecure, for development). On by default for the
+    /// bare all-in-one; `--skip-auth=false` turns authn/authz on (`k3rs
+    /// server` does). A bare `--skip-auth` still means true.
+    #[arg(
+        long,
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+    )]
     skip_auth: bool,
 
     /// Disable kube-proxy (useful when iptables is not available)
@@ -458,6 +467,39 @@ pub(crate) struct Overrides {
     pub node_net: Option<k3rs_kube_proxy::node_net::NodeNetConfig>,
     /// Runs once every component has been started.
     pub post_start: Option<Box<dyn FnOnce(ServerContext) + Send>>,
+    /// Per-component client-cert identities (`k3rs server`). When set, the
+    /// scheduler, controller-manager, DNS, kubelet, kube-proxy and the
+    /// `post_start` client reach the api-server over `https://127.0.0.1` with
+    /// their own cert (k3s `pkg/daemons/control/deps/deps.go:330-420`), and
+    /// the kubelet / kube-proxy go through the API like a joined agent
+    /// instead of sharing the in-process `StorageBackend`. `None` (bare
+    /// all-in-one) keeps unauthenticated loopback clients and shared storage.
+    pub component_creds: Option<k3rs::pki::ComponentCreds>,
+}
+
+/// How long `run_all_in_one` waits for `/readyz` before giving up when it runs
+/// with [`Overrides::component_creds`]. k3s gives its own wait no fixed bound
+/// (it polls until the server context ends); k3rs fails startup with a clear
+/// error instead of hanging silently.
+const READYZ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The loopback client an embedded component uses: its cert identity from
+/// `creds` (`<data-dir>/cred/<name>.kubeconfig`, server overridden to
+/// `loopback_url` so a non-default `--bind-address` port works), or, without
+/// creds (bare all-in-one), the unauthenticated client `--skip-auth` serves.
+fn embedded_client(
+    creds: Option<&k3rs::pki::ComponentCreds>,
+    name: &str,
+    loopback_url: &str,
+    tls: bool,
+) -> Result<k3rs_client::http::ApiClient> {
+    match creds {
+        Some(c) => k3rs::util::client_from_kubeconfig(&c.kubeconfig(name), Some(loopback_url))
+            .with_context(|| format!("{name} client credentials")),
+        None => Ok(k3rs_client::http::ApiClient::new(loopback_url, tls, None)?
+            // `rest.SetKubernetesDefaults`: the component's default User-Agent.
+            .with_default_user_agent(k3rs_common::compatibility::default_kubernetes_user_agent())),
+    }
 }
 
 /// Handed to `Overrides::post_start`.
@@ -590,20 +632,37 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
 
     // Embedded clients (scheduler, controller-manager, DNS) reach the
     // api-server over loopback, matching the trust boundary the compose path
-    // enforces: only the api-server touches storage (#1128). The self-signed
-    // loopback cert is skipped when TLS is on; skip_auth is the all-in-one
-    // default, so no bearer token is needed (real authn tracked in #1129). The
-    // port is derived from the api-server bind address; fall back to 6443.
+    // enforces: only the api-server touches storage (#1128). Bare all-in-one:
+    // the self-signed loopback cert is skipped when TLS is on and skip_auth is
+    // the default, so no credentials are sent. `k3rs server`: each component
+    // presents its own client cert (`Overrides::component_creds`). The port is
+    // derived from the api-server bind address; fall back to 6443.
     let api_port = api_port(&args.bind_address);
     let loopback_scheme = if args.tls { "https" } else { "http" };
     let loopback_url = format!("{loopback_scheme}://127.0.0.1:{api_port}");
+    // With component identities (`k3rs server`) every client verifies the
+    // serving cert against the server CA (its SANs carry 127.0.0.1) and
+    // authenticates with its own cert; the api-server runs Node,RBAC. Wait
+    // for /readyz with the admin identity first, so no component starts
+    // before the bootstrap RBAC policy is served.
+    let creds = ov.component_creds.as_ref();
+    if let Some(c) = creds {
+        if !args.tls {
+            anyhow::bail!("component credentials need the TLS api-server (--tls)");
+        }
+        let admin = embedded_client(Some(c), "admin", &loopback_url, args.tls)?;
+        info!("Waiting for the embedded api-server to report ready at {loopback_url}/readyz");
+        k3rs::util::wait_for_readyz(&admin, READYZ_TIMEOUT, k3rs::util::READYZ_POLL_INTERVAL)
+            .await?;
+    }
 
     // --- Scheduler ---
-    let sched_client = Arc::new(
-        k3rs_client::http::ApiClient::new(&loopback_url, args.tls, None)?
-            // `rest.SetKubernetesDefaults`: the component's default User-Agent.
-            .with_default_user_agent(k3rs_common::compatibility::default_kubernetes_user_agent()),
-    );
+    let sched_client = Arc::new(embedded_client(
+        creds,
+        "scheduler",
+        &loopback_url,
+        args.tls,
+    )?);
     info!("Scheduler reading cluster state from embedded api-server at {loopback_url}");
     tokio::spawn(async move {
         if let Err(e) = k3rs_scheduler::run_with_api(sched_client, sched_config).await {
@@ -614,21 +673,38 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     // --- Controller Manager ---
     // The HPA metrics client talks to the in-process api-server over loopback
     // using client-cert mTLS (only when cert+key are configured).
-    let metrics_config = args
-        .tls_cert_file
-        .as_ref()
-        .zip(args.tls_key_file.as_ref())
-        .map(|(cert, key)| {
+    let metrics_config = match creds {
+        // The controller-manager identity, verifying the serving cert against
+        // the server CA. Its `system:kube-controller-manager` role lists any
+        // resource (`*/*` list/watch), which covers the metrics.k8s.io and
+        // custom.metrics.k8s.io lists the HPA makes.
+        Some(c) => Some(
             k3rs_controller_manager::controllers::hpa_metrics_client::HttpMetricsConfig {
-                api_server_url: format!("https://127.0.0.1:{api_port}"),
+                api_server_url: loopback_url.clone(),
                 ca_pem: None,
-                ca_cert_path: Some(args.client_ca_file.clone().unwrap_or_else(|| cert.clone())),
-                client_cert_path: Some(cert.clone()),
-                client_key_path: Some(key.clone()),
+                ca_cert_path: Some(c.dir.join("tls/server-ca.crt").to_string_lossy().into()),
+                client_cert_path: Some(c.cert("controller-manager").to_string_lossy().into()),
+                client_key_path: Some(c.key("controller-manager").to_string_lossy().into()),
                 token: None,
-                insecure_skip_tls_verify: true,
-            }
-        });
+                insecure_skip_tls_verify: false,
+            },
+        ),
+        None => args
+            .tls_cert_file
+            .as_ref()
+            .zip(args.tls_key_file.as_ref())
+            .map(|(cert, key)| {
+                k3rs_controller_manager::controllers::hpa_metrics_client::HttpMetricsConfig {
+                    api_server_url: format!("https://127.0.0.1:{api_port}"),
+                    ca_pem: None,
+                    ca_cert_path: Some(args.client_ca_file.clone().unwrap_or_else(|| cert.clone())),
+                    client_cert_path: Some(cert.clone()),
+                    client_key_path: Some(key.clone()),
+                    token: None,
+                    insecure_skip_tls_verify: true,
+                }
+            }),
+    };
     // `--csi-attacher DRIVER=SOCKET`, same spec as the standalone binary (#3128).
     let csi_attachers = args
         .csi_attachers
@@ -667,14 +743,13 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     // api-server over the same loopback client as scheduler/DNS (#1128),
     // rather than the StorageBackend directly.
     let cm_client = Arc::new(
-        k3rs_client::http::ApiClient::new(&loopback_url, args.tls, None)?
+        // Carries `rest.SetKubernetesDefaults`' User-Agent; each controller's
+        // clone appends its name (`AddUserAgent`).
+        embedded_client(creds, "controller-manager", &loopback_url, args.tls)?
             // The SKELETON: `run_with_api` clones it once per controller and
             // each clone gets its own limiter at this QPS/burst
             // (`clientbuilder/client_builder.go:40-47`).
-            .with_rate_limit(args.kube_api_qps, args.kube_api_burst)
-            // `rest.SetKubernetesDefaults`; each controller's clone appends
-            // its name (`AddUserAgent`).
-            .with_default_user_agent(k3rs_common::compatibility::default_kubernetes_user_agent()),
+            .with_rate_limit(args.kube_api_qps, args.kube_api_burst),
     );
     info!("Controller manager reading cluster state from embedded api-server at {loopback_url}");
     spawn_controller_manager_metrics(args.controller_manager_metrics_port);
@@ -688,7 +763,18 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     // kubelet's CRI backend); k3rs runs no in-process network stack.
 
     // --- Kubelet ---
-    let kubelet_storage = storage.clone();
+    // With component identities the kubelet goes through the api-server as
+    // `system:node:<node>` (Node authorizer + NodeRestriction), the same path
+    // as a joined agent (`agent::run_agent`); bare all-in-one shares storage.
+    let kubelet_storage = match creds {
+        Some(_) => Arc::new(StorageBackend::new_api(Arc::new(embedded_client(
+            creds,
+            "kubelet",
+            &loopback_url,
+            args.tls,
+        )?))),
+        None => storage.clone(),
+    };
     let kubelet_config = k3rs_kubelet::KubeletConfig {
         node_name: args.node_name.clone(),
         volume_dir: args.volume_dir,
@@ -715,7 +801,21 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
 
     // --- Kube-proxy ---
     if !args.disable_proxy {
-        let proxy_storage = storage.clone();
+        // `system:kube-proxy` over the API (as a joined agent) with component
+        // identities; shared storage in bare all-in-one.
+        enum ProxySource {
+            Api(Arc<k3rs_client::http::ApiClient>),
+            Storage(Arc<StorageBackend>),
+        }
+        let proxy_source = match creds {
+            Some(_) => ProxySource::Api(Arc::new(embedded_client(
+                creds,
+                "kube-proxy",
+                &loopback_url,
+                args.tls,
+            )?)),
+            None => ProxySource::Storage(storage.clone()),
+        };
         let proxy_config = k3rs_kube_proxy::KubeProxyConfig {
             node_name: args.node_name,
             sync_interval: args.proxy_sync_interval,
@@ -735,7 +835,13 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
             metrics_bind_address: k3rs_kube_proxy::serve_metrics::default_metrics_bind_address(""),
         };
         tokio::spawn(async move {
-            if let Err(e) = k3rs_kube_proxy::run(proxy_storage, proxy_config).await {
+            let res = match proxy_source {
+                ProxySource::Api(client) => {
+                    k3rs_kube_proxy::run_with_api(client, proxy_config).await
+                }
+                ProxySource::Storage(storage) => k3rs_kube_proxy::run(storage, proxy_config).await,
+            };
+            if let Err(e) = res {
                 error!("Kube-proxy error: {}", e);
             }
         });
@@ -757,13 +863,7 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
         // DNS reaches cluster state through the embedded api-server over
         // loopback rather than the StorageBackend directly (see the loopback
         // client note above the scheduler block, #1128).
-        let dns_client = Arc::new(
-            k3rs_client::http::ApiClient::new(&loopback_url, args.tls, None)?
-                // `rest.SetKubernetesDefaults`: the component's default User-Agent.
-                .with_default_user_agent(
-                    k3rs_common::compatibility::default_kubernetes_user_agent(),
-                ),
-        );
+        let dns_client = Arc::new(embedded_client(creds, "dns", &loopback_url, args.tls)?);
         info!("DNS reading cluster state from embedded api-server at {loopback_url}");
         tokio::spawn(async move {
             if let Err(e) = k3rs_dns::run_with_api(dns_client, dns_config).await {
@@ -777,12 +877,9 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     info!("All components started");
 
     if let Some(hook) = ov.post_start {
-        let loopback_client = Arc::new(
-            k3rs_client::http::ApiClient::new(&loopback_url, args.tls, None)?
-                .with_default_user_agent(
-                    k3rs_common::compatibility::default_kubernetes_user_agent(),
-                ),
-        );
+        // `system:admin` with component identities (it applies cluster
+        // objects, as k3s' deploy controller does with the admin kubeconfig).
+        let loopback_client = Arc::new(embedded_client(creds, "admin", &loopback_url, args.tls)?);
         hook(ServerContext {
             loopback_client,
             node_ip: args.node_ip.clone(),
@@ -1041,6 +1138,69 @@ mod overrides_tests {
         assert!(ov.node_ipam.is_none());
         assert!(ov.node_net.is_none());
         assert!(ov.post_start.is_none());
+        assert!(ov.component_creds.is_none());
+    }
+
+    /// Bare `k3rs` keeps today's posture: `--skip-auth` on, no client CA, no
+    /// authorization mode (AlwaysAllow), plain-HTTP loopback. A bare
+    /// `--skip-auth` still parses as true; only `--skip-auth=false` turns it
+    /// off.
+    #[test]
+    fn bare_all_in_one_argv_unchanged() {
+        let a = Args::try_parse_from(["k3rs"]).unwrap();
+        assert!(a.skip_auth);
+        assert!(!a.tls);
+        assert!(a.client_ca_file.is_none());
+        assert!(a.authorization.authorization_mode.is_empty());
+        assert_eq!(api_port(&a.bind_address), 6443);
+        assert!(
+            Args::try_parse_from(["k3rs", "--skip-auth"])
+                .unwrap()
+                .skip_auth
+        );
+        assert!(
+            !Args::try_parse_from(["k3rs", "--skip-auth=false"])
+                .unwrap()
+                .skip_auth
+        );
+    }
+
+    /// Without credentials the embedded clients are the unauthenticated
+    /// loopback clients (no files read); with credentials each component's
+    /// kubeconfig is required, never silently replaced by an anonymous one.
+    #[test]
+    fn embedded_client_uses_creds_only_when_given() {
+        assert!(embedded_client(None, "scheduler", "http://127.0.0.1:6443", false).is_ok());
+        let dir = tempfile::tempdir().unwrap();
+        let creds = k3rs::pki::ComponentCreds {
+            dir: dir.path().to_path_buf(),
+        };
+        let err = embedded_client(Some(&creds), "scheduler", "https://127.0.0.1:6443", true)
+            .err()
+            .expect("missing kubeconfig must fail")
+            .to_string();
+        assert!(err.contains("scheduler client credentials"), "{err}");
+    }
+
+    /// The minted kubeconfigs load into cert-bearing clients for every
+    /// embedded identity.
+    #[test]
+    fn embedded_client_loads_minted_identities() {
+        k3rs::agent::ensure_crypto_provider();
+        let dir = tempfile::tempdir().unwrap();
+        let pki = k3rs::pki::Pki::load_or_create(dir.path(), &[]).unwrap();
+        let creds = pki.ensure_component_creds("node1", "192.0.2.10").unwrap();
+        for name in [
+            "admin",
+            "scheduler",
+            "controller-manager",
+            "dns",
+            "kubelet",
+            "kube-proxy",
+        ] {
+            embedded_client(Some(&creds), name, "https://127.0.0.1:16443", true)
+                .unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        }
     }
 }
 

@@ -184,3 +184,59 @@ async fn scheduler_cert_can_list_pods() {
     let c = client_for(&e.pki, "system:kube-scheduler", &[]);
     assert_eq!(status(&c, format!("{}/api/v1/pods", e.base)).await, 200);
 }
+
+/// Task 3: the clients `k3rs server` hands its embedded components. Each
+/// minted kubeconfig (server overridden to the loopback port) verifies the
+/// serving cert against the server CA (SAN 127.0.0.1) and authenticates as
+/// its own identity; the readiness wait passes with the admin cert; a client
+/// without a cert is refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn component_clients_authenticate_over_loopback() {
+    let e = boot().await;
+    let creds = e.pki.ensure_component_creds("n2", "192.0.2.2").unwrap();
+    let client = |name: &str| {
+        k3rs::util::client_from_kubeconfig(&creds.kubeconfig(name), Some(&e.base))
+            .unwrap_or_else(|err| panic!("{name}: {err:#}"))
+    };
+    let admin = client("admin");
+    k3rs::util::wait_for_readyz(
+        &admin,
+        std::time::Duration::from_secs(10),
+        std::time::Duration::from_millis(100),
+    )
+    .await
+    .unwrap();
+    admin.get_text("/api/v1/namespaces").await.unwrap();
+    // system:node:n2 reads its own Node (Node authorizer).
+    client("kubelet")
+        .get_text("/api/v1/nodes/n2")
+        .await
+        .unwrap();
+    // system:kube-scheduler and system:kube-proxy (system:node-proxier).
+    client("scheduler").get_text("/api/v1/pods").await.unwrap();
+    client("kube-proxy")
+        .get_text("/api/v1/services")
+        .await
+        .unwrap();
+    // system:kube-controller-manager: `*/*` list.
+    client("controller-manager")
+        .get_text("/api/v1/pods")
+        .await
+        .unwrap();
+
+    let anon = k3rs_client::http::ApiClient::with_tls(
+        &e.base,
+        false,
+        Some(e.pki.server_ca_pem().as_bytes().to_vec()),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let err = anon
+        .get_text("/api/v1/namespaces")
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("403") || err.contains("401"), "{err}");
+}
