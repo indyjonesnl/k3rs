@@ -31,7 +31,10 @@
 #      no `403`/`Forbidden` journal lines on any node, except lines matching
 #      FORBIDDEN_ALLOW (the deferred set; counts are always printed). The
 #      server logs every denied request at debug (`Forbidden uri=...`,
-#      upstream filters/authorization.go:93); sync.sh turns that target on.
+#      upstream filters/authorization.go:93) and every kubelet logs its
+#      denials at debug (`Forbidden user=...`); sync.sh turns both on. The
+#      check fails when a journal cannot be read or is empty, and unless the
+#      deliberate denials of checks 9, 10 and 12 are found (positive control).
 # Then prints per-node `free -m` used memory and k3rs/containerd RSS.
 # Test pods (acc-*) in `default` are deleted at the start and left running.
 set -euo pipefail
@@ -151,6 +154,9 @@ echo "CHECKS 1-6 PASSED"
 
 # --- security posture (7-14): every check runs, failures are collected ----
 FAILED=()
+# Journal start for check 14's positive control (each node's own clock).
+sec_since_cp="$(nssh "$CP" 'date +%s')"
+sec_since_n3="$(nssh node3 'date +%s')"
 sfail() {
   local id=$1; echo "FAIL [$1] $2" >&2; shift 2
   [ $# -gt 0 ] && printf '%s\n' "$@" >&2
@@ -209,18 +215,42 @@ grep -q 'GET / HTTP' <<<"$out" && pass 13 "exec_via_apiserver_works kubectl logs
 STEADY_WINDOW="${STEADY_WINDOW:-60}"
 # Deferred (documented in README): the Service and APIServiceAvailability
 # controllers have no upstream role (upstream does that work inside
-# kube-apiserver) and their periodic live GETs as system:kube-controller-manager
-# are denied; ClusterIP/NodePort allocation and APIService availability are
-# done by the api-server itself, so nothing breaks. Pass FORBIDDEN_ALLOW='^$'
-# to count them as failures.
-FORBIDDEN_ALLOW="${FORBIDDEN_ALLOW:-uri=/api/v1/namespaces/[^/ ]+/services/[^/ ?]+ |uri=/apis/apiregistration\.k8s\.io/v1/apiservices/}"
+# kube-apiserver) and their periodic live GETs (no query string, empty RBAC
+# reason) as system:kube-controller-manager are denied; ClusterIP/NodePort
+# allocation and APIService availability are done by the api-server itself, so
+# nothing breaks. Pass FORBIDDEN_ALLOW='^$' to count them as failures.
+FORBIDDEN_ALLOW="${FORBIDDEN_ALLOW:-Forbidden uri=/api/v1/namespaces/(default/services/kubernetes|kube-system/services/kube-dns) reason=$|Forbidden uri=/apis/apiregistration\.k8s\.io/v1/apiservices/v[0-9a-z]+\.[a-z0-9.]* reason=$}"
+# journal <node> <since-epoch>: the k3rs journal, ANSI-stripped; fails (and
+# prints nothing) when ssh/journalctl fails.
+journal() {
+  local out
+  out="$(nssh "$1" "sudo journalctl -u k3rs --no-pager -o cat --since @$2")" || return 1
+  sed -E 's/\x1b\[[0-9;]*m//g' <<<"$out"
+}
+# Positive control: the deliberate denials of checks 9, 10 (api-server debug
+# log on node1) and 12 (kubelet debug log on node3) must be in the journals,
+# or a 0 below would only mean the denials are not logged.
+cp_log="$(journal "$CP" "$sec_since_cp")" || cp_log=""
+n3_log="$(journal node3 "$sec_since_n3")" || n3_log=""
+for want in 'Forbidden uri=/api/v1/namespaces/kube-system/secrets reason=' \
+            'Forbidden uri=/api/v1/namespaces/kube-system/secrets/node3.node-password.k3rs reason='; do
+  grep -qF "$want" <<<"$cp_log" && pass 14 "positive control on $CP: '$want'" \
+    || sfail 14 "positive control: '$want' not in $CP's journal (is the server's RUST_LOG from sync.sh set?)"
+done
+grep -qF 'Forbidden user=system:node:node2' <<<"$n3_log" \
+  && pass 14 "positive control on node3: kubelet denial of system:node:node2 logged" \
+  || sfail 14 "positive control: node3's kubelet denial of system:node:node2 not in its journal (RUST_LOG from sync.sh?)"
+
 since="$(nssh "$CP" 'date +%s')"
 echo "idling ${STEADY_WINDOW}s for the steady-state log scan (since @$since)"
 sleep "$STEADY_WINDOW"
 total=0
 for n in "${NODES[@]}"; do
-  lines="$(nssh "$n" "sudo journalctl -u k3rs --no-pager -o cat --since @$since" 2>/dev/null \
-    | sed -E 's/\x1b\[[0-9;]*m//g' | grep -Ei '(\b403\b|forbidden)' || true)"
+  if ! log="$(journal "$n" "$since")" || [ -z "$log" ]; then
+    sfail 14 "no_forbidden_flood: could not read $n's journal (or it is empty) for the window"
+    continue
+  fi
+  lines="$(grep -Ei '(\b403\b|forbidden)' <<<"$log" || true)"
   all=$(grep -c . <<<"$lines" || true)
   if [ -n "$FORBIDDEN_ALLOW" ]; then
     left="$(grep -Ev "$FORBIDDEN_ALLOW" <<<"$lines" || true)"
@@ -228,8 +258,8 @@ for n in "${NODES[@]}"; do
     left="$lines"
   fi
   bad=$(grep -c . <<<"$left" || true)
-  echo "$n: $all 403/Forbidden lines in ${STEADY_WINDOW}s ($bad not in FORBIDDEN_ALLOW)"
-  # distinct messages, numbers/uids/timestamps stripped
+  echo "$n: $all 403/Forbidden lines in ${STEADY_WINDOW}s ($bad not in FORBIDDEN_ALLOW; $(grep -c . <<<"$log") journal lines read)"
+  # distinct messages, thread ids/uids stripped
   [ "$all" -gt 0 ] && sed -E 's/^[^ ]+ +//; s/ThreadId\([0-9]+\)//; s/[0-9a-f-]{36}//g' <<<"$lines" | sort | uniq -c | sort -rn | head -15
   total=$((total + bad))
 done

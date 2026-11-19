@@ -19,7 +19,8 @@ KUBECONFIG=$PWD/.kubeconfig kubectl get nodes -o wide   # written by acceptance.
    build, no `bootstrap-cluster.sh`.
 2. `sync.sh` scp's the one binary to every VM and writes `/etc/k3rs/node.env`
    (`K3RS_ROLE`, `NODE_IP`, `K3RS_ARGS`; on node1 also
-   `RUST_LOG=info,k3rs_api_server::authorization_filter=debug` so every
+   `RUST_LOG=info,k3rs_api_server::authorization_filter=debug,k3rs_kubelet::server_auth=debug`,
+   on agents `RUST_LOG=info,k3rs_kubelet::server_auth=debug`, so every
    denied request is logged), which selects the role of the single
    `k3rs.service` unit (`build/payload/units/k3rs.service`).
 3. node1 starts first (`k3rs server --tls-san node1`). On first start it mints
@@ -51,7 +52,9 @@ Like k3s (`pkg/daemons/control/server.go` `apiServer`, `pkg/daemons/agent/agent.
   (`<data-dir>/tls/client-*.{crt,key}`, `<data-dir>/cred/*.kubeconfig`):
   `system:kube-scheduler`, `system:kube-controller-manager` (informer reads)
   plus one `system:serviceaccount:kube-system:<controller>` identity per
-  controller (k3s `use-service-account-credentials`), `system:k3rs-dns`,
+  controller (k3s `use-service-account-credentials`; the k3rs-only Events
+  controller as `kube-system/event-gc-controller` with the k3rs ClusterRole
+  `system:k3rs-event-gc`, core `events` only), `system:k3rs-dns`,
   `system:kube-proxy`, `system:node:<node>`. Agents fetch their kubelet /
   kube-proxy certs with the join token into `/var/lib/k3rs/agent/`.
 - **kube-proxy** (`system:kube-proxy`, seeded `system:node-proxier`, no Pod
@@ -96,7 +99,10 @@ cert: `node3.node-password.k3rs` 403; (11) anonymous node2/node1 `:10250/pods`
 (13) `kubectl exec` and `kubectl logs` through the api-server into node3;
 (14) after `STEADY_WINDOW` (60 s) idle, no `403`/`Forbidden` line in any
 node's `journalctl -u k3rs` (except `FORBIDDEN_ALLOW`, a regex; counts are
-printed). Then `free -m` and k3rs/containerd RSS per node. Test pods
+printed); it fails if a journal cannot be read or is empty, and unless the
+deliberate denials of checks 9, 10 (node1) and 12 (node3's kubelet) are in
+the journals (positive control). Run it on a rig older than 1 h too: Events
+then age out and the Events controller's cleanup is exercised. Then `free -m` and k3rs/containerd RSS per node. Test pods
 (`acc-*` in `default`) are recreated per run and left running. Images are
 pulled from Docker Hub (the VMs have outbound access); override with
 `BUSYBOX_IMAGE` / `NGINX_IMAGE`.

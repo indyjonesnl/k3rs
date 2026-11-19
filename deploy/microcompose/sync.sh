@@ -18,7 +18,11 @@ TOKEN_WAIT="${TOKEN_WAIT:-120}"
 # The server logs each denied request (`Forbidden uri=...`) at debug;
 # acceptance.sh check 14 counts them. EnvironmentFile overrides the unit's
 # Environment=RUST_LOG.
-SERVER_RUST_LOG="${SERVER_RUST_LOG:-info,k3rs_api_server::authorization_filter=debug}"
+# Every kubelet logs its own denials at debug (`Forbidden user=...`,
+# server_auth.rs, upstream pkg/kubelet/server/auth.go); check 14's positive
+# control looks for them.
+SERVER_RUST_LOG="${SERVER_RUST_LOG:-info,k3rs_api_server::authorization_filter=debug,k3rs_kubelet::server_auth=debug}"
+AGENT_RUST_LOG="${AGENT_RUST_LOG:-info,k3rs_kubelet::server_auth=debug}"
 
 # push <node> <role> <role-args>: install binary + node.env, restart k3rs.
 push() {
@@ -36,7 +40,7 @@ cat > /etc/k3rs/node.env <<ENV
 K3RS_ROLE=$role
 NODE_IP=$ip
 K3RS_ARGS=$args
-$( [ "$role" = server ] && echo "RUST_LOG=$SERVER_RUST_LOG" )
+RUST_LOG=$( [ "$role" = server ] && echo "$SERVER_RUST_LOG" || echo "$AGENT_RUST_LOG" )
 ENV
 systemctl daemon-reload
 systemctl enable k3rs >/dev/null 2>&1
