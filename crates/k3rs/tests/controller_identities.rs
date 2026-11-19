@@ -359,6 +359,129 @@ impl k3rs_common::audit::AuditBackend for Capture {
     }
 }
 
+/// Spawn every controller under its own identity (the k3rs server wiring).
+fn spawn_identity_controllers(e: &Env, creds: &ComponentCreds) -> Vec<tokio::task::JoinHandle<()>> {
+    let kc = |name: &str| {
+        k3rs::util::client_from_kubeconfig(&creds.kubeconfig(name), Some(&e.base)).unwrap()
+    };
+    let root = std::sync::Arc::new(kc("controller-manager").with_rate_limit(100.0, 200.0));
+    let mut identities = k3rs_controller_manager::ControllerCredentials::new();
+    for sa in controller_service_accounts() {
+        identities.insert(sa, kc(&controller_cred_name(sa)));
+    }
+    let storage_for = k3rs_controller_manager::identity_storage_for(root, identities).unwrap();
+    k3rs_controller_manager::spawn_controllers(
+        storage_for,
+        k3rs_controller_manager::ControllerManagerConfig {
+            sync_interval: 2,
+            pv_recycler: Default::default(),
+            metrics_config: None,
+            ca_cert_pem: Some(e.pki.server_ca_pem().to_string()),
+            node_ipam: None,
+            legacy_sa_token_clean_up_period:
+                k3rs_controller_manager::controllers::legacy_serviceaccount_token_cleaner::DEFAULT_CLEAN_UP_PERIOD,
+            csi_attachers: Vec::new(),
+            attach_detach_controller: false,
+            bootstrap_signer_controller: false,
+            selinux_warning_controller: false,
+            terminated_pod_gc_threshold:
+                k3rs_controller_manager::controllers::podgc::DEFAULT_TERMINATED_POD_GC_THRESHOLD,
+            token_cleaner_controller: false,
+            service_cluster_ip_range: String::new(),
+        },
+    )
+}
+
+/// The job-controller's role grants pods `create, delete, list, patch, watch`
+/// and no `get`/`update` (bootstrappolicy/controller_policy.go
+/// `job-controller`). Upstream releases the job-tracking finalizer with
+/// `PatchPod(removeTrackingFinalizerPatch(pod))` and treats only NotFound as
+/// "pod gone" (job_controller.go:1470-1510, :1954-1965). A succeeded pod must
+/// be counted once, released, and the Job left with no failures.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn job_controller_counts_and_releases_a_succeeded_pod() {
+    let (e, creds) = setup().await;
+    let handles = spawn_identity_controllers(&e, &creds);
+    let admin = client_from_files(&e.pki, &creds.cert("admin"), &creds.key("admin"));
+    assert_eq!(
+        send(
+            &admin,
+            Method::POST,
+            format!("{}/apis/batch/v1/namespaces/default/jobs", e.base),
+            Some(json!({"apiVersion": "batch/v1", "kind": "Job",
+                "metadata": {"name": "once", "namespace": "default"},
+                "spec": {"backoffLimit": 0, "template": {"spec": {"restartPolicy": "Never",
+                    "containers": [{"name": "c", "image": "busybox"}]}}}})),
+        )
+        .await,
+        201
+    );
+    let get = |path: String| {
+        let (admin, url) = (admin.clone(), format!("{}{path}", e.base));
+        async move {
+            admin
+                .get(url)
+                .send()
+                .await
+                .unwrap()
+                .json::<serde_json::Value>()
+                .await
+                .unwrap_or_default()
+        }
+    };
+    let held = |pod: &serde_json::Value| {
+        pod["metadata"]["finalizers"]
+            .to_string()
+            .contains("batch.kubernetes.io/job-tracking")
+    };
+    let mut pod = serde_json::Value::Null;
+    for _ in 0..60 {
+        let pods =
+            get("/api/v1/namespaces/default/pods?labelSelector=job-name%3Donce".into()).await;
+        if let Some(p) = pods["items"].as_array().and_then(|a| a.first()) {
+            pod = p.clone();
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    let name = pod["metadata"]["name"]
+        .as_str()
+        .expect("job pod created")
+        .to_string();
+    assert!(held(&pod), "{pod}");
+    let r = admin
+        .patch(format!(
+            "{}/api/v1/namespaces/default/pods/{name}/status",
+            e.base
+        ))
+        .header("content-type", "application/merge-patch+json")
+        .body(json!({"status": {"phase": "Succeeded"}}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    let mut job = serde_json::Value::Null;
+    for _ in 0..120 {
+        job = get("/apis/batch/v1/namespaces/default/jobs/once".into()).await;
+        pod = get(format!("/api/v1/namespaces/default/pods/{name}")).await;
+        if job["status"]["succeeded"] == 1 && !held(&pod) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    for h in &handles {
+        h.abort();
+    }
+    assert_eq!(job["status"]["succeeded"], 1, "job: {job}");
+    assert_eq!(
+        job["status"]["failed"].as_i64().unwrap_or(0),
+        0,
+        "job: {job}"
+    );
+    assert!(!held(&pod), "pod still held: {pod}");
+}
+
 /// Run every controller the way `k3rs server` does
 /// (`run_with_api_identities`'s storage, real minted certs) against the
 /// authenticated api-server, drive a Deployment + Service + Job and a
