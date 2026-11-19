@@ -132,18 +132,18 @@ COPY k3rs/crates/kubelet/proto        ./k3rs/crates/kubelet/proto
 # CRATE-ENUMERATION (2/3): dummy lib.rs / main.rs per crate.
 #   - lib only:   common, controller-core, storage, protobuf,
 #                 middleware, admission-webhook, discovery, cri
-#   - bin only:   kubectl, k3rs
+#   - bin only:   kubectl
 #   - lib + bin:  api-server, controller-manager, dns, kubelet,
-#                 kube-proxy, scheduler
+#                 kube-proxy, scheduler, k3rs
 RUN set -eux; \
     cd /build/k3rs; \
     for c in client common controller-core storage protobuf middleware admission-webhook discovery cri streamproxy cel-checker csi test_support; do \
         mkdir -p crates/$c/src && : > crates/$c/src/lib.rs; \
     done; \
-    for c in kubectl k3rs; do \
+    for c in kubectl; do \
         mkdir -p crates/$c/src && echo "fn main(){}" > crates/$c/src/main.rs; \
     done; \
-    for c in api-server controller-manager dns kubelet kube-proxy scheduler; do \
+    for c in api-server controller-manager dns kubelet kube-proxy scheduler k3rs; do \
         mkdir -p crates/$c/src && \
         : > crates/$c/src/lib.rs && \
         echo "fn main(){}" > crates/$c/src/main.rs; \

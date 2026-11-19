@@ -102,17 +102,17 @@ COPY crates/common/build.rs     crates/common/build.rs
 
 # CRATE-ENUMERATION (2/3): dummy lib.rs / main.rs per crate.
 #   - lib only:   common, controller-core, storage
-#   - bin only:   kubectl, k3rs
-#   - lib + bin:  api-server, controller-manager, kubelet, kube-proxy,
+#   - bin only:   kubectl
+#   - lib + bin:  api-server, controller-manager, kubelet, kube-proxy, k3rs,
 #                 scheduler
 RUN set -eux; \
     for c in client common controller-core storage streamproxy cel-checker csi test_support; do \
         mkdir -p crates/$c/src && : > crates/$c/src/lib.rs; \
     done; \
-    for c in kubectl k3rs; do \
+    for c in kubectl; do \
         mkdir -p crates/$c/src && echo "fn main(){}" > crates/$c/src/main.rs; \
     done; \
-    for c in api-server controller-manager kubelet kube-proxy scheduler; do \
+    for c in api-server controller-manager kubelet kube-proxy scheduler k3rs; do \
         mkdir -p crates/$c/src && \
         : > crates/$c/src/lib.rs && \
         echo "fn main(){}" > crates/$c/src/main.rs; \
