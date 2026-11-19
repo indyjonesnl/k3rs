@@ -449,6 +449,13 @@ fn load_kubelet_client_identity() -> Result<Option<reqwest::Identity>> {
     };
     match reqwest::Identity::from_pem(&pem) {
         Ok(id) => Ok(Some(id)),
+        // An explicitly configured identity must not degrade to anonymous;
+        // an invalid file at the kubeadm default path keeps the old
+        // warn-and-anonymous behaviour.
+        Err(e) if k3rs_streamproxy::kubelet_client_paths().is_ok_and(|p| !p.explicit) => {
+            tracing::warn!("failed to build kubelet client identity: {e}");
+            Ok(None)
+        }
         Err(e) => Err(Error::Internal(format!(
             "failed to build kubelet client identity: {e}"
         ))),

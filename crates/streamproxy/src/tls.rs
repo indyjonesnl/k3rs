@@ -42,11 +42,35 @@ pub struct KubeletClientPaths {
     pub explicit: bool,
 }
 
+/// In-process configuration (the `--kubelet-client-certificate/--kubelet-client-key`
+/// flag equivalent). Set once by `k3rs server`; race-free, unlike mutating the
+/// process environment from inside a running multi-threaded runtime. Takes
+/// precedence over the env vars and the kubeadm default.
+static CONFIGURED: std::sync::OnceLock<KubeletClientPaths> = std::sync::OnceLock::new();
+
+/// Configure the kubelet client identity in-process. May be called once; the
+/// paths are treated as explicit (unreadable files are errors).
+pub fn set_kubelet_client_paths(
+    cert: std::path::PathBuf,
+    key: std::path::PathBuf,
+) -> Result<(), String> {
+    CONFIGURED
+        .set(KubeletClientPaths {
+            cert,
+            key,
+            explicit: true,
+        })
+        .map_err(|_| "kubelet client identity already configured".to_string())
+}
+
 /// Single resolver for the kubelet client identity paths. Both env vars set
 /// selects them; neither set selects the kubeadm default; exactly one set is
 /// a configuration error (like kube-apiserver's validation that the two
 /// flags go together).
 pub fn kubelet_client_paths() -> Result<KubeletClientPaths, String> {
+    if let Some(p) = CONFIGURED.get() {
+        return Ok(p.clone());
+    }
     let cert = std::env::var_os(KUBELET_CLIENT_CERT_ENV).filter(|v| !v.is_empty());
     let key = std::env::var_os(KUBELET_CLIENT_KEY_ENV).filter(|v| !v.is_empty());
     match (cert, key) {
@@ -147,7 +171,7 @@ pub fn kubelet_client_identity_pem() -> Result<Option<Vec<u8>>, String> {
 /// `apiserver-kubelet-client` cert when it exists so a vanilla kubelet
 /// authenticates the api-server; otherwise no client auth (k3rs' own
 /// kubelet does not require it).
-pub fn kubelet_proxy_connector() -> KubeletProxyConnector {
+pub fn kubelet_proxy_connector() -> Result<KubeletProxyConnector, String> {
     let builder = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::aws_lc_rs::default_provider(),
     ))
@@ -157,24 +181,25 @@ pub fn kubelet_proxy_connector() -> KubeletProxyConnector {
     .with_custom_certificate_verifier(Arc::new(NoVerify));
 
     // A misconfigured explicit identity (half-set env, unreadable or invalid
-    // files) panics here rather than silently proxying anonymously: the
-    // kubelet would 401 every exec/logs call with no hint why.
+    // files) is an error rather than silently proxying anonymously: the
+    // kubelet would 401 every exec/logs call with no hint why. Callers map it
+    // to a 500 with this message.
     let tls = match load_kubelet_client_identity() {
         Ok(Some((certs, key))) => {
             tracing::info!("kubelet proxy: presenting kubelet client cert");
             builder
                 .with_client_auth_cert(certs, key)
-                .expect("valid kubelet client cert/key")
+                .map_err(|e| format!("invalid kubelet client cert/key: {e}"))?
         }
         Ok(None) => builder.with_no_client_auth(),
-        Err(e) => panic!("kubelet client identity misconfigured: {e}"),
+        Err(e) => return Err(format!("kubelet client identity misconfigured: {e}")),
     };
 
-    hyper_rustls::HttpsConnectorBuilder::new()
+    Ok(hyper_rustls::HttpsConnectorBuilder::new()
         .with_tls_config(tls)
         .https_or_http()
         .enable_http1()
-        .build()
+        .build())
 }
 
 /// Accept any server certificate. The kubelet presents a self-signed serving
@@ -236,7 +261,7 @@ mod tests {
     #[serial]
     fn connector_builds() {
         clear();
-        let _ = kubelet_proxy_connector();
+        assert!(kubelet_proxy_connector().is_ok());
     }
 
     #[test]
@@ -279,6 +304,7 @@ mod tests {
         assert!(kubelet_client_paths().is_err());
         assert!(kubelet_client_identity_pem().is_err());
         assert!(load_kubelet_client_identity().is_err());
+        assert!(kubelet_proxy_connector().is_err());
         clear();
         std::env::set_var(KUBELET_CLIENT_KEY_ENV, "/x.key");
         assert!(kubelet_client_paths().is_err());

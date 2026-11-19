@@ -5,8 +5,8 @@ use axum::response::{IntoResponse, Response};
 use http::{StatusCode, Uri};
 use http_body_util::BodyExt;
 pub use tls::{
-    kubelet_client_identity_pem, kubelet_client_paths, KubeletClientPaths, KUBELET_CLIENT_CERT_ENV,
-    KUBELET_CLIENT_KEY_ENV,
+    kubelet_client_identity_pem, kubelet_client_paths, set_kubelet_client_paths,
+    KubeletClientPaths, KUBELET_CLIENT_CERT_ENV, KUBELET_CLIENT_KEY_ENV,
 };
 use tracing::{debug, warn};
 
@@ -70,7 +70,10 @@ pub struct ConnectionHold(pub std::sync::Arc<dyn std::any::Any + Send + Sync>);
 /// 101 splices both upgraded byte streams. Mirrors apimachinery
 /// proxy.NewUpgradeAwareHandler(upgradeRequired=true).
 pub async fn proxy_upgrade(target: Uri, req: Request) -> Response {
-    proxy_upgrade_with(target, req, tls::kubelet_proxy_connector()).await
+    match tls::kubelet_proxy_connector() {
+        Ok(c) => proxy_upgrade_with(target, req, c).await,
+        Err(e) => connector_error(&e),
+    }
 }
 
 /// [`proxy_upgrade`] over a caller-supplied connector: the `DialContext` of
@@ -211,7 +214,10 @@ where
 
 /// Non-upgrade streaming reverse proxy (body streamed, not buffered).
 pub async fn proxy_stream(target: Uri, req: Request) -> Response {
-    proxy_stream_with(target, req, tls::kubelet_proxy_connector()).await
+    match tls::kubelet_proxy_connector() {
+        Ok(c) => proxy_stream_with(target, req, c).await,
+        Err(e) => connector_error(&e),
+    }
 }
 
 /// [`proxy_stream`] over a caller-supplied connector (see
@@ -264,6 +270,15 @@ where
             StatusCode::BAD_GATEWAY.into_response()
         }
     }
+}
+
+/// 500 with the configuration error in the body (not a panic, which the
+/// api-server's catch-panic layer would log and re-raise per request).
+fn connector_error(e: &str) -> Response {
+    tracing::error!("kubelet proxy: {e}");
+    let mut r = Response::new(axum::body::Body::from(format!("kubelet proxy: {e}")));
+    *r.status_mut() = http::StatusCode::INTERNAL_SERVER_ERROR;
+    r
 }
 
 #[cfg(test)]
