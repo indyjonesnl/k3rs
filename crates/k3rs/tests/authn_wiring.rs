@@ -10,132 +10,15 @@
 //!   `plugin/pkg/auth/authorizer/rbac/bootstrappolicy/policy.go`.
 //!
 //! Each test runs in its own process under nextest (the api-server keeps
-//! process-global state), so run with `cargo nextest run -p k3rs authn_wiring`.
+//! process-global state), so run with `cargo nextest run -p k3rs authn_wiring`. The harness lives in
+//! `tests/common/mod.rs`.
 
-use std::net::TcpListener;
+mod common;
 
-use k3rs::pki::{CaKind, Pki, Usage};
-use k3rs_api_server::{run, ApiServerConfig};
-use k3rs_storage::{build_key, Storage, StorageBackend};
+use common::{base_builder, boot, boot_with, client_for, status, status_ready};
+use k3rs_api_server::ApiServerConfig;
+use k3rs_storage::StorageBackend;
 use std::sync::Arc;
-use tokio::task::JoinHandle;
-
-/// Start an authenticated api-server on an ephemeral loopback port.
-/// Returns `(base_url, join_handle)`; the handle keeps the server alive.
-pub async fn start_authn_api(
-    pki: &Pki,
-    storage: Arc<StorageBackend>,
-) -> (String, JoinHandle<anyhow::Result<()>>) {
-    start_authn_api_with(pki, storage, true).await
-}
-
-/// As [`start_authn_api`], with `--anonymous-auth` set to `anonymous_auth`
-/// (`k3rs server` passes `false`, like k3s `apiServer` :222).
-pub async fn start_authn_api_with(
-    pki: &Pki,
-    storage: Arc<StorageBackend>,
-    anonymous_auth: bool,
-) -> (String, JoinHandle<anyhow::Result<()>>) {
-    k3rs::agent::ensure_crypto_provider();
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let ca_path = pki.dir.join("client-ca.crt");
-    let cfg = ApiServerConfig {
-        bind_address: format!("127.0.0.1:{port}"),
-        tls: true,
-        tls_cert_file: Some(pki.dir.join("serving.crt").to_string_lossy().into()),
-        tls_key_file: Some(pki.dir.join("serving.key").to_string_lossy().into()),
-        skip_auth: false,
-        authorization_mode: vec!["Node".into(), "RBAC".into()],
-        client_ca_file: Some(ca_path.to_string_lossy().into()),
-        anonymous_auth,
-        ..Default::default()
-    };
-    let h = tokio::spawn(run(storage, cfg));
-    (format!("https://127.0.0.1:{port}"), h)
-}
-
-fn client_for(pki: &Pki, cn: &str, orgs: &[&str]) -> reqwest::Client {
-    let kp = rcgen::KeyPair::generate().unwrap();
-    let mut p = rcgen::CertificateParams::default();
-    p.distinguished_name = rcgen::DistinguishedName::new();
-    let csr = p.serialize_request(&kp).unwrap().der().to_vec();
-    let cert = pki
-        .sign_csr(CaKind::Client, &csr, cn, orgs, Usage::ClientAuth, &[])
-        .unwrap();
-    let id =
-        reqwest::Identity::from_pem(format!("{cert}{}", kp.serialize_pem()).as_bytes()).unwrap();
-    base_builder(pki).identity(id).build().unwrap()
-}
-
-fn base_builder(pki: &Pki) -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
-        .use_rustls_tls()
-        .add_root_certificate(
-            reqwest::Certificate::from_pem(pki.server_ca_pem().as_bytes()).unwrap(),
-        )
-}
-
-struct Env {
-    _dir: tempfile::TempDir,
-    pki: Pki,
-    base: String,
-    _h: JoinHandle<anyhow::Result<()>>,
-}
-
-async fn boot() -> Env {
-    boot_with(true).await
-}
-
-async fn boot_with(anonymous_auth: bool) -> Env {
-    let dir = tempfile::tempdir().unwrap();
-    let pki = Pki::load_or_create(dir.path(), &["localhost".to_string()]).unwrap();
-    let storage = Arc::new(StorageBackend::new_memory());
-    // Seed node n2 so the Node authorizer has an object to read.
-    for n in ["n2", "n3"] {
-        storage
-            .create(
-                &build_key("nodes", None, n),
-                &serde_json::json!({
-                    "apiVersion": "v1", "kind": "Node",
-                    "metadata": {"name": n, "uid": format!("uid-{n}")}
-                }),
-            )
-            .await
-            .unwrap();
-    }
-    let (base, h) = start_authn_api_with(&pki, storage, anonymous_auth).await;
-    // Wait until the bootstrap RBAC policy is served: admin listing succeeds
-    // (system:masters is also allowed by the authorizer before policy lands,
-    // so additionally wait for the scheduler ClusterRole to exist).
-    let admin = client_for(&pki, "system:admin", &["system:masters"]);
-    let url =
-        format!("{base}/apis/rbac.authorization.k8s.io/v1/clusterroles/system:kube-scheduler");
-    let mut ok = false;
-    for _ in 0..200 {
-        if let Ok(r) = admin.get(&url).send().await {
-            if r.status().is_success() {
-                ok = true;
-                break;
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-    assert!(ok, "bootstrap RBAC policy never became available");
-    Env {
-        _dir: dir,
-        pki,
-        base,
-        _h: h,
-    }
-}
-
-async fn status(c: &reqwest::Client, url: String) -> u16 {
-    c.get(url).send().await.unwrap().status().as_u16()
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn anonymous_api_is_rejected() {
@@ -268,19 +151,6 @@ const ANON_PATHS: &[&str] = &[
     "/.well-known/openid-configuration",
     "/openid/v1/jwks",
 ];
-
-/// GET `url` until it is not 503 (readyz reports not-ready while post-start
-/// hooks finish), at most ~20 s.
-async fn status_ready(c: &reqwest::Client, url: String) -> u16 {
-    for _ in 0..200 {
-        let s = status(c, url.clone()).await;
-        if s != 503 {
-            return s;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-    status(c, url).await
-}
 
 /// Task 3b: `--anonymous-auth=false` (k3s `apiServer`, pkg/daemons/control/
 /// server.go:222). With no anonymous authenticator in the union
@@ -491,4 +361,197 @@ async fn subject_access_review_keeps_the_subresource() {
         let r = r.unwrap_or_else(|err| panic!("SAR -> {code}: {err:#}"));
         assert_eq!(r["status"]["allowed"], want, "{verb} nodes/{sub:?}: {r}");
     }
+}
+
+// ---- Task 6: discovery for non-admin identities -----------------------------
+
+/// Discovery and the OpenAPI document are served to every authenticated
+/// identity: `system:discovery` (`/api`, `/apis`, `/openapi`, `/version`,
+/// ...) is bound to `system:authenticated`
+/// (plugin/pkg/auth/authorizer/rbac/bootstrappolicy/policy.go,
+/// `ClusterRoleBindings` -> `system:discovery`). With `--anonymous-auth=false`
+/// an unauthenticated caller gets 401 on the same paths.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn non_admin_identities_read_discovery_and_openapi() {
+    let e = boot_with(false).await;
+    let node = client_for(&e.pki, "system:node:n2", &["system:nodes"]);
+    let scheduler = client_for(&e.pki, "system:kube-scheduler", &[]);
+    for (who, c) in [("node", &node), ("scheduler", &scheduler)] {
+        for p in ["/api", "/apis/apps/v1", "/openapi/v2"] {
+            assert_eq!(
+                status(c, format!("{}{p}", e.base)).await,
+                200,
+                "{who} GET {p}"
+            );
+        }
+    }
+    let anon = base_builder(&e.pki).build().unwrap();
+    for p in ["/apis", "/openapi/v2"] {
+        assert_eq!(
+            status(&anon, format!("{}{p}", e.base)).await,
+            401,
+            "anonymous GET {p}"
+        );
+    }
+}
+
+// ---- Task 6a: RBAC for the embedded component identities --------------------
+
+use reqwest::Method;
+
+/// `system:k3rs-dns` lists (and watches) exactly what `k3rs_dns::run_with_api`
+/// reads once `bootstrap::objects` (applied by `k3rs server` post-start) has
+/// created its ClusterRole + binding; before that it has no access at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dns_identity_can_list_services_and_slices() {
+    let e = boot_with(false).await;
+    let creds = e.pki.ensure_component_creds("n2", "192.0.2.2").unwrap();
+    let dns = common::client_from_files(&e.pki, &creds.cert("dns"), &creds.key("dns"));
+    let paths = [
+        k3rs_dns::watcher::api_paths::SERVICES,
+        k3rs_dns::watcher::api_paths::ENDPOINTSLICES,
+        k3rs_dns::watcher::api_paths::PODS,
+    ];
+    for p in paths {
+        assert_eq!(
+            status(&dns, format!("{}{p}", e.base)).await,
+            403,
+            "before bootstrap {p}"
+        );
+    }
+    common::apply_bootstrap(&e, &creds).await;
+    for p in paths {
+        assert_eq!(
+            status(&dns, format!("{}{p}", e.base)).await,
+            200,
+            "list {p}"
+        );
+        // A watch is authorized before the stream starts: the response head is
+        // 200 (send() returns once headers arrive).
+        assert_eq!(
+            status(&dns, format!("{}{p}?watch=true&timeoutSeconds=1", e.base)).await,
+            200,
+            "watch {p}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dns_identity_cannot_read_secrets() {
+    let e = boot_with(false).await;
+    let creds = e.pki.ensure_component_creds("n2", "192.0.2.2").unwrap();
+    common::apply_bootstrap(&e, &creds).await;
+    let dns = common::client_from_files(&e.pki, &creds.cert("dns"), &creds.key("dns"));
+    for p in [
+        "/api/v1/secrets",
+        "/api/v1/namespaces/kube-system/secrets",
+        "/api/v1/namespaces/default/services/kubernetes",
+        "/api/v1/configmaps",
+    ] {
+        assert_eq!(status(&dns, format!("{}{p}", e.base)).await, 403, "{p}");
+    }
+    // No write either.
+    let svc = serde_json::json!({"apiVersion": "v1", "kind": "Service",
+        "metadata": {"name": "x"}, "spec": {"ports": [{"port": 80}]}});
+    assert_eq!(
+        common::send(
+            &dns,
+            Method::POST,
+            format!("{}/api/v1/namespaces/default/services", e.base),
+            Some(svc)
+        )
+        .await,
+        403
+    );
+}
+
+/// `system:kube-proxy` is bound to the seeded `system:node-proxier`
+/// (policy.go `ClusterRoleBindings`: `system:node-proxier` ->
+/// `Users(user.KubeProxy)`), which lists/watches services, endpointslices and
+/// nodes; it may not touch secrets.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn kube_proxy_identity_can_list_endpointslices() {
+    let e = boot_with(false).await;
+    let creds = e.pki.ensure_component_creds("n2", "192.0.2.2").unwrap();
+    let kp = common::client_from_files(&e.pki, &creds.cert("kube-proxy"), &creds.key("kube-proxy"));
+    for p in [
+        "/apis/discovery.k8s.io/v1/endpointslices",
+        "/api/v1/services",
+        "/api/v1/nodes",
+        "/api/v1/nodes/n2",
+    ] {
+        assert_eq!(status(&kp, format!("{}{p}", e.base)).await, 200, "{p}");
+    }
+    assert_eq!(status(&kp, format!("{}/api/v1/secrets", e.base)).await, 403);
+}
+
+/// `system:kube-scheduler` (seeded, policy.go) binds a pod to a node and
+/// writes its status, the calls `crates/scheduler/src/data_plane.rs` makes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scheduler_identity_binds_a_pod() {
+    let e = boot_with(false).await;
+    let creds = e.pki.ensure_component_creds("n2", "192.0.2.2").unwrap();
+    let admin = common::client_from_files(&e.pki, &creds.cert("admin"), &creds.key("admin"));
+    let sa = serde_json::json!({"apiVersion": "v1", "kind": "ServiceAccount",
+        "metadata": {"name": "default", "namespace": "default"}});
+    let s = common::send(
+        &admin,
+        Method::POST,
+        format!("{}/api/v1/namespaces/default/serviceaccounts", e.base),
+        Some(sa),
+    )
+    .await;
+    assert!(s == 201 || s == 409, "create default SA -> {s}");
+    let pod = serde_json::json!({"apiVersion": "v1", "kind": "Pod",
+        "metadata": {"name": "p", "namespace": "default"},
+        "spec": {"automountServiceAccountToken": false,
+                 "containers": [{"name": "c", "image": "busybox"}]}});
+    assert_eq!(
+        common::send(
+            &admin,
+            Method::POST,
+            format!("{}/api/v1/namespaces/default/pods", e.base),
+            Some(pod)
+        )
+        .await,
+        201
+    );
+    let sched =
+        common::client_from_files(&e.pki, &creds.cert("scheduler"), &creds.key("scheduler"));
+    let binding = serde_json::json!({"apiVersion": "v1", "kind": "Binding",
+        "metadata": {"name": "p", "namespace": "default"},
+        "target": {"apiVersion": "v1", "kind": "Node", "name": "n2"}});
+    assert_eq!(
+        common::send(
+            &sched,
+            Method::POST,
+            format!("{}/api/v1/namespaces/default/pods/p/binding", e.base),
+            Some(binding)
+        )
+        .await,
+        201
+    );
+    let patch =
+        serde_json::json!({"status": {"conditions": [{"type": "PodScheduled", "status": "True"}]}});
+    let s = sched
+        .patch(format!(
+            "{}/api/v1/namespaces/default/pods/p/status",
+            e.base
+        ))
+        .header("Content-Type", "application/strategic-merge-patch+json")
+        .json(&patch)
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .as_u16();
+    assert_eq!(s, 200, "patch pods/status");
+    assert_eq!(
+        status(
+            &sched,
+            format!("{}/api/v1/namespaces/kube-system/secrets", e.base)
+        )
+        .await,
+        403
+    );
 }

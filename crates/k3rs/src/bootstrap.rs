@@ -16,6 +16,10 @@
 //! (`bootstrap_system_priority_classes`, upstream storage_scheduling.go).
 //! `default` ServiceAccounts come from the serviceaccount controller.
 //!
+//! RBAC for the in-process DNS: a `system:k3rs-dns` ClusterRole + binding
+//! to the DNS client identity (User `system:k3rs-dns`, `pki::COMPONENT_IDENTITIES`),
+//! see [`DNS_CLUSTER_ROLE`].
+//!
 //! k3s comparison: manifests/coredns.yaml ships the same kube-dns Service
 //! (ports dns/53 UDP, dns-tcp/53 TCP, labels `k8s-app`,
 //! `kubernetes.io/cluster-service`) but with a `k8s-app: kube-dns` selector
@@ -29,6 +33,56 @@ use serde_json::{json, Value};
 
 /// ClusterIP of `kube-dns` (bootstrap-cluster.yaml; `--cluster-dns`).
 pub const KUBE_DNS_CLUSTER_IP: &str = "10.96.0.10";
+
+/// Name of the ClusterRole (and its ClusterRoleBinding) for the embedded DNS.
+pub const DNS_CLUSTER_ROLE: &str = "system:k3rs-dns";
+/// The DNS client cert's CN (`pki::COMPONENT_IDENTITIES`, name `dns`).
+pub const DNS_USER: &str = "system:k3rs-dns";
+
+/// RBAC for the in-process DNS identity.
+///
+/// Deviation, cited: k3s grants CoreDNS the `system:coredns` ClusterRole
+/// (list/watch `endpoints`, `services`, `pods`, `namespaces`, and
+/// `discovery.k8s.io` `endpointslices`) bound to the ServiceAccount
+/// `kube-system/coredns` (../k3s manifests/coredns.yaml:8-47). k3rs runs its DNS
+/// in-process under a client cert (User `system:k3rs-dns`), so the binding
+/// names that User, and the rules are narrowed to exactly what
+/// `k3rs_dns::run_with_api` lists and watches (crates/dns/src/watcher.rs
+/// `api_paths`: services, pods, endpointslices; no endpoints/namespaces).
+/// The seeded upstream `system:kube-dns` role (list/watch endpoints and
+/// services only, plugin/pkg/auth/authorizer/rbac/bootstrappolicy/policy.go)
+/// does not cover pods or endpointslices, so it is not reused.
+fn dns_rbac() -> Vec<BootstrapObject> {
+    let labels = json!({"kubernetes.io/bootstrapping": "rbac-defaults"});
+    let role = json!({
+        "apiVersion": "rbac.authorization.k8s.io/v1",
+        "kind": "ClusterRole",
+        "metadata": {"name": DNS_CLUSTER_ROLE, "labels": labels},
+        "rules": [
+            {"apiGroups": [""], "resources": ["services", "pods"], "verbs": ["list", "watch"]},
+            {"apiGroups": ["discovery.k8s.io"], "resources": ["endpointslices"], "verbs": ["list", "watch"]}
+        ]
+    });
+    let binding = json!({
+        "apiVersion": "rbac.authorization.k8s.io/v1",
+        "kind": "ClusterRoleBinding",
+        "metadata": {"name": DNS_CLUSTER_ROLE, "labels": labels},
+        "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": DNS_CLUSTER_ROLE},
+        "subjects": [{"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": DNS_USER}]
+    });
+    vec![
+        BootstrapObject {
+            path: "/apis/rbac.authorization.k8s.io/v1/clusterroles".into(),
+            name: DNS_CLUSTER_ROLE.into(),
+            body: role,
+        },
+        BootstrapObject {
+            path: "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings".into(),
+            name: DNS_CLUSTER_ROLE.into(),
+            body: binding,
+        },
+    ]
+}
 
 /// How long `apply_all` keeps retrying while the api-server is not answering.
 const APPLY_DEADLINE: Duration = Duration::from_secs(120);
@@ -89,7 +143,8 @@ pub fn objects(node_ip: &str) -> Vec<BootstrapObject> {
             "conditions": {"ready": true, "serving": true, "terminating": false}
         }]
     });
-    vec![
+    let mut objs = dns_rbac();
+    objs.extend([
         BootstrapObject {
             path: "/api/v1/namespaces/kube-system/services".into(),
             name: "kube-dns".into(),
@@ -100,7 +155,8 @@ pub fn objects(node_ip: &str) -> Vec<BootstrapObject> {
             name: "kube-dns-k3rs".into(),
             body: slice,
         },
-    ]
+    ]);
+    objs
 }
 
 async fn apply_one(client: &ApiClient, o: &BootstrapObject) -> Result<()> {
@@ -222,6 +278,56 @@ mod tests {
         (url, posts)
     }
 
+    /// The binding names the DNS client cert's CN, and the rules are exactly
+    /// the collections `k3rs_dns::run_with_api` lists and watches.
+    #[test]
+    fn dns_rbac_binds_the_dns_identity_to_what_it_reads() {
+        assert!(crate::pki::COMPONENT_IDENTITIES
+            .iter()
+            .any(|i| i.name == "dns" && i.cn == DNS_USER && i.orgs.is_empty()));
+        let objs = objects("192.0.2.10");
+        let role = objs
+            .iter()
+            .find(|o| o.path.ends_with("/clusterroles"))
+            .unwrap();
+        assert_eq!(role.name, DNS_CLUSTER_ROLE);
+        let rules = role.body["rules"].as_array().unwrap();
+        let mut granted = Vec::new();
+        for r in rules {
+            assert_eq!(r["verbs"], json!(["list", "watch"]));
+            for g in r["apiGroups"].as_array().unwrap() {
+                for res in r["resources"].as_array().unwrap() {
+                    granted.push(format!("{}/{}", g.as_str().unwrap(), res.as_str().unwrap()));
+                }
+            }
+        }
+        granted.sort();
+        assert_eq!(
+            granted,
+            ["/pods", "/services", "discovery.k8s.io/endpointslices"]
+        );
+        for p in [
+            k3rs_dns::watcher::api_paths::SERVICES,
+            k3rs_dns::watcher::api_paths::PODS,
+            k3rs_dns::watcher::api_paths::ENDPOINTSLICES,
+        ] {
+            let res = p.rsplit('/').next().unwrap();
+            assert!(
+                granted.iter().any(|g| g.ends_with(&format!("/{res}"))),
+                "{p}"
+            );
+        }
+        let binding = objs
+            .iter()
+            .find(|o| o.path.ends_with("/clusterrolebindings"))
+            .unwrap();
+        assert_eq!(binding.body["roleRef"]["name"], DNS_CLUSTER_ROLE);
+        assert_eq!(
+            binding.body["subjects"],
+            json!([{"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": DNS_USER}])
+        );
+    }
+
     #[tokio::test]
     async fn apply_all_skips_existing() {
         let objs = objects("192.0.2.10");
@@ -232,7 +338,11 @@ mod tests {
         let got = posts.lock().unwrap().clone();
         assert_eq!(
             got,
-            vec!["/apis/discovery.k8s.io/v1/namespaces/kube-system/endpointslices".to_string()]
+            vec![
+                "/apis/rbac.authorization.k8s.io/v1/clusterroles".to_string(),
+                "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings".to_string(),
+                "/apis/discovery.k8s.io/v1/namespaces/kube-system/endpointslices".to_string()
+            ]
         );
     }
 

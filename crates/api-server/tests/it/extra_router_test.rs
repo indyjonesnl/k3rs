@@ -11,6 +11,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 async fn start(skip_auth: bool, extra: Option<Router>) -> (String, tokio::task::JoinHandle<()>) {
+    start_with(skip_auth, true, extra).await
+}
+
+async fn start_with(
+    skip_auth: bool,
+    anonymous_auth: bool,
+    extra: Option<Router>,
+) -> (String, tokio::task::JoinHandle<()>) {
     let storage = Arc::new(StorageBackend::Memory(Arc::new(MemoryStorage::new())));
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -18,6 +26,7 @@ async fn start(skip_auth: bool, extra: Option<Router>) -> (String, tokio::task::
     let config = ApiServerConfig {
         bind_address: addr.to_string(),
         skip_auth,
+        anonymous_auth,
         extra_router: extra,
         ..ApiServerConfig::default()
     };
@@ -26,6 +35,7 @@ async fn start(skip_auth: bool, extra: Option<Router>) -> (String, tokio::task::
     });
     let base = format!("http://{addr}");
     for _ in 0..200 {
+        // Any HTTP answer (with anonymous auth off, /healthz is 401).
         if reqwest::get(format!("{base}/healthz")).await.is_ok() {
             return (base, server);
         }
@@ -74,6 +84,28 @@ async fn extra_route_unauthenticated_when_auth_enforced() {
         .await
         .unwrap();
     assert_eq!(r.status(), 200);
+    server.abort();
+}
+
+/// `k3rs server` runs with `--anonymous-auth=false`: the built-in routes
+/// answer an unauthenticated caller 401 (`WithAuthentication`'s
+/// `Unauthorized`, staging/src/k8s.io/apiserver/pkg/endpoints/filters/
+/// authentication.go), while the supervisor routes merged via `extra_router`
+/// stay reachable without credentials (joining agents have none yet; k3s
+/// serves `/cacerts` outside the apiserver authn chain,
+/// pkg/server/handlers/router.go:69).
+#[tokio::test]
+async fn extra_route_unauthenticated_when_anonymous_disabled() {
+    let (base, server) = start_with(false, false, Some(cacerts())).await;
+    let r = reqwest::get(format!("{base}/cacerts")).await.unwrap();
+    assert_eq!(r.status(), 200, "extra route must bypass authn");
+    assert_eq!(r.text().await.unwrap(), "pem");
+    let r = reqwest::get(format!("{base}/api/v1/namespaces"))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401, "anonymous API route");
+    let r = reqwest::get(format!("{base}/healthz")).await.unwrap();
+    assert_eq!(r.status(), 401, "anonymous /healthz");
     server.abort();
 }
 
