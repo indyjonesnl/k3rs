@@ -47,7 +47,7 @@ env:
   # an unset value yields "invalid spec: ::rw,rshared". No container is started
   # here — the path just has to be a non-empty absolute path.
   KUBELET_VOLUMES_PATH: ${{ github.workspace }}/.k3rs/volumes
-  # scheduler / controller-manager / dns sit behind the `build` compose profile.
+  # scheduler / controller-manager sit behind the `build` compose profile.
   COMPOSE_PROFILES: build
   IMAGE_PREFIX: ghcr.io/indyjonesnl/rusternetes
   # Disable BuildKit's default provenance + SBOM attestations. They turn each
@@ -78,13 +78,13 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -104,7 +104,7 @@ jobs:
           # One --set per target forcing a tag-less repo name (compose.ghcr.yml
           # otherwise yields repo:<tag>, which push-by-digest refuses).
           bare_tags=()
-          for svc in rhino api-server scheduler controller-manager containerd kubelet kube-proxy dns; do
+          for svc in rhino api-server scheduler controller-manager containerd kubelet kube-proxy; do
             bare_tags+=(--set "${svc}.tags=${IMAGE_PREFIX}/${svc}")
           done
           docker buildx bake \
@@ -113,13 +113,13 @@ jobs:
             --set "*.output=type=image,push-by-digest=true,name-canonical=true,push=true" \
             "${bare_tags[@]}" \
             --metadata-file /tmp/bake-meta.json \
-            rhino api-server scheduler controller-manager containerd kubelet kube-proxy dns
+            rhino api-server scheduler controller-manager containerd kubelet kube-proxy
 
       - name: Extract per-image digests
         run: |
           set -euo pipefail
           mkdir -p /tmp/digests
-          for svc in rhino api-server scheduler controller-manager containerd kubelet kube-proxy dns; do
+          for svc in rhino api-server scheduler controller-manager containerd kubelet kube-proxy; do
             digest=$(jq -er --arg s "$svc" '.[$s]["containerimage.digest"]' /tmp/bake-meta.json)
             echo "$digest" > "/tmp/digests/${svc}"
           done
@@ -127,7 +127,7 @@ jobs:
           cat /tmp/digests/* # noqa
 
       - name: Upload digests
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: digests-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -143,17 +143,17 @@ jobs:
       packages: write
     steps:
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: /tmp/digests
 
@@ -161,7 +161,7 @@ jobs:
         run: |
           set -euo pipefail
           sha_tag="sha-${{ github.sha }}"
-          for svc in rhino api-server scheduler controller-manager containerd kubelet kube-proxy dns; do
+          for svc in rhino api-server scheduler controller-manager containerd kubelet kube-proxy; do
             repo="${IMAGE_PREFIX}/${svc}"
             amd=$(cat "/tmp/digests/digests-amd64/${svc}")
             arm=$(cat "/tmp/digests/digests-arm64/${svc}")

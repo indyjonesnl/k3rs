@@ -1519,6 +1519,11 @@ impl Kubelet {
         let node_name = self.node_name.clone();
         let watch_tx_clone = watch_tx.clone();
         let recently_deleted_clone = self.recently_deleted.clone();
+        // The pod watch is the kubelet's apiserver config source
+        // (`NewSourceApiserver`, pkg/kubelet/config/apiserver.go:37): it feeds
+        // the pod manager before the pod's worker is woken.
+        let watch_pod_cache = self.pod_cache.clone();
+        let watch_cert_manager = self.pod_certificate_manager.clone();
         tokio::spawn(async move {
             let prefix = build_prefix("pods", None);
             loop {
@@ -1531,8 +1536,23 @@ impl Kubelet {
                                     WatchEvent::Added(key, value)
                                     | WatchEvent::Modified(key, value),
                                 ) => {
+                                    // Typed parse first: one pass yields both the nodeName
+                                    // check and the pod the pod manager keeps.
+                                    if let Ok(typed) = serde_json::from_str::<Pod>(&value) {
+                                        let on_node = typed
+                                            .spec
+                                            .as_ref()
+                                            .and_then(|s| s.node_name.as_deref())
+                                            == Some(node_name.as_str());
+                                        if on_node {
+                                            watch_pod_cache.handle_pod_update(
+                                                typed,
+                                                watch_cert_manager.as_ref(),
+                                            );
+                                            let _ = watch_tx_clone.try_send(key);
+                                        }
                                     // Parse to check nodeName reliably (avoid string matching on JSON)
-                                    if let Ok(pod) =
+                                    } else if let Ok(pod) =
                                         serde_json::from_str::<serde_json::Value>(&value)
                                     {
                                         let assigned_node =
@@ -1550,6 +1570,17 @@ impl Kubelet {
                                         let assigned_node =
                                             pod.pointer("/spec/nodeName").and_then(|v| v.as_str());
                                         if assigned_node == Some(&node_name) {
+                                            // `HandlePodRemoves`: the pod manager forgets the
+                                            // pod, so its worker sees it gone on the wake below.
+                                            if let Some(uid) = pod
+                                                .pointer("/metadata/uid")
+                                                .and_then(|v| v.as_str())
+                                            {
+                                                watch_pod_cache.handle_pod_remove(
+                                                    uid,
+                                                    watch_cert_manager.as_ref(),
+                                                );
+                                            }
                                             // Cache the pod spec so orphan cleanup can run preStop hooks
                                             if let Some(pod_name) = pod
                                                 .pointer("/metadata/name")
@@ -2494,23 +2525,11 @@ impl Kubelet {
         use k3rs_common::types::{ObjectMeta, TypeMeta};
         use std::collections::BTreeMap;
 
-        // Get pods assigned to this node
-        let all_pods: Vec<Pod> = self
-            .storage
-            .list(&build_prefix("pods", None))
-            .await
-            .unwrap_or_default();
-
-        let node_pods: Vec<&Pod> = all_pods
-            .iter()
-            .filter(|p| {
-                p.spec
-                    .as_ref()
-                    .and_then(|s| s.node_name.as_deref())
-                    .map(|n| n == self.node_name)
-                    .unwrap_or(false)
-            })
-            .collect();
+        // The node's pods, from the pod manager (`podManager.GetPods()`, which
+        // is what the stats provider reads, `kubelet.go` `stats.Provider`):
+        // not a cluster-wide LIST + filter each pass.
+        let pod_manager_pods = crate::podcertificate::PodManager::get_pods(&*self.pod_cache);
+        let node_pods: Vec<&Pod> = pod_manager_pods.iter().map(|p| &**p).collect();
 
         let (cpu_millicores, memory_bytes) = self.runtime.collect_node_metrics(&node_pods).await;
         let memory_mi = memory_bytes / (1024 * 1024);
@@ -2549,23 +2568,10 @@ impl Kubelet {
         use k3rs_common::types::{ObjectMeta, TypeMeta};
         use std::collections::BTreeMap;
 
-        let all_pods: Vec<Pod> = self
-            .storage
-            .list(&build_prefix("pods", None))
-            .await
-            .unwrap_or_default();
-
-        // Pods assigned to this node, keyed by name -> namespace.
-        let node_pods: Vec<&Pod> = all_pods
-            .iter()
-            .filter(|p| {
-                p.spec
-                    .as_ref()
-                    .and_then(|s| s.node_name.as_deref())
-                    .map(|n| n == self.node_name)
-                    .unwrap_or(false)
-            })
-            .collect();
+        // Pods assigned to this node, from the pod manager (see
+        // `publish_node_metrics`).
+        let pod_manager_pods = crate::podcertificate::PodManager::get_pods(&*self.pod_cache);
+        let node_pods: Vec<&Pod> = pod_manager_pods.iter().map(|p| &**p).collect();
         if node_pods.is_empty() {
             return;
         }
@@ -2627,7 +2633,7 @@ impl Kubelet {
         let static_pods: Vec<Pod> = self.static_pods.lock().unwrap().values().cloned().collect();
 
         let node_pods: Vec<Pod> =
-            crate::static_pods::merge_node_pods(all_pods.clone(), static_pods, &self.node_name);
+            crate::static_pods::merge_node_pods(&all_pods, static_pods, &self.node_name);
 
         debug!("Found {} pods assigned to this node", node_pods.len());
 
@@ -2671,56 +2677,11 @@ impl Kubelet {
             }
         }
 
-        // Legacy one-shot sync for backward compatibility during transition.
-        // TODO: Remove once per-pod workers are proven stable.
-        // For now, run one-shot syncs for any pod that doesn't have a worker yet.
-        for pod in &node_pods {
-            let pod = pod.clone();
-            let kubelet = Arc::clone(self);
-            let timeout_secs = 120u64;
-            tokio::spawn(async move {
-                let body = serde_json::to_vec(&pod).unwrap_or_default().into();
-                let result = tokio::time::timeout(
-                    std::time::Duration::from_secs(timeout_secs),
-                    k3rs_common::dump::with_payload(body, kubelet.sync_pod(&pod)),
-                )
-                .await;
-                match result {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => {
-                        let err_str = e.to_string();
-                        if err_str.contains("Failed to create container")
-                            || err_str.contains("Failed to pull image")
-                            || err_str.contains("FailedToStart")
-                        {
-                            tracing::error!(
-                                "Fatal error syncing pod {}/{}: {}",
-                                pod.metadata.namespace.as_deref().unwrap_or(""),
-                                pod.metadata.name,
-                                err_str
-                            );
-                            let _ = kubelet.update_pod_status_error(&pod, &err_str).await;
-                        } else {
-                            tracing::warn!(
-                                "Transient error syncing pod {}/{} (will retry): {}",
-                                pod.metadata.namespace.as_deref().unwrap_or(""),
-                                pod.metadata.name,
-                                err_str
-                            );
-                        }
-                    }
-                    Err(_) => {
-                        tracing::warn!(
-                            "Pod sync timed out for {}/{} ({}s)",
-                            pod.metadata.namespace.as_deref().unwrap_or(""),
-                            pod.metadata.name,
-                            timeout_secs
-                        );
-                    }
-                }
-            });
-        }
-
+        // Syncing is the per-pod workers' job alone (pod_workers.go
+        // `podWorkerLoop`): the loop above has just signalled (or created) one
+        // for every pod on the node. A second one-shot `sync_pod` task per pod
+        // per pass duplicated every sync and serialized every pod to JSON for
+        // the payload dump each time.
         // Pod sync tasks now run independently (fire-and-forget).
         // Error handling is in each spawned task above.
         // This matches K8s podWorkerLoop which runs independently per pod.
@@ -3142,27 +3103,38 @@ impl Kubelet {
                 // Drain any additional queued signals
                 while rx.try_recv().is_ok() {}
 
-                // Read the latest pod state from storage by scanning for this pod.
-                // We need to find the namespace since it's not stored in the worker key.
-                // Search all namespaces for this pod name assigned to our node.
-                let pod = {
+                // `podWorkers.UpdatePod` (pod_workers.go:755) hands the worker the
+                // pod the pod manager holds (`UpdatePodOptions.Pod`, :82); it never lists the
+                // API. The pod cache is kept current by the pod watch
+                // (`handle_pod_update`) and the sync loop's list
+                // (`reconcile`), and returns the shared `Arc<Pod>`.
+                let pod: Option<Arc<Pod>> = {
                     // File-sourced static pods are authoritative: consult the
                     // cache first so a static pod keeps running even if its
                     // mirror was deleted from storage.
                     let cached = kubelet.static_pods.lock().unwrap().get(&name).cloned();
                     if let Some(p) = cached {
+                        Some(Arc::new(p))
+                    } else if let Some(p) =
+                        kubelet.pod_cache.find_node_pod_by_name(&name, &node_name)
+                    {
                         Some(p)
                     } else {
+                        // Not in the pod manager (yet, or any more): confirm
+                        // against storage before concluding the pod is gone.
                         let prefix = build_prefix("pods", None);
                         match kubelet.storage.list::<Pod>(&prefix).await {
-                            Ok(pods) => pods.into_iter().find(|p| {
-                                p.metadata.name == name
-                                    && p.spec
-                                        .as_ref()
-                                        .and_then(|s| s.node_name.as_ref())
-                                        .map(|n| n == &node_name)
-                                        .unwrap_or(false)
-                            }),
+                            Ok(pods) => pods
+                                .into_iter()
+                                .find(|p| {
+                                    p.metadata.name == name
+                                        && p.spec
+                                            .as_ref()
+                                            .and_then(|s| s.node_name.as_ref())
+                                            .map(|n| n == &node_name)
+                                            .unwrap_or(false)
+                                })
+                                .map(Arc::new),
                             Err(e) => {
                                 debug!("Pod worker {}: storage error: {}", name, e);
                                 continue;
@@ -3182,7 +3154,7 @@ impl Kubelet {
                         // K8s pod workers don't have a per-sync timeout.
                         // 120s is generous enough for container startup + probes.
                         let timeout_secs = 120u64;
-                        let body = serde_json::to_vec(&pod).unwrap_or_default().into();
+                        let body = serde_json::to_vec(&*pod).unwrap_or_default().into();
                         match tokio::time::timeout(
                             Duration::from_secs(timeout_secs),
                             k3rs_common::dump::with_payload(body, kubelet.sync_pod(&pod)),
@@ -3197,6 +3169,7 @@ impl Kubelet {
                                 let err_str = e.to_string();
                                 if err_str.contains("Failed to create container")
                                     || err_str.contains("Failed to pull image")
+                                    || err_str.contains("FailedToStart")
                                 {
                                     let _ = kubelet.update_pod_status_error(&pod, &err_str).await;
                                 }

@@ -46,7 +46,7 @@ case "$args" in
         printf '%s' "${SCHED_PHASE-Running}"; exit 0 ;;
     *"pod -n kube-system kube-controller-manager-node-1"*)
         printf '%s' "${CM_PHASE-Running}"; exit 0 ;;
-    *"deploy -n kube-system k3rs-dns"*)
+    *"deploy -n kube-system coredns"*)
         printf '%s' "${DNS_READY-1}"; exit 0 ;;
     *"get pod -n kube-system"*)
         # Any other pod name: the caller overrode --control-plane-pods, so
@@ -145,7 +145,14 @@ esac
 exit 0
 STUB
 
-    chmod +x "$dir/kubectl" "$dir/docker"
+    # curl stub: only the rhino /metrics probe (#3855). METRICS_BACKLOG unset
+    # means the endpoint is unreachable (older rhino / not published).
+    cat >"$dir/curl" <<'STUB'
+#!/usr/bin/env bash
+[ -n "${METRICS_BACKLOG:-}" ] || exit 7
+printf '# TYPE rhino_compaction_backlog gauge\nrhino_compaction_backlog %s\n' "$METRICS_BACKLOG"
+STUB
+    chmod +x "$dir/kubectl" "$dir/docker" "$dir/curl"
 }
 
 STUBS="$TMPROOT/bin"
@@ -202,7 +209,7 @@ expect_case "absent static pod is refused" 2 "does not exist" \
     "SCHED_PHASE="
 
 # Trap 2: unresolvable control-plane images -> dns never becomes ready.
-expect_case "dns without a ready backend is refused" 2 "k3rs-dns readyReplicas=0" \
+expect_case "dns without a ready backend is refused" 2 "coredns readyReplicas=0" \
     "DNS_READY=0"
 
 # Trap 3: host over the imagefs eviction threshold.
@@ -299,14 +306,14 @@ else
     echo "ok   [--control-plane-pods none queries no pod at all]"
 fi
 
-PREFLIGHT_FLAGS=(--dns-deployment coredns)
+PREFLIGHT_FLAGS=(--dns-deployment kube-dns-custom)
 : >"$STUB_LOG_FILE"
-expect_case "custom dns deployment name is accepted" 0 "coredns has 1 ready replica" \
+expect_case "custom dns deployment name is accepted" 0 "kube-dns-custom has 1 ready replica" \
     "STUB_LOG=$STUB_LOG_FILE"
-if grep -q "deploy -n kube-system coredns" "$STUB_LOG_FILE"; then
+if grep -q "deploy -n kube-system kube-dns-custom" "$STUB_LOG_FILE"; then
     echo "ok   [--dns-deployment changes which Deployment is queried]"
 else
-    echo "FAIL [--dns-deployment]: coredns was never queried"
+    echo "FAIL [--dns-deployment]: kube-dns-custom was never queried"
     sed 's/^/    /' "$STUB_LOG_FILE"
     fail=1
 fi
@@ -433,6 +440,13 @@ PY
 else
     echo "skip [compaction backlog cases: python3 unavailable]"
 fi
+# rhino /metrics gauge (#3855) is preferred over the DB copy.
+expect_case "metrics backlog over the ceiling is refused" 2 "backlog is 16000 revisions" "METRICS_BACKLOG=16000"
+expect_case "metrics backlog healthy passes" 0 "compaction backlog is 1200 (ceiling 10000, rhino /metrics)" \
+    "METRICS_BACKLOG=1200"
+expect_case "metrics wins over a bad DB copy" 0 "rhino /metrics" "METRICS_BACKLOG=1200" \
+    "LAG_FIXTURE_DIR=$TMPROOT/lag-bad"
+expect_case "metrics works without a storage container" 0 "rhino /metrics" "METRICS_BACKLOG=1200" "RHINO_PRESENT=0"
 expect_case "unreadable DB skips the compaction assertion" 0 "could not read the compaction backlog" \
     "LAG_DB_READABLE=0"
 expect_case "absent storage container skips the compaction assertion" 0 "skipping compaction-backlog assertion" \

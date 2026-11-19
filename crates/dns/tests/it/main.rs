@@ -9,3 +9,4 @@
 //! reintroduces a separate binary, which is what this layout avoids.
 mod api_source_test;
 mod dns_listener_intact;
+mod forward_e2e;

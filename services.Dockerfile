@@ -87,7 +87,7 @@ RUN npm run build
 # a Wednesday `docker compose build` after a Tuesday Rust release
 # pays the full ~25 min uncached cost. Bump this pin in a deliberate
 # PR when the toolchain genuinely needs to move; do not chase nightly.
-FROM rust:1.99 AS cargo-builder
+FROM rust:1.100 AS cargo-builder
 
 # sccache wraps rustc so identical (crate, source, flags) compilations
 # hit the BuildKit cache mount below instead of re-running rustc.
@@ -390,6 +390,26 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Bundled addon charts, served at /static/charts/ (K3RS_STATIC_DIR) for the
+# traefik HelmChart specs (deploy/addons/traefik.yaml, from k3s
+# manifests/traefik.yaml: `chart: https://%{KUBERNETES_API}%/static/charts/...`).
+# k3s fetches the same files in scripts/download (CHARTS_URL
+# https://k3s.io/k3s-charts/assets) and embeds them in the binary
+# (pkg/static). sha256-pinned; keep in step with the chart versions in
+# deploy/addons/traefik.yaml.
+ARG TRAEFIK_CHART=40.1.5+up40.1.0
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && mkdir -p /var/lib/k3rs/static/charts && cd /var/lib/k3rs/static/charts \
+    && for c in traefik:d4d0e818284d310372d38adfce9a1cfb3179a69fc9f3ca8bfadb33581000b778 \
+                traefik-crd:749676684b53240c9024578b8e211053d4e6881c3d54dccb66d5308a01bcb489; do \
+         n="${c%%:*}"; sum="${c##*:}"; \
+         curl -fSL --retry 5 --retry-all-errors --retry-delay 5 \
+           "https://k3s.io/k3s-charts/assets/${n}/${n}-${TRAEFIK_CHART}.tgz" -o "${n}-${TRAEFIK_CHART}.tgz" \
+         && echo "${sum}  ${n}-${TRAEFIK_CHART}.tgz" | sha256sum -c - || exit 1; \
+       done \
+    && rm -rf /var/lib/apt/lists/*
+ENV K3RS_STATIC_DIR=/var/lib/k3rs/static
+
 COPY --from=cargo-builder /out/api-server /app/api-server
 # Upstream's server images install the binary at /usr/local/bin/<name>
 # (build/server-image/kube-apiserver/Dockerfile); kubeadm/Talos manifests exec
@@ -423,6 +443,7 @@ FROM debian:sid-slim AS kubelet
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
+    openssl \
     iproute2 \
     iptables \
     curl \
@@ -450,6 +471,22 @@ COPY cni-config/10-k3rs.conflist /etc/cni/net.d/
 
 COPY --from=cargo-builder /out/kubelet /app/kubelet
 RUN ln -s /app/kubelet /usr/local/bin/kubelet
+
+# Upstream (Go) kubectl, like the one k3s bundles (scripts/package-cli symlinks
+# kubectl into the k3s multi-call binary; the k3s docker tests run
+# `kubectl version` inside the server container). The release-1.35 binary from
+# dl.k8s.io, sha256-verified. Pinned to the patch k3s v1.35.9+k3s1 vendors.
+# It reaches the api-server with the kubelet's own client kubeconfig, mounted at
+# /root/.k3rs/certs (compose), via kubectl's default ~/.kube/config.
+ARG KUBECTL_VERSION=v1.35.9
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fSL --retry 5 --retry-all-errors --retry-delay 5 \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl && \
+    curl -fSL --retry 5 --retry-all-errors --retry-delay 5 \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" -o /tmp/kubectl.sha256 && \
+    echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c - && \
+    chmod +x /usr/local/bin/kubectl && rm /tmp/kubectl.sha256 && \
+    mkdir -p /root/.kube && ln -s /root/.k3rs/certs/kubelet.conf /root/.kube/config
 
 # Entrypoint installs a route to the pod CIDR via the containerd container so
 # the kubelet can dial pod IPs for probes + HTTP lifecycle hooks (mirrors the

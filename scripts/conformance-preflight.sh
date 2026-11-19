@@ -12,7 +12,7 @@
 #     against a cluster with no scheduler looks like ~400 product bugs.
 #   * CONTROL_PLANE_IMAGE_REGISTRY unset on the prebuilt-image path — bootstrap
 #     templates `k3rs-<component>:latest`, which the containerd image
-#     store cannot resolve, so the same pods (and k3rs-dns) never start.
+#     store cannot resolve, so the same pods (and coredns) never start.
 #   * A host over the kubelet's imagefs eviction threshold — hydrophone's
 #     e2e-conformance-test pod is evicted ("Pod evicted due to resource
 #     pressure: ImageFsAvailable") after the run has already logged
@@ -60,7 +60,7 @@
 #                       named after the kind control-plane node.
 #   --dns-deployment NAME
 #                       kube-system Deployment that must have a ready replica
-#                       (default: k3rs-dns; 'none' skips the assertion,
+#                       (default: coredns; 'none' skips the assertion,
 #                       e.g. a kind cluster serving DNS from CoreDNS)
 #   --sandbox-image REF Image whose pull is exercised
 #                       (default: registry.k8s.io/pause:3.10.1)
@@ -80,6 +80,12 @@
 #                       1000; healthy sits at ~1000-1600). Read from a copy of
 #                       state.db, so it needs python3 and is SKIPPED, not
 #                       failed, when that is unavailable (#1806)
+#   --storage-metrics-url URL
+#                       rhino's /metrics endpoint (--metrics-bind-address;
+#                       default: http://127.0.0.1:2382/metrics, published by
+#                       compose.sqlite.yml). When it answers, the backlog is
+#                       read from the rhino_compaction_backlog gauge and the
+#                       state.db copy below is not needed (#3855)
 #   --skip-node-image-check
 #                       Skip only the per-node binary-equality assertion
 #   --timeout SECONDS   Budget for the whole preflight (default: 60)
@@ -100,12 +106,13 @@ KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/k3rs-config}"
 CERTS_PATH_EXPECTED="${CERTS_PATH:-$REPO_ROOT/.k3rs/certs}"
 KUBELET_CONTAINER="k3rs-kubelet"
 CONTROL_PLANE_PODS="kube-scheduler-node-1,kube-controller-manager-node-1"
-DNS_DEPLOYMENT="k3rs-dns"
+DNS_DEPLOYMENT="coredns"
 SANDBOX_IMAGE="registry.k8s.io/pause:3.10.1"
 SKIP_IMAGE_PULL=0
 STORAGE_CONTAINER="k3rs-rhino"
 MAX_STORAGE_MB=256
 MAX_COMPACTION_LAG=10000
+STORAGE_METRICS_URL="http://127.0.0.1:2382/metrics"
 SKIP_NODE_IMAGE_CHECK=0
 # Per-node compose service pairs that MUST run the same build. Each entry is
 # "node-1 container:node-2 container:binary path". containerd/containerd2 are
@@ -137,6 +144,7 @@ while [ $# -gt 0 ]; do
         --skip-image-pull) SKIP_IMAGE_PULL=1; shift ;;
         --storage-container) [ $# -ge 2 ] || die "--storage-container requires a value"; STORAGE_CONTAINER="$2"; shift 2 ;;
         --max-storage-mb)  [ $# -ge 2 ] || die "--max-storage-mb requires a value"; MAX_STORAGE_MB="$2"; shift 2 ;;
+        --storage-metrics-url) [ $# -ge 2 ] || die "--storage-metrics-url requires a value"; STORAGE_METRICS_URL="$2"; shift 2 ;;
         --max-compaction-lag) [ $# -ge 2 ] || die "--max-compaction-lag requires a value"; MAX_COMPACTION_LAG="$2"; shift 2 ;;
         --skip-node-image-check) SKIP_NODE_IMAGE_CHECK=1; shift ;;
         --timeout)         [ $# -ge 2 ] || die "--timeout requires a value"; BUDGET_SECONDS="$2"; shift 2 ;;
@@ -208,9 +216,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Cluster DNS has a ready backend. k3rs-dns is a kube-system
-#    Deployment (not CoreDNS); without it every DNS-dependent spec times out.
-#    --dns-deployment names a different one (kind serves DNS from CoreDNS).
+# 3. Cluster DNS has a ready backend. CoreDNS is the kube-system `coredns`
+#    Deployment (k3s manifests/coredns.yaml); without it every DNS-dependent
+#    spec times out. --dns-deployment names a different one.
 # ---------------------------------------------------------------------------
 if [ "$DNS_DEPLOYMENT" = "none" ] || [ -z "$DNS_DEPLOYMENT" ]; then
     pass "cluster-DNS assertion skipped (--dns-deployment none)"
@@ -388,12 +396,27 @@ fi
 #    revision backlog passed the size gate at 69 MB and then failed on
 #    `client rate limiter Wait returned an error`. The direct signal is
 #    max(id) - compact_rev_key, which sits near compact_min_retain (1000) when
-#    healthy. rhino exposes no metric for it (it speaks only the etcd gRPC API
-#    and its image has no sqlite3), so read a copy of the DB. Anything that
+#    healthy. rhino now serves it at /metrics (see below); older pins have no
+#    endpoint and their image has no sqlite3, so fall back to a copy of the DB. Anything that
 #    stops the number being read SKIPS: refusing over an unreadable value
 #    would block more than it protects.
 # ---------------------------------------------------------------------------
-if [ "$STORAGE_CONTAINER" = "none" ] || [ -z "$STORAGE_CONTAINER" ]; then
+# Preferred source (#3855): rhino's own /metrics gauge, which needs no docker
+# access and no python3 (rhino indyjonesnl/rhino#9; kine has no such gauge, so
+# the name is rhino's). Anything that stops it being read falls through to the
+# state.db copy below.
+lag=""
+if [ -n "$STORAGE_METRICS_URL" ] && command -v curl >/dev/null 2>&1; then
+    lag="$(timeout "$PER_CHECK_TIMEOUT" curl -fsS --max-time 5 "$STORAGE_METRICS_URL" 2>/dev/null \
+        | sed -n 's/^rhino_compaction_backlog[[:space:]]\{1,\}\([0-9]\{1,\}\)[[:space:]]*$/\1/p' | head -n1)"
+fi
+if [[ "$lag" =~ ^[0-9]+$ ]]; then
+    if [ "$lag" -gt "$MAX_COMPACTION_LAG" ]; then
+        fail "storage compaction is behind: backlog is ${lag} revisions (ceiling ${MAX_COMPACTION_LAG}) — recreate the stack with 'down -v' before measuring; specs will otherwise fail on 'client rate limiter Wait returned an error' and look like product defects (#1806)"
+    else
+        pass "compaction backlog is ${lag} (ceiling ${MAX_COMPACTION_LAG}, rhino /metrics)"
+    fi
+elif [ "$STORAGE_CONTAINER" = "none" ] || [ -z "$STORAGE_CONTAINER" ]; then
     pass "compaction-backlog assertion skipped (--storage-container none)"
 elif ! command -v "$CONTAINER_RT" >/dev/null 2>&1; then
     pass "$CONTAINER_RT not available — skipping compaction-backlog assertion"

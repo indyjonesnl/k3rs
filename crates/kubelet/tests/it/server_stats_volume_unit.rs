@@ -94,9 +94,15 @@ struct Provider {
 }
 
 impl StatsProvider for Provider {
-    fn get_pods(&self) -> Vec<Pod> {
+    fn get_pods(&self) -> Vec<Arc<Pod>> {
         self.get_pods_calls.fetch_add(1, Ordering::SeqCst);
-        self.pods.lock().unwrap().clone()
+        self.pods
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .map(Arc::new)
+            .collect()
     }
     fn list_volumes_for_pod(&self, _uid: &str) -> Option<HashMap<String, Arc<dyn Mounter>>> {
         self.list_calls.fetch_add(1, Ordering::SeqCst);

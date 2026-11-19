@@ -38,57 +38,189 @@ pub fn setup_emptydir_dir(path: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// `mount.Interface.MountSensitiveWithoutSystemd`
-/// (`staging/src/k8s.io/mount-utils/mount_linux.go`): `mount -t <fstype>
-/// [-o <options>] <source> <target>`, reporting the command output on failure.
+/// Split a mount option list into `mount(2)` flags and the filesystem-specific
+/// data string, the way `mount(8)` does (util-linux libmount `mnt_optmap`,
+/// `libmount/src/optmap.c` linux map): well-known generic options become
+/// `MS_*` bits (and their negations clear them), userspace-only options
+/// (`defaults`, `auto`, `nofail`, ...) are dropped, everything else
+/// (`size=`, `mode=`, `noswap`, `pagesize=`, ...) is passed through as data.
+#[cfg(target_os = "linux")]
+fn parse_mount_options(options: &[String]) -> (libc::c_ulong, String) {
+    use libc::{
+        MS_BIND, MS_DIRSYNC, MS_LAZYTIME, MS_MANDLOCK, MS_NOATIME, MS_NODEV, MS_NODIRATIME,
+        MS_NOEXEC, MS_NOSUID, MS_RDONLY, MS_REC, MS_RELATIME, MS_REMOUNT, MS_SILENT,
+        MS_STRICTATIME, MS_SYNCHRONOUS,
+    };
+    // MS_I_VERSION (1 << 23): not exported by every libc release.
+    const MS_I_VERSION: libc::c_ulong = 1 << 23;
+    let mut flags: libc::c_ulong = 0;
+    let mut data: Vec<&str> = Vec::new();
+    for opt in options
+        .iter()
+        .flat_map(|o| o.split(','))
+        .filter(|o| !o.is_empty())
+    {
+        match opt {
+            "ro" => flags |= MS_RDONLY,
+            "rw" => flags &= !MS_RDONLY,
+            "nosuid" => flags |= MS_NOSUID,
+            "suid" => flags &= !MS_NOSUID,
+            "nodev" => flags |= MS_NODEV,
+            "dev" => flags &= !MS_NODEV,
+            "noexec" => flags |= MS_NOEXEC,
+            "exec" => flags &= !MS_NOEXEC,
+            "sync" => flags |= MS_SYNCHRONOUS,
+            "async" => flags &= !MS_SYNCHRONOUS,
+            "dirsync" => flags |= MS_DIRSYNC,
+            "mand" => flags |= MS_MANDLOCK,
+            "nomand" => flags &= !MS_MANDLOCK,
+            "silent" => flags |= MS_SILENT,
+            "loud" => flags &= !MS_SILENT,
+            "noatime" => flags |= MS_NOATIME,
+            "atime" => flags &= !MS_NOATIME,
+            "nodiratime" => flags |= MS_NODIRATIME,
+            "diratime" => flags &= !MS_NODIRATIME,
+            "relatime" => flags |= MS_RELATIME,
+            "norelatime" => flags &= !MS_RELATIME,
+            "strictatime" => flags |= MS_STRICTATIME,
+            "nostrictatime" => flags &= !MS_STRICTATIME,
+            "lazytime" => flags |= MS_LAZYTIME,
+            "nolazytime" => flags &= !MS_LAZYTIME,
+            "iversion" => flags |= MS_I_VERSION,
+            "noiversion" => flags &= !MS_I_VERSION,
+            "remount" => flags |= MS_REMOUNT,
+            "bind" => flags |= MS_BIND,
+            "rbind" => flags |= MS_BIND | MS_REC,
+            // Userspace-only (fstab) options: mount(8) never hands these to the kernel.
+            "defaults" | "auto" | "noauto" | "nofail" | "user" | "nouser" | "users" | "owner"
+            | "group" | "_netdev" => {}
+            other => data.push(other),
+        }
+    }
+    (flags, data.join(","))
+}
+
+/// Mount `source` on `target` in-process with `mount(2)`.
+///
+/// Upstream (`mount.Interface.MountSensitiveWithoutSystemd`,
+/// `staging/src/k8s.io/mount-utils/mount_linux.go:194` -> `doMount:221`,
+/// args built by `MakeMountArgsSensitiveWithMountFlags:350`) execs the
+/// `mount` binary: `mount -t <fstype> [-o <options>] <source> <target>`.
+///
+/// DELIBERATE DEVIATION (k3rs): minimal node images (e.g. mikronetes microVM
+/// workers) ship no util-linux `mount`, and every projected service-account
+/// token and `medium: Memory` emptyDir then fails with `could not exec mount`
+/// and the pod never leaves ContainerCreating. k3s does not hit this because
+/// it ships its own userland (k3s-root) in its data dir. So the syscall
+/// `mount(8)` ends up making is issued directly.
+///
+/// Scope, from the upstream callers: only `setupTmpfs`
+/// (`pkg/volume/emptydir/empty_dir.go:339`: `size=N`, `noswap`) and
+/// `setupHugepages` (`:384`: `pagesize=N`) reach this, i.e. fresh
+/// filesystem mounts whose options are all fs data. Nothing upstream-side
+/// relies on `defaults`/`remount` here (`defaults` is only appended by
+/// `FormatAndMount`, `mount_linux.go:572`). What `mount(8)` adds beyond the
+/// syscall (fstab/mtab handling, helper `mount.<fstype>` lookup, bind-mount
+/// two-step `bindMountSensitive:139`) is deliberately not reproduced:
+/// bind/remount are rejected rather than half-implemented; those callers use
+/// `volume_plugins::util::mount_ops::Mounter`, which still execs. Option
+/// parsing mirrors `mount(8)` ([`parse_mount_options`]) and the failure
+/// message keeps the upstream shape (`mount failed: ...\nMounting command:
+/// ...`).
+#[cfg(target_os = "linux")]
 pub(crate) fn mount_fs(
     source: &str,
     target: &str,
     fstype: &str,
     options: &[String],
 ) -> anyhow::Result<()> {
-    let mut cmd = std::process::Command::new("mount");
-    cmd.args(["-t", fstype]);
-    if !options.is_empty() {
-        cmd.args(["-o", &options.join(",")]);
-    }
-    let out = cmd
-        .args([source, target])
-        .output()
-        .map_err(|e| anyhow::anyhow!("could not exec mount for {fstype} at {target}: {e}"))?;
-    if !out.status.success() {
+    use std::ffi::CString;
+    let (flags, data) = parse_mount_options(options);
+    if flags & (libc::MS_BIND | libc::MS_REMOUNT) != 0 {
         anyhow::bail!(
-            "mount failed: exit status {}\nMounting command: mount\nMounting arguments: -t {fstype} -o {} {source} {target}\nOutput: {}",
-            out.status,
+            "mount failed: bind/remount are not supported by the in-process mount (options: {})",
+            options.join(",")
+        );
+    }
+    let cstr = |s: &str| {
+        CString::new(s).map_err(|_| anyhow::anyhow!("mount argument contains a NUL byte: {s:?}"))
+    };
+    let (c_source, c_target, c_fstype) = (cstr(source)?, cstr(target)?, cstr(fstype)?);
+    let c_data = cstr(&data)?;
+    let data_ptr = if data.is_empty() {
+        std::ptr::null()
+    } else {
+        c_data.as_ptr().cast::<libc::c_void>()
+    };
+    // SAFETY: all pointers are valid NUL-terminated strings that outlive the call.
+    let rc = unsafe {
+        libc::mount(
+            c_source.as_ptr(),
+            c_target.as_ptr(),
+            c_fstype.as_ptr(),
+            flags,
+            data_ptr,
+        )
+    };
+    if rc != 0 {
+        let err = std::io::Error::last_os_error();
+        anyhow::bail!(
+            "mount failed: {err}\nMounting command: mount(2)\nMounting arguments: -t {fstype} -o {} {source} {target}\nOutput: mount: {target}: {err}",
             options.join(","),
-            String::from_utf8_lossy(&out.stderr).trim()
         );
     }
     info!("Mounted {} at {}", fstype, target);
     Ok(())
 }
 
-/// Unmount `target`: `mount.Interface.Unmount`
-/// (`staging/src/k8s.io/mount-utils/mount_linux.go:401`), which runs
-/// `umount <target>` and reports its output on failure.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn mount_fs(
+    _source: &str,
+    _target: &str,
+    fstype: &str,
+    _options: &[String],
+) -> anyhow::Result<()> {
+    anyhow::bail!("mounting {fstype} is only supported on Linux")
+}
+
+/// Unmount `target` in-process with `umount2(2)`: `mount.Interface.Unmount`
+/// (`staging/src/k8s.io/mount-utils/mount_linux.go:401`) runs `umount
+/// <target>` (no flags: no force, no lazy detach); same deviation as
+/// [`mount_fs`].
+///
+/// Upstream returns nil for "not mounted" only when `withSafeNotMountedBehavior`
+/// (`detectSafeNotMountedBehavior`, `mount_linux.go:307`); emptyDir checks the
+/// mount point first (`empty_dir.go` TearDownAt) so callers here never rely on
+/// that. `umount(8)` reports `EINVAL` (target is not a mount point) as "not
+/// mounted", which upstream's `checkUmountError` keys on
+/// (`errNotMounted`, `mount_linux.go:910-924`); that wording is kept so the
+/// same string matching keeps working. `EBUSY` is reported as "target is busy".
 ///
 /// The counterpart of [`mount_tmpfs_for_emptydir`], which nothing used to
 /// undo: a `medium: Memory` emptyDir's tmpfs outlived its pod and blocked the
 /// removal of the pod directory (#2537).
+#[cfg(target_os = "linux")]
 pub(crate) fn unmount_path(target: &str) -> anyhow::Result<()> {
-    let out = std::process::Command::new("umount")
-        .arg(target)
-        .output()
-        .map_err(|e| anyhow::anyhow!("could not exec umount for {target}: {e}"))?;
-    if !out.status.success() {
-        anyhow::bail!(
-            "unmount failed: exit status {}\nUnmounting arguments: {target}\nOutput: {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+    let c_target = std::ffi::CString::new(target)
+        .map_err(|_| anyhow::anyhow!("unmount target contains a NUL byte: {target:?}"))?;
+    // SAFETY: valid NUL-terminated string for the duration of the call.
+    let rc = unsafe { libc::umount2(c_target.as_ptr(), 0) };
+    if rc != 0 {
+        let err = std::io::Error::last_os_error();
+        let msg = match err.raw_os_error() {
+            Some(libc::EINVAL) => format!("umount: {target}: not mounted."),
+            Some(libc::EBUSY) => format!("umount: {target}: target is busy."),
+            _ => format!("umount: {target}: {err}"),
+        };
+        anyhow::bail!("unmount failed: {err}\nUnmounting arguments: {target}\nOutput: {msg}");
     }
     info!("Unmounted {}", target);
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn unmount_path(target: &str) -> anyhow::Result<()> {
+    anyhow::bail!("unmounting {target} is only supported on Linux")
 }
 
 /// Parse a Kubernetes `resource.Quantity` (e.g. `1Gi`, `512Mi`, `0.5Gi`) into a
@@ -539,4 +671,90 @@ pub fn parse_memory_quantity(s: &str) -> i64 {
 /// f64, so `"inf"` saturated to `i64::MAX`.
 pub fn parse_cpu_quantity(s: &str) -> i64 {
     parse_resource_value(s, "cpu").unwrap_or(0)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod inprocess_mount_tests {
+    use super::*;
+
+    fn o(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn options_split_flags_from_data() {
+        let (flags, data) = parse_mount_options(&o(&["size=65536", "noswap"]));
+        assert_eq!(flags, 0);
+        assert_eq!(data, "size=65536,noswap");
+
+        let (flags, data) = parse_mount_options(&o(&["ro,nosuid", "nodev", "mode=1777"]));
+        assert_eq!(flags, libc::MS_RDONLY | libc::MS_NOSUID | libc::MS_NODEV);
+        assert_eq!(data, "mode=1777");
+    }
+
+    #[test]
+    fn options_negations_and_userspace_only() {
+        let (flags, data) = parse_mount_options(&o(&["ro", "rw", "defaults", "nofail", "exec"]));
+        assert_eq!(flags, 0);
+        assert_eq!(data, "");
+        let (flags, _) = parse_mount_options(&o(&["rbind"]));
+        assert_eq!(flags, libc::MS_BIND | libc::MS_REC);
+    }
+
+    #[test]
+    fn unmount_of_non_mount_point_reports_not_mounted() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = unmount_path(dir.path().to_str().unwrap()).unwrap_err();
+        let msg = err.to_string();
+        // EINVAL (or EPERM for an unprivileged caller); `not mounted` is the
+        // string upstream's checkUmountError matches on for EINVAL.
+        assert!(
+            msg.contains("not mounted") || msg.contains("Operation not permitted"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn bind_and_remount_are_rejected() {
+        for opt in ["bind", "rbind", "remount"] {
+            let err = mount_fs("/a", "/b", "", &o(&[opt]))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("not supported"), "{err}");
+        }
+    }
+
+    #[test]
+    fn mount_missing_target_fails_with_upstream_shaped_message() {
+        let err = mount_fs(
+            "tmpfs",
+            "/nonexistent/k3rs-mount-test",
+            "tmpfs",
+            &o(&["size=1"]),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.starts_with("mount failed:"), "{err}");
+        assert!(
+            err.contains("Mounting arguments: -t tmpfs -o size=1"),
+            "{err}"
+        );
+    }
+
+    /// Needs CAP_SYS_ADMIN: `cargo test -p k3rs-kubelet inprocess -- --ignored` as root.
+    #[test]
+    #[ignore = "requires root / CAP_SYS_ADMIN"]
+    fn tmpfs_mount_unmount_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = dir.path().to_str().unwrap();
+        mount_fs("tmpfs", t, "tmpfs", &o(&["size=65536", "mode=0755"])).unwrap();
+        assert!(!crate::pod_dirs::is_likely_not_mount_point(dir.path()).unwrap());
+        unmount_path(t).unwrap();
+        assert!(crate::pod_dirs::is_likely_not_mount_point(dir.path()).unwrap());
+        // Second unmount: not a mount point any more.
+        assert!(unmount_path(t)
+            .unwrap_err()
+            .to_string()
+            .contains("not mounted"));
+    }
 }

@@ -310,8 +310,15 @@ impl<S: Storage + 'static> DaemonSetController<S> {
             let mut ds_watch = ds_watch;
             let mut node_watch = node_watch;
 
-            // Periodic full resync as safety net
-            let mut resync = tokio::time::interval(Duration::from_secs(5));
+            // Informer resync, not a 5s sweep. Upstream's controller is purely
+            // event driven (handlers on its informers, daemon_controller.go (`NewDaemonSetsController` :155-205; handlers `enqueueDaemonSet`, `addPod`/`updatePod`/`deletePod`, `addNode`/`updateNode`));
+            // only the informers resync, every `MinResyncPeriod` (12h) times a
+            // random 1-2 factor (`ResyncPeriod`,
+            // `cmd/kube-controller-manager/app/controllermanager.go:176-181`).
+            // A watch gap re-enters the outer loop, whose `enqueue_all` replays
+            // every object, as the reflector's relist does. Same change as
+            // `endpointslice` (#2258).
+            let mut resync = tokio::time::interval(k3rs_controller_core::resync_period());
             resync.tick().await; // consume first immediate tick
 
             let mut watch_broken = false;

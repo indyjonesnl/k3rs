@@ -66,6 +66,27 @@ cargo build --release -p k3rs
 scripts/bench-idle-memory.sh --seconds 60
 ```
 
+### Tokio worker threads (#3852)
+
+The all-in-one defaults to `min(available_parallelism, 4)` tokio workers
+(`default_worker_threads` in `crates/k3rs/src/main.rs`); `TOKIO_WORKER_THREADS`
+overrides it. `available_parallelism` honours the affinity mask and cgroup CPU
+quota. Each worker brings a per-thread allocator heap, so uncapped idle RSS
+grows with the core count. Measured on a 24-CPU host, musl + mimalloc,
+release-fast, 40 s idle, Anonymous from `smaps_rollup`, two runs:
+
+| workers | idle anon (MiB) | anon after 300-pod create (MiB) |
+|---|---|---|
+| 2 | 157-159 | 259-273 |
+| 4 (cap) | 171-178 | 281-289 |
+| 8 | 184-192 | 316-336 |
+| uncapped (24) | 227-240 | 435-456 |
+
+API latency during the burst (p50/p95 of a `GET pods?limit=1` probe) was
+unchanged between 4, 8 and 24 workers (about 64/75 ms); 2 workers made the
+300-pod create about 8 % slower. On a 4-CPU host the cap is a no-op.
+This is a deliberate deviation from k3s (Go does not cap `GOMAXPROCS`).
+
 For the musl static binary:
 
 ```bash

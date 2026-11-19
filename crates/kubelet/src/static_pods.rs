@@ -307,13 +307,15 @@ pub async fn reconcile_mirror_pods<S: Storage>(
 /// Merge storage-sourced pods with file-sourced static pods for one node.
 /// Mirror copies of static pods are dropped in favor of the file version
 /// (the file source is authoritative; upstream never runs mirror pods).
-pub fn merge_node_pods(storage_pods: Vec<Pod>, static_pods: Vec<Pod>, node_name: &str) -> Vec<Pod> {
+pub fn merge_node_pods(storage_pods: &[Pod], static_pods: Vec<Pod>, node_name: &str) -> Vec<Pod> {
     let static_names: std::collections::HashSet<String> = static_pods
         .iter()
         .map(|p| p.metadata.name.clone())
         .collect();
+    // Only this node's pods are cloned: the list holds every pod in the
+    // cluster and is scanned each sync pass.
     let mut merged: Vec<Pod> = storage_pods
-        .into_iter()
+        .iter()
         .filter(|p| {
             p.spec
                 .as_ref()
@@ -322,6 +324,7 @@ pub fn merge_node_pods(storage_pods: Vec<Pod>, static_pods: Vec<Pod>, node_name:
                 .unwrap_or(false)
         })
         .filter(|p| !(is_mirror_pod(p) || static_names.contains(&p.metadata.name)))
+        .cloned()
         .collect();
     merged.extend(static_pods);
     merged

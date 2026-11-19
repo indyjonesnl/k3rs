@@ -86,9 +86,16 @@ impl Clock for RealClock {
 }
 
 /// `PodManager` (`:55-59`): the local wrapper over `pod.Manager`.
+///
+/// Pods are handed out as `Arc<Pod>`: upstream's `pod.Manager`
+/// (`pkg/kubelet/pod/pod_manager.go`: `GetPods` :215, `GetPodByUID` :247,
+/// `podsMapToPods` :318) returns
+/// `*v1.Pod` pointers into its `podByUID` map, never deep copies. The volume
+/// populator calls these every 100ms, so a deep `Pod` clone per call was the
+/// kubelet's largest idle allocation source.
 pub trait PodManager: Send + Sync {
-    fn get_pod_by_uid(&self, uid: &str) -> Option<Pod>;
-    fn get_pods(&self) -> Vec<Pod>;
+    fn get_pod_by_uid(&self, uid: &str) -> Option<Arc<Pod>>;
+    fn get_pods(&self) -> Vec<Arc<Pod>>;
 }
 
 /// `SignerAndState` (`:82-86`).

@@ -14,11 +14,13 @@
 //! 4. Returns NXDOMAIN / NOERROR-empty / answer-with-records per the
 //!    lookup outcome.
 
+use crate::forward::{Forwarder, LoopDetector, Proto};
 use crate::zone::{ip_to_arpa, DnsRecord, LookupOutcome, Zone, DEFAULT_TTL};
 use hickory_proto::op::{Header, HeaderCounts, Message, Metadata, ResponseCode};
 use hickory_proto::rr::rdata::{A, AAAA, CNAME, PTR, SOA, SRV};
 use hickory_proto::rr::{Name, RData, Record, RecordType};
 use hickory_server::net::runtime::Time;
+use hickory_server::net::xfer::Protocol;
 use hickory_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 use hickory_server::zone_handler::MessageResponseBuilder;
 use std::net::{IpAddr, SocketAddr};
@@ -65,11 +67,100 @@ impl SharedZone {
 #[derive(Clone)]
 pub struct DnsHandler {
     zone: SharedZone,
+    forwarder: Option<Arc<Forwarder>>,
+    loop_detector: Option<Arc<LoopDetector>>,
 }
 
 impl DnsHandler {
     pub fn new(zone: SharedZone) -> Self {
-        Self { zone }
+        Self {
+            zone,
+            forwarder: None,
+            loop_detector: None,
+        }
+    }
+
+    /// Forward names the cluster zones do not own to the upstream resolvers
+    /// (CoreDNS `forward . /etc/resolv.conf`, see [`crate::forward`]).
+    pub fn with_forwarder(
+        mut self,
+        forwarder: Arc<Forwarder>,
+        loop_detector: Option<Arc<LoopDetector>>,
+    ) -> Self {
+        self.forwarder = Some(forwarder);
+        self.loop_detector = loop_detector;
+        self
+    }
+}
+
+/// Whether the kubernetes-plugin equivalent claims this query, or it falls
+/// through to `forward`.
+///
+/// k3s Corefile: `kubernetes cluster.local in-addr.arpa ip6.arpa { pods
+/// insecure; fallthrough in-addr.arpa ip6.arpa }`. Names under the cluster zone
+/// are authoritative (NXDOMAIN included: no `fallthrough` for that zone).
+/// Reverse names are authoritative when found and fall through on NXDOMAIN
+/// (`plugin/kubernetes/handler.go`: only the NXDOMAIN branch calls
+/// `k.Fall.Through`; NODATA is a NOERROR answer). Everything else is never
+/// claimed by the kubernetes plugin and goes to `forward`.
+pub(crate) fn falls_through(zone: &Zone, qname: &str, outcome: &LookupOutcome) -> bool {
+    let key = qname.trim_end_matches('.').to_ascii_lowercase();
+    let apex = zone.suffix().trim_end_matches('.');
+    if key == apex || key.ends_with(&format!(".{apex}")) {
+        return false;
+    }
+    let reverse = key == "in-addr.arpa"
+        || key == "ip6.arpa"
+        || key.ends_with(".in-addr.arpa")
+        || key.ends_with(".ip6.arpa");
+    if reverse {
+        return matches!(outcome, LookupOutcome::NxDomain);
+    }
+    true
+}
+
+/// Forward one query upstream and relay the reply (`Forward.ServeDNS`).
+async fn forward_request<R: ResponseHandler>(
+    fwd: &Forwarder,
+    request: &Request,
+    response_handle: &mut R,
+) -> ResponseInfo {
+    let proto = match request.protocol() {
+        Protocol::Udp => Proto::Udp,
+        _ => Proto::Tcp,
+    };
+    let reply = match fwd.forward(request.as_slice(), proto).await {
+        Ok(b) => b,
+        Err(e) => {
+            warn!("forward failed: {e}");
+            return reply_error(request, response_handle, ResponseCode::ServFail).await;
+        }
+    };
+    let Ok(mut msg) = Message::from_vec(&reply) else {
+        return reply_error(request, response_handle, ResponseCode::ServFail).await;
+    };
+    let edns = msg.edns.take();
+    let metadata = msg.metadata;
+    let mut builder = MessageResponseBuilder::from_message_request(request);
+    if let Some(e) = edns.as_ref() {
+        builder.edns(e);
+    }
+    let response = builder.build(
+        metadata,
+        msg.answers.iter(),
+        msg.authorities.iter(),
+        Vec::<&Record>::new(),
+        msg.additionals.iter(),
+    );
+    match response_handle.send_response(response).await {
+        Ok(info) => info,
+        Err(e) => {
+            error!("failed to send forwarded DNS response: {e}");
+            ResponseInfo::from(Header {
+                metadata,
+                counts: HeaderCounts::default(),
+            })
+        }
     }
 }
 
@@ -91,6 +182,25 @@ impl RequestHandler for DnsHandler {
         let qtype = query.query_type();
 
         let outcome = lookup_for_type(&zone, &qname, qtype);
+        if let Some(fwd) = &self.forwarder {
+            if falls_through(&zone, &qname, &outcome) {
+                // `loop` plugin sits before `forward` in the Corefile.
+                if qtype == RecordType::HINFO {
+                    if let Some(l) = &self.loop_detector {
+                        l.observe(&qname);
+                        if l.is_detected() {
+                            return reply_error(
+                                request,
+                                &mut response_handle,
+                                ResponseCode::ServFail,
+                            )
+                            .await;
+                        }
+                    }
+                }
+                return forward_request(fwd, request, &mut response_handle).await;
+            }
+        }
         debug!(
             "DNS query name={qname} type={qtype:?} -> {outcome}",
             outcome = match &outcome {
@@ -254,8 +364,18 @@ pub async fn serve(
     zone: SharedZone,
     udp_bind: SocketAddr,
     tcp_bind: SocketAddr,
+    forwarder: Option<Arc<Forwarder>>,
+    loop_detect: bool,
 ) -> anyhow::Result<()> {
-    let handler = DnsHandler::new(zone);
+    let mut handler = DnsHandler::new(zone);
+    let mut detector: Option<Arc<LoopDetector>> = None;
+    if let Some(fwd) = forwarder {
+        // `loop` is in the k3s Corefile in front of `forward`.
+        if loop_detect {
+            detector = Some(LoopDetector::new());
+        }
+        handler = handler.with_forwarder(fwd, detector.clone());
+    }
     let mut server = hickory_server::server::Server::new(handler);
 
     let udp = UdpSocket::bind(udp_bind).await?;
@@ -268,7 +388,25 @@ pub async fn serve(
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
+    if let Some(d) = &detector {
+        // Probe the listener we just bound (`loop` OnStartup).
+        tokio::spawn(d.clone().probe(udp_bind));
+    }
+    let loop_found = async {
+        match &detector {
+            Some(d) => d.detected().await,
+            None => std::future::pending().await,
+        }
+    };
+
     tokio::select! {
+        _ = loop_found => {
+            drop(server);
+            anyhow::bail!(
+                "forwarding loop detected: the upstream resolvers lead back to this DNS server \
+                 (check the resolv.conf / --upstream used for forwarding)"
+            );
+        }
         _ = tokio::signal::ctrl_c() => {
             warn!("Received SIGINT — shutting down");
         }

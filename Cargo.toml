@@ -29,7 +29,6 @@ version = "0.1.0"
 edition = "2021"
 authors = ["k3rs Contributors"]
 license = "Apache-2.0"
-repository = "https://github.com/k3rs/k3rs"
 
 [workspace.dependencies]
 tokio = { version = "1.40", features = ["full"] }
@@ -95,7 +94,7 @@ strip = "symbols"
 #
 # Used by all-in-one.Dockerfile, services.Dockerfile, dns.Dockerfile and
 # kubectl.Dockerfile via `cargo build --profile release-fast`. Shipped
-# release artefacts (the indyjonesnl/rusternetes GitHub releases) still
+# release artefacts (the indyjonesnl/k3rs GitHub releases) still
 # build with the regular `release` profile above.
 [profile.release-fast]
 inherits = "release"

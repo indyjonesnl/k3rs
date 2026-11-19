@@ -70,6 +70,20 @@ struct Args {
     #[arg(long, default_value = "0.0.0.0:53")]
     tcp_bind: String,
 
+    /// Upstream resolver(s) for names outside the cluster zones: IP,
+    /// IP:port or a resolv.conf-style file (CoreDNS `forward . /etc/resolv.conf`).
+    /// Repeat or comma-separate. Pass an empty value to disable forwarding.
+    #[arg(long, default_value = "/etc/resolv.conf", value_delimiter = ',')]
+    forward: Vec<String>,
+
+    /// Upstream selection policy: random|round_robin|sequential.
+    #[arg(long, default_value = "random")]
+    forward_policy: String,
+
+    /// Disable the CoreDNS `loop` self-probe run when forwarding.
+    #[arg(long)]
+    no_loop_detect: bool,
+
     /// Full-resync interval in seconds (safety net for missed watches).
     #[arg(long, default_value = "30")]
     resync_interval: u64,
@@ -133,6 +147,17 @@ async fn main() -> Result<()> {
         udp_bind,
         tcp_bind,
         resync_interval: args.resync_interval,
+        forward: args
+            .forward
+            .iter()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .collect(),
+        forward_policy: args
+            .forward_policy
+            .parse()
+            .map_err(|e: String| anyhow::anyhow!("--forward-policy: {e}"))?,
+        loop_detect: !args.no_loop_detect,
     };
 
     if let Some(client_config) = resolve_api_config(&args)? {

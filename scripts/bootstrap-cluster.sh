@@ -60,7 +60,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- control-plane image resolution ----------------------------------------
 # The kube-scheduler / kube-controller-manager static pods AND the
-# k3rs-dns Deployment run INSIDE the containerd CRI service, which keeps
+# CoreDNS Deployment run INSIDE the containerd CRI service, which keeps
 # its own image store (the `containerd-data` volume). That store is separate
 # from the docker/podman daemon `compose build`/`compose pull` write to, so the
 # images must be put there one of two ways:
@@ -275,6 +275,64 @@ import_image_into_containerd() {
     done
 }
 
+# Side-load an upstream (Go) addon image into every node's containerd under the
+# EXACT name the k3s manifest requests, so imagePullPolicy: IfNotPresent never
+# reaches a registry from inside the cluster (same reasoning as
+# scripts/sideload-images.sh). The host daemon pulls with retries, preferring
+# the ghcr mirror (ci/mirror/addon-images.txt, filled by mirror-images.yml, so
+# CI does not depend on Docker Hub rate limits) and falling back to the
+# upstream registry; the mirror copy is re-tagged to the upstream name first.
+# Best effort: on failure the pod's own pull is the fallback.
+import_addon_image() {
+    local image="$1" mirror_prefix="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/rusternetes/mirror}"
+    local path="${image#docker.io/}" src attempt
+    if [ -z "$(containerd_service_containers)" ]; then
+        return 0   # all-in-one / no separate containerd service
+    fi
+    if ! $CONTAINER_RT image inspect "$image" >/dev/null 2>&1; then
+        for src in "${mirror_prefix}/${path}" "$image"; do
+            for attempt in 1 2 3; do
+                if $CONTAINER_RT pull --quiet "$src" >/dev/null 2>&1; then
+                    [ "$src" = "$image" ] || $CONTAINER_RT tag "$src" "$image"
+                    break 2
+                fi
+                sleep $((attempt * 5))
+            done
+        done
+    fi
+    import_image_into_containerd "$image"
+}
+
+# Every image of ci/mirror/addon-images.txt (the upstream images the k3s
+# manifests in deploy/addons/ run, plus the pause image k3s's own tests use),
+# side-loaded under its docker.io name.
+import_addon_images() {
+    local list="$PROJECT_ROOT/ci/mirror/addon-images.txt" path
+    [ -f "$list" ] || return 0
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        import_addon_image "docker.io/$path"
+    done < <(sed 's/#.*//' "$list" | tr -d ' \t' | grep -v '^$')
+}
+
+# k3s templates its bundled manifests at startup (pkg/server/server.go
+# `%{...}%` replacement map: CLUSTER_DOMAIN, CLUSTER_DNS, CLUSTER_DNS_LIST,
+# CLUSTER_DNS_IPFAMILYPOLICY, SYSTEM_DEFAULT_REGISTRY, DEFAULT_LOCAL_STORAGE_PATH,
+# PREFERRED_ADDRESS_TYPES = addrTypesPrioTemplate(false)).
+# Same substitution here; the empty registry leaves the docker.io/rancher/...
+# names the airgap list pins. Prints the templated manifest on stdout.
+template_k3s_manifest() {
+    sed -e 's|%{CLUSTER_DOMAIN}%|cluster.local|g' \
+        -e 's|%{SYSTEM_DEFAULT_REGISTRY}%||g' \
+        -e 's|%{SYSTEM_DEFAULT_REGISTRY_RAW}%||g' \
+        -e 's|%{CLUSTER_DNS}%|10.96.0.10|g' \
+        -e 's|%{CLUSTER_DNS_LIST}%|["10.96.0.10"]|g' \
+        -e 's|%{CLUSTER_DNS_IPFAMILYPOLICY}%|SingleStack|g' \
+        -e 's|%{DEFAULT_LOCAL_STORAGE_PATH}%|/var/lib/k3rs/storage|g' \
+        -e 's|%{PREFERRED_ADDRESS_TYPES}%|InternalIP,ExternalIP,Hostname|g' \
+        "$1"
+}
+
 # The sandbox (pause) image containerd requests before any pod can start
 # (deploy/containerd/config.toml pinned_images.sandbox). Pull it with the host
 # daemon, which retries, and import it like the control-plane images: the
@@ -297,7 +355,7 @@ import_sandbox_image() {
 }
 
 # Discover the Docker bridge gateway (always [subnet].1) so we can
-# bootstrap k3rs-dns and other resources without hardcoding an IP.
+# bootstrap cluster DNS and other resources without hardcoding an IP.
 # Uses the discover-bridge-gateway helper; callers can override via
 # K3RS_BRIDGE_GATEWAY env var if discovery fails.
 #
@@ -410,6 +468,12 @@ if [ -d "$PROJECT_ROOT/manifests/control-plane" ]; then
     for src in "$PROJECT_ROOT/manifests/control-plane/"*.yaml; do
         [ -e "$src" ] || continue
         dst="$PROJECT_ROOT/.k3rs/manifests/$(basename "$src")"
+        # Build the manifest outside the kubelet's watched manifest dir and
+        # move it into place only after the image is imported: the kubelet
+        # starts the static pod the moment the file appears, and a pull of a
+        # not-yet-imported local image fails into an image back-off longer
+        # than the bring-up wait.
+        staged="$PROJECT_ROOT/.k3rs/.staged-$(basename "$src")"
         # Derive the component (and thus the image) from the manifest name:
         # kube-scheduler.yaml -> scheduler, kube-controller-manager.yaml ->
         # controller-manager. resolve_cluster_image picks GHCR vs local :latest.
@@ -417,19 +481,20 @@ if [ -d "$PROJECT_ROOT/manifests/control-plane" ]; then
         component="${component#kube-}"
         cp_image="$(resolve_cluster_image "$component")"
         sed -e "s|@CERTS_PATH@|${CERTS_PATH}|g" \
-            -e "s|@CONTROL_PLANE_IMAGE@|${cp_image}|g" "$src" > "$dst"
+            -e "s|@CONTROL_PLANE_IMAGE@|${cp_image}|g" "$src" > "$staged"
         if [ -n "$node_ipam_args" ]; then
-            sed -i "s|@NODE_IPAM_ARGS@|${node_ipam_args}|" "$dst"
+            sed -i "s|@NODE_IPAM_ARGS@|${node_ipam_args}|" "$staged"
         else
-            sed -i '/@NODE_IPAM_ARGS@/d' "$dst"
+            sed -i '/@NODE_IPAM_ARGS@/d' "$staged"
         fi
         # CSI attach flags + driver-socket hostPath mounts (#3128, #3133).
-        template_csi_attach "$dst"
+        template_csi_attach "$staged"
         echo "  $(basename "$src") -> $dst (image: $cp_image)"
         # The image only exists in the docker/podman daemon (locally built or
         # `compose pull`ed) — import it into the containerd CRI store so
         # IfNotPresent resolves it without a registry round-trip.
         import_image_into_containerd "$cp_image"
+        mv -f "$staged" "$dst"
     done
     # Persist CERTS_PATH so a compose restart picks up the same mount path.
     if [ -f "$PROJECT_ROOT/.env" ] && grep -q '^CERTS_PATH=' "$PROJECT_ROOT/.env" 2>/dev/null; then
@@ -463,35 +528,26 @@ else
     print_warning "Continuing with bootstrap, but pods may not have valid tokens"
 fi
 
-# Step 3: Remove any legacy CoreDNS leftovers. CoreDNS has been removed in
-# favour of k3rs-dns, but a pod/container named `coredns` may survive
-# from an older cluster on the shared host; drop it so the kube-dns Service
-# binds only to the k3rs-dns backend.
-print_step "Cleaning up any legacy CoreDNS resources (if present)..."
-# Remove CoreDNS container
-$CONTAINER_RT rm -f $($CONTAINER_RT ps -a --filter "name=coredns" --format "{{.ID}}") 2>/dev/null && echo "  Deleted CoreDNS container" || echo "  No CoreDNS container to delete"
-# Remove CoreDNS pod from the api-server. kubectl works across every
-# storage backend (etcd / sqlite / redis) — the previous variant did
-# `docker exec k3rs-etcd etcdctl del ...`, which silently no-ops
-# on the all-in-one stack (no etcd container) and lets a stale pod with
-# a bound nodeName survive into the next apply, where it then 422s with
-# "spec.nodeName: Forbidden: field is immutable".
-# --ignore-not-found is the upstream-kubectl flag, but the k3rs
-# kubectl built in this workspace rejects it (`unexpected argument`).
-# Rely on the `|| echo "No CoreDNS pod..."` fallback to swallow the
-# not-found case instead.
-$KUBECTL $KUBECTL_FLAGS delete pod coredns -n kube-system --grace-period=0 --force 2>/dev/null && echo "  Deleted CoreDNS pod" || echo "  No CoreDNS pod to delete"
+# Step 3: Drop the retired self-written cluster DNS. Earlier bootstraps ran a
+# `k3rs-dns` Deployment behind the kube-dns Service; the multi-container stacks
+# now run upstream CoreDNS exactly as k3s ships it (Step 5), so a leftover
+# k3rs-dns pod would sit behind the same k8s-app=kube-dns selector and answer
+# for it. Absent on a fresh cluster, hence the swallowed failure (the k3rs
+# kubectl built in this workspace rejects --ignore-not-found).
+print_step "Removing any retired k3rs-dns Deployment (if present)..."
+$KUBECTL $KUBECTL_FLAGS delete deployment k3rs-dns -n kube-system 2>/dev/null \
+    && echo "  Deleted k3rs-dns Deployment" || echo "  No k3rs-dns Deployment to delete"
 
 # Step 4: Apply bootstrap cluster resources
 # bootstrap-cluster.yaml carries namespaces, the kubernetes + kube-dns
-# Services, and PriorityClasses. The k3rs-dns backend behind the
-# kube-dns Service is applied separately in Step 5 (bootstrap-dns.yaml).
+# Services, and PriorityClasses. The CoreDNS backend behind the kube-dns
+# Service is applied separately in Step 5 (deploy/addons/coredns.yaml).
 #
-# The gateway is injected so k3rs-dns can reach the api-server, and to
+# The gateway is injected so cluster components can reach the api-server, and to
 # fail fast early if discovery broke (#787).
 print_step "Applying bootstrap resources (namespaces, services, priority classes)..."
 if [ -f "$PROJECT_ROOT/bootstrap-cluster.yaml" ]; then
-    # Fail fast if discovery didn't give us a gateway — k3rs-dns won't
+    # Fail fast if discovery did not give us a gateway — the cluster won't
     # be able to reach the API server without it after #787.
     if [ -z "${K3RS_BRIDGE_GATEWAY:-}" ]; then
         print_error "Bridge gateway discovery failed. Set K3RS_BRIDGE_GATEWAY or fix discover-bridge-gateway.sh"
@@ -525,18 +581,18 @@ if grep -q '\${DOCKER_GATEWAY}' "$PROJECT_ROOT/compose.all-in-one.yml" 2>/dev/nu
     echo "  .env file written: $PROJECT_ROOT/.env"
 fi
 
-# Step 5: Wire the kube-dns Service to the k3rs-dns backend.
+# Step 5: Wire the kube-dns Service to its backend.
 #
-# k3rs-dns is the only cluster-DNS backend (CoreDNS has been removed).
 # The backend depends on the stack:
 #   - All-in-one stack (`k3rs` container on the bridge): the DNS
 #     server is an in-process task inside that container, so the script
 #     creates a hand-written EndpointSlice pointing `kube-dns` at the
 #     container's bridge IP (kube-proxy then DNATs 10.96.0.10:53 to it).
-#   - Multi-container stacks: the script applies bootstrap-dns.yaml, which
-#     runs k3rs-dns as a kube-system Deployment (k8s-app=kube-dns).
-#     The endpoints controller populates the kube-dns Service from the pod
-#     via the Service selector — no manual EndpointSlice.
+#   - Multi-container stacks: the script applies upstream CoreDNS exactly as
+#     k3s ships it (deploy/addons/coredns.yaml, a verbatim copy of k3s
+#     manifests/coredns.yaml): a `coredns` kube-system Deployment running
+#     rancher/mirrored-coredns-coredns. The endpoints controller populates the
+#     kube-dns Service from the pod via the Service selector.
 # Either way bootstrap-cluster.yaml only creates the kube-dns Service,
 # whose ClusterIP 10.96.0.10 every Pod's /etc/resolv.conf references via
 # kubelet's --cluster-dns flag, and which we keep stable.
@@ -551,7 +607,6 @@ if [ "${SKIP_DNS_WIRING:-0}" = "1" ]; then
     print_step "Skipping DNS backend wiring (SKIP_DNS_WIRING=1)."
     echo "  This stack has no in-cluster DNS backend; node-scoped tests don't need cluster DNS."
 else
-    # k3rs-dns is the only cluster-DNS backend (CoreDNS fully removed).
     # The kube-dns Service stays (created in Step 4) so the ClusterIP is stable.
 
     # All-in-one stack detection: the `k3rs` container runs the DNS
@@ -613,13 +668,14 @@ endpoints:
 EOF
         print_success "k3rs wired up at $AIO_DNS_IP for kube-dns Service"
     else
-        # Multi-container stack: k3rs-dns runs as a kube-system
-        # Deployment reading cluster state from the api-server. The
-        # endpoints controller wires the kube-dns Service to the pod via
+        # Multi-container stack: upstream CoreDNS runs as the kube-system
+        # `coredns` Deployment, reading cluster state from the api-server.
+        # The endpoints controller wires the kube-dns Service to the pod via
         # the k8s-app=kube-dns selector.
-        print_step "Applying k3rs-dns Deployment (bootstrap-dns.yaml)..."
-        if [ ! -f "$PROJECT_ROOT/bootstrap-dns.yaml" ]; then
-            print_error "bootstrap-dns.yaml not found"
+        print_step "Applying CoreDNS (deploy/addons/coredns.yaml, from k3s manifests/coredns.yaml)..."
+        coredns_manifest="$PROJECT_ROOT/deploy/addons/coredns.yaml"
+        if [ ! -f "$coredns_manifest" ]; then
+            print_error "$coredns_manifest not found"
             exit 1
         fi
 
@@ -629,32 +685,138 @@ EOF
         $KUBECTL $KUBECTL_FLAGS delete endpointslice kube-dns-k3rs -n kube-system 2>/dev/null \
             && echo "  Deleted stale kube-dns-k3rs EndpointSlice" || true
 
-        # The dns pod runs inside containerd too (same store problem as the
-        # static pods). Resolve its image: GHCR ref on the prebuilt path (swap
-        # the committed k3rs-dns:latest literal), local :latest imported
-        # into containerd otherwise.
-        dns_image="$(resolve_cluster_image dns)"
-        echo "  k3rs-dns image: $dns_image"
-        import_image_into_containerd "$dns_image"
-        sed "s|image: k3rs-dns:latest|image: ${dns_image}|" \
-            "$PROJECT_ROOT/bootstrap-dns.yaml" | $KUBECTL $KUBECTL_FLAGS apply -f -
+        # The addon pods run inside containerd too (same store problem as the
+        # static pods): side-load every upstream addon image under the exact
+        # name the k3s manifests request (ci/mirror/addon-images.txt).
+        import_addon_images
 
-        print_step "Waiting for the k3rs-dns Deployment to be ready..."
-        MAX_WAIT=60
+        template_k3s_manifest "$coredns_manifest" | $KUBECTL $KUBECTL_FLAGS apply -f -
+
+        # The Corefile's `hosts /etc/coredns/NodeHosts` block and the
+        # Deployment's configMap items both require a NodeHosts key. k3s fills
+        # it from a node controller (pkg/node/controller.go updateHosts: one
+        # "<InternalIP> <nodeName>" line per node, sorted by IP); a one-shot
+        # equivalent here, re-run on every bootstrap.
+        node_hosts="$($KUBECTL $KUBECTL_FLAGS get nodes \
+            -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address} {.metadata.name}{"\n"}{end}' \
+            2>/dev/null | awk 'NF == 2' | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n || true)"
+        node_hosts_json="$(printf '%s' "$node_hosts" | awk 'BEGIN{ORS="\\n"} {print}')"
+        $KUBECTL $KUBECTL_FLAGS patch configmap coredns -n kube-system --type merge \
+            -p "{\"data\":{\"NodeHosts\":\"${node_hosts_json}\"}}" \
+            && echo "  Set coredns NodeHosts ($(printf '%s' "$node_hosts" | grep -c . || true) node entries)"
+
+        print_step "Waiting for the coredns Deployment to be ready..."
+        MAX_WAIT=90
         for i in $(seq 1 $MAX_WAIT); do
-            DNS_READY=$($KUBECTL $KUBECTL_FLAGS get deployment k3rs-dns -n kube-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "")
+            DNS_READY=$($KUBECTL $KUBECTL_FLAGS get deployment coredns -n kube-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "")
 
             if [ "$DNS_READY" == "1" ]; then
-                print_success "k3rs-dns Deployment is ready!"
+                print_success "coredns Deployment is ready!"
                 break
             fi
 
             if [ $i -eq $MAX_WAIT ]; then
-                print_warning "k3rs-dns not ready after ${MAX_WAIT} attempts (readyReplicas: ${DNS_READY:-none})"
+                print_warning "coredns not ready after ${MAX_WAIT} attempts (readyReplicas: ${DNS_READY:-none})"
                 print_warning "Check: $KUBECTL $KUBECTL_FLAGS get pods -n kube-system"
-                print_warning "Is the k3rs-dns:latest image built? Try: docker compose --profile build build dns"
             else
-                echo "  Waiting for k3rs-dns... ($i/$MAX_WAIT)"
+                echo "  Waiting for coredns... ($i/$MAX_WAIT)"
+                sleep 2
+            fi
+        done
+
+        # Upstream local-path-provisioner exactly as k3s ships it (k3s
+        # manifests/local-storage.yaml): the `local-path` default StorageClass
+        # (rancher.io/local-path, WaitForFirstConsumer, Delete) + RBAC +
+        # config. Replaces the old api-server-seeded `standard` class served
+        # by the in-tree k3rs.io/hostpath provisioner.
+        print_step "Applying local-path-provisioner (deploy/addons/local-storage.yaml, from k3s manifests/local-storage.yaml)..."
+        local_storage_manifest="$PROJECT_ROOT/deploy/addons/local-storage.yaml"
+        if [ ! -f "$local_storage_manifest" ]; then
+            print_error "$local_storage_manifest not found"
+            exit 1
+        fi
+        template_k3s_manifest "$local_storage_manifest" | $KUBECTL $KUBECTL_FLAGS apply -f -
+
+        print_step "Waiting for the local-path-provisioner Deployment to be ready..."
+        MAX_WAIT=90
+        for i in $(seq 1 $MAX_WAIT); do
+            LP_READY=$($KUBECTL $KUBECTL_FLAGS get deployment local-path-provisioner -n kube-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "")
+            if [ "$LP_READY" == "1" ]; then
+                print_success "local-path-provisioner Deployment is ready!"
+                break
+            fi
+            if [ $i -eq $MAX_WAIT ]; then
+                print_warning "local-path-provisioner not ready after ${MAX_WAIT} attempts (readyReplicas: ${LP_READY:-none})"
+            else
+                echo "  Waiting for local-path-provisioner... ($i/$MAX_WAIT)"
+                sleep 2
+            fi
+        done
+
+        # Upstream metrics-server exactly as k3s ships it (k3s
+        # manifests/metrics-server/*.yaml: ServiceAccount, Deployment, Service,
+        # APIService v1beta1.metrics.k8s.io and the four RBAC manifests).
+        print_step "Applying metrics-server (deploy/addons/metrics-server/, from k3s manifests/metrics-server/)..."
+        for ms_manifest in "$PROJECT_ROOT"/deploy/addons/metrics-server/*.yaml; do
+            template_k3s_manifest "$ms_manifest" | $KUBECTL $KUBECTL_FLAGS apply -f -
+        done
+
+        print_step "Waiting for the metrics-server Deployment to be ready..."
+        MAX_WAIT=90
+        for i in $(seq 1 $MAX_WAIT); do
+            MS_READY=$($KUBECTL $KUBECTL_FLAGS get deployment metrics-server -n kube-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "")
+            if [ "$MS_READY" == "1" ]; then
+                print_success "metrics-server Deployment is ready!"
+                break
+            fi
+            if [ $i -eq $MAX_WAIT ]; then
+                print_warning "metrics-server not ready after ${MAX_WAIT} attempts (readyReplicas: ${MS_READY:-none})"
+                $KUBECTL $KUBECTL_FLAGS -n kube-system logs deploy/metrics-server --tail=40 2>&1 | sed 's/^/    metrics-server: /' || true
+            else
+                echo "  Waiting for metrics-server... ($i/$MAX_WAIT)"
+                sleep 2
+            fi
+        done
+
+        # Bundled traefik, run the way k3s runs it: two HelmChart CRs
+        # (deploy/addons/traefik.yaml, k3s manifests/traefik.yaml) reconciled by
+        # the upstream helm-controller, whose klipper-helm job installs the
+        # traefik-crd and traefik charts the api-server serves at
+        # /static/charts/ (K3RS_STATIC_DIR). The helm.cattle.io CRDs k3s
+        # registers in-process (pkg/server/context.go registerCRDs) are applied
+        # from deploy/addons/helm-controller/.
+        print_step "Applying the helm.cattle.io CRDs and helm-controller (deploy/addons/helm-controller/)..."
+        for crd in "$PROJECT_ROOT"/deploy/addons/helm-controller/helm.cattle.io_*.yaml; do
+            $KUBECTL $KUBECTL_FLAGS apply -f "$crd"
+        done
+        for crd_name in helmcharts.helm.cattle.io helmchartconfigs.helm.cattle.io; do
+            $KUBECTL $KUBECTL_FLAGS wait --for=condition=Established "crd/$crd_name" --timeout=60s \
+                || print_warning "CRD $crd_name not Established"
+        done
+        template_k3s_manifest "$PROJECT_ROOT/deploy/addons/helm-controller/helm-controller.yaml" | $KUBECTL $KUBECTL_FLAGS apply -f -
+        print_step "Applying traefik HelmCharts (deploy/addons/traefik.yaml, from k3s manifests/traefik.yaml)..."
+        template_k3s_manifest "$PROJECT_ROOT/deploy/addons/traefik.yaml" | $KUBECTL $KUBECTL_FLAGS apply -f -
+
+        print_step "Waiting for the traefik Deployment (installed by the helm-controller job)..."
+        MAX_WAIT=300
+        for i in $(seq 1 $MAX_WAIT); do
+            TR_READY=$($KUBECTL $KUBECTL_FLAGS get deployment traefik -n kube-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "")
+            if [ "$TR_READY" == "1" ]; then
+                print_success "traefik Deployment is ready!"
+                break
+            fi
+            if [ $i -eq $MAX_WAIT ]; then
+                print_warning "traefik not ready after ${MAX_WAIT} attempts (readyReplicas: ${TR_READY:-none})"
+                $KUBECTL $KUBECTL_FLAGS -n helm-controller logs deploy/helm-controller --tail=40 2>&1 | sed 's/^/    helm-controller: /' || true
+                $KUBECTL $KUBECTL_FLAGS get helmcharts,jobs,pods -A 2>&1 | sed 's/^/    state: /' || true
+                $KUBECTL $KUBECTL_FLAGS -n kube-system get job helm-install-traefik -o yaml 2>&1 | sed 's/^/    jobyaml: /' || true
+                $KUBECTL $KUBECTL_FLAGS get events -A 2>&1 | tail -40 | sed 's/^/    event: /' || true
+                $KUBECTL $KUBECTL_FLAGS -n kube-system logs kube-controller-manager-node-1 --tail=80 2>&1 | grep -i "job\|error" | tail -30 | sed 's/^/    kcm: /' || true
+                for j in $($KUBECTL $KUBECTL_FLAGS -n kube-system get jobs -o name 2>/dev/null | grep helm-install || true); do
+                    $KUBECTL $KUBECTL_FLAGS -n kube-system logs "$j" --tail=30 2>&1 | sed "s|^|    $j: |" || true
+                done
+            else
+                echo "  Waiting for traefik... ($i/$MAX_WAIT)"
                 sleep 2
             fi
         done
