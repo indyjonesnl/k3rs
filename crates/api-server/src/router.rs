@@ -1168,7 +1168,6 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
         // the protected_routes auth middleware. Wiring them here previously
         // produced a 500 on every request — the extension extractor failed
         // before the handler ran.
-        .route("/version", get(handlers::discovery::get_version))
         // OpenAPI spec endpoints
         .route("/openapi/v2", get(handlers::openapi::get_swagger_spec))
         // `specProxier.register` wraps both handlers in
@@ -1209,10 +1208,17 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
             },
         ));
 
-    let public_routes = public_routes.merge(discovery_routes);
+    // Upstream authenticates and authorizes discovery and OpenAPI: the
+    // `system:discovery` ClusterRole (non-resource /api, /api/*, /apis,
+    // /apis/*, /openapi, /openapi/*, ...) is bound to `system:authenticated`
+    // only, so an anonymous caller gets 403 (plugin/pkg/auth/authorizer/rbac/
+    // bootstrappolicy/policy.go "system:discovery" + its clusterrolebinding).
+    // Only `system:public-info-viewer` (/healthz, /livez, /readyz, /version)
+    // is anonymous-readable, so `/version` stays public.
+    let public_routes = public_routes.route("/version", get(handlers::discovery::get_version));
 
     // Routes that require authentication (unless skip_auth is enabled)
-    let mut protected_routes = Router::new()
+    let mut protected_routes = discovery_routes
         // Core v1 API
         .route("/api/v1/namespaces", get(handlers::namespace::list)
             .post(handlers::namespace::create))
