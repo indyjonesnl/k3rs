@@ -811,17 +811,15 @@ async fn rbac_non_resource_url_wildcard_allows_any_path() {
     }
 }
 
-// Note: authz.rs uses `path.starts_with(url)` for non-resource URL matching,
-// which means a rule for "/health" also permits "/healthz".  This test
-// documents the current (permissive) behaviour so that future tightening
-// shows up as a deliberate change rather than a surprise breakage.
+// Upstream `NonResourceURLMatches` (pkg/apis/rbac/v1/evaluation_helpers.go):
+// a rule URL matches exactly, or as a prefix only when it ends in `*`.
 #[tokio::test]
-async fn rbac_non_resource_url_prefix_match_is_permissive() {
+async fn rbac_non_resource_url_prefix_requires_trailing_star() {
     let mut store = MockAuthzStorage::new();
 
-    // Rule grants only "/health" — NOT "/healthz".
-    let cr =
-        ClusterRole::new("health-only").with_rules(vec![non_resource_rule(&["get"], &["/health"])]);
+    // Rule grants only "/health" (exact) and "/api/*" (prefix).
+    let cr = ClusterRole::new("health-only")
+        .with_rules(vec![non_resource_rule(&["get"], &["/health", "/api/*"])]);
     store.insert_cluster_role(&cr);
 
     let crb = ClusterRoleBinding::new("alice-health-only")
@@ -831,19 +829,20 @@ async fn rbac_non_resource_url_prefix_match_is_permissive() {
 
     let az = rbac_authorizer(store);
 
-    // "/health" itself is allowed.
-    let attrs = RequestAttributes::new_non_resource(user("alice"), "get", "/health");
-    assert_eq!(az.authorize(&attrs).await.unwrap(), Decision::Allow);
-
-    // "/healthz" is currently also allowed because of the starts_with check.
-    // This documents a known permissive deviation from strict K8s semantics.
-    let attrs = RequestAttributes::new_non_resource(user("alice"), "get", "/healthz");
-    assert_eq!(
-        az.authorize(&attrs).await.unwrap(),
-        Decision::Allow,
-        "current impl allows /healthz when rule is /health (starts_with); \
-         tighten authz.rs to require trailing '/*' for prefix semantics"
-    );
+    for (path, want) in [
+        ("/health", Decision::Allow),
+        ("/api/v1", Decision::Allow),
+        ("/healthz", Decision::Deny("".into())),
+        ("/health/x", Decision::Deny("".into())),
+    ] {
+        let attrs = RequestAttributes::new_non_resource(user("alice"), "get", path);
+        let got = az.authorize(&attrs).await.unwrap();
+        assert_eq!(
+            matches!(got, Decision::Allow),
+            matches!(want, Decision::Allow),
+            "{path}: {got:?}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
