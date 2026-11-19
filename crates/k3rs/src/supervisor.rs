@@ -19,7 +19,9 @@
 //! `signAndSend` is not ported (bad CSR => 400); node passwords are stored as
 //! sha256 hex rather than scrypt (`nodepassword.Hasher`); routes are served by
 //! the api-server through `extra_router`, so this router adds its own
-//! body-limit, panic-catching, timeout and trace layers.
+//! body-limit, panic-catching, timeout and trace layers; only `Basic` auth is
+//! accepted on `/v1-k3rs/*` (k3s' `Bearer` alternative is not accepted; the
+//! design spec allowed either).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -317,6 +319,15 @@ async fn node_auth(st: &SupervisorState, headers: &HeaderMap) -> Result<String, 
     let name = hv("k3rs-Node-Name").to_lowercase();
     if name.is_empty() {
         return Err(err(StatusCode::BAD_REQUEST, "node name not set"));
+    }
+    // The name becomes part of a Secret key: validate it like apiserver node
+    // registration (`ValidateNodeName` = `NameIsDNSSubdomain`,
+    // pkg/apis/core/validation/validation.go:292-295).
+    if let Some(msg) = k3rs_common::validation::metav1::is_dns1123_subdomain(&name).first() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            format!("invalid node name {name:?}: {msg}"),
+        ));
     }
     let pass = hv("k3rs-Node-Password");
     if pass.is_empty() {
@@ -618,6 +629,31 @@ mod tests {
             .await
             .unwrap();
         assert!(sec.data.unwrap().contains_key("hash"));
+    }
+
+    #[tokio::test]
+    async fn invalid_node_name_400_and_no_secret() {
+        let (_d, st) = state();
+        let storage = st.storage.clone();
+        let app = router(st);
+        for bad in ["a/b", "x y"] {
+            let (s, b) = call(
+                &app,
+                post_req(
+                    "/v1-k3rs/client-kubelet.crt",
+                    Some(&basic("s3cret")),
+                    Some((bad, "pw")),
+                    csr(),
+                ),
+            )
+            .await;
+            assert_eq!(s, 400, "{bad}: {b}");
+        }
+        let list: Vec<Secret> = storage
+            .list("/registry/secrets/kube-system/")
+            .await
+            .unwrap();
+        assert!(list.is_empty());
     }
 
     #[tokio::test]

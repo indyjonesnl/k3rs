@@ -59,8 +59,6 @@ pub struct AgentArgs {
     pub data_dir: String,
     #[arg(long)]
     pub volume_dir: Option<String>,
-    #[arg(long, default_value = "10.96.0.10")]
-    pub cluster_dns: String,
 }
 
 /// Decide the run mode from the full argv (`argv[0]` is the program name).
@@ -121,7 +119,6 @@ mod tests {
         {
             Mode::Agent(a) => {
                 assert_eq!(a.token_file.as_deref(), Some("/t"));
-                assert_eq!(a.cluster_dns, "10.96.0.10");
             }
             _ => panic!("expected agent"),
         }

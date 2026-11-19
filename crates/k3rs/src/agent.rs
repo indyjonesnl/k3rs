@@ -13,8 +13,6 @@
 //! legacy "server returned a key instead of signing" path is not ported (the
 //! k3rs supervisor always signs the CSR).
 
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -29,6 +27,68 @@ use crate::token::parse_token;
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// k3s `config.Get` retry period (`pkg/agent/config/config.go:56-75`).
+const JOIN_RETRY_PERIOD: Duration = Duration::from_secs(5);
+
+/// An error that retrying can never fix (see [`is_fatal`]).
+#[derive(Debug)]
+struct Fatal(String);
+
+impl std::fmt::Display for Fatal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Fatal {}
+
+fn fatal(msg: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(Fatal(msg.into()))
+}
+
+/// Retry classification for the join loop. DELIBERATE DEVIATION from k3s:
+/// `wait.JitterUntilWithContext` retries every error forever, but a CA hash
+/// mismatch, an https-scheme rejection, a multi-cert CA bundle, an invalid
+/// token or a 400/401/403 answer (e.g. node-password conflict) are security or
+/// configuration failures that cannot succeed later, so the agent exits fast.
+fn is_fatal(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<Fatal>().is_some()
+}
+
+/// `wait.JitterUntil`'s next delay with `sliding=true, jitterFactor=1.0`:
+/// `period + rand[0,1) * period`.
+fn jittered(period: Duration) -> Duration {
+    period + period.mul_f64(rand::random::<f64>())
+}
+
+/// Port of `Get` (config.go:56-75): retry [`join`] every 5s (jitter 1.0) until
+/// it succeeds, logging "Waiting to retrieve agent configuration; server is not
+/// ready". `Ok(None)` means shutdown was requested while waiting.
+async fn join_with_retry(
+    p: &JoinParams,
+    shutdown: &k3rs_common::signal::ShutdownContext,
+) -> Result<Option<AgentCreds>> {
+    loop {
+        let attempt = tokio::select! {
+            r = join(p) => r,
+            _ = shutdown.cancelled() => return Ok(None),
+        };
+        match attempt {
+            Ok(c) => return Ok(Some(c)),
+            Err(e) if is_fatal(&e) => return Err(e),
+            Err(e) => {
+                tracing::info!(
+                    "Waiting to retrieve agent configuration; server is not ready: {e:#}"
+                );
+            }
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(jittered(JOIN_RETRY_PERIOD)) => {}
+            _ = shutdown.cancelled() => return Ok(None),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct JoinParams {
     pub server: String,
@@ -38,6 +98,9 @@ pub struct JoinParams {
     pub data_dir: PathBuf,
 }
 
+/// `serving_cert`/`serving_key` are fetched and written, but the kubelet still
+/// self-signs its :10250 serving certificate; wiring these in is the queued
+/// serving-TLS follow-up.
 #[derive(Clone, Debug)]
 pub struct AgentCreds {
     pub ca_pem: String,
@@ -48,19 +111,7 @@ pub struct AgentCreds {
     pub serving_key: PathBuf,
 }
 
-fn write_file(path: &Path, data: &str, mode: u32) -> Result<()> {
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(mode)
-        .open(path)
-        .with_context(|| format!("write {}", path.display()))?;
-    f.write_all(data.as_bytes())?;
-    // `mode` only applies on creation; enforce on rewrite too.
-    std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(mode))?;
-    Ok(())
-}
+use crate::util::write_file_mode as write_file;
 
 /// `ensureNodePassword` (config.go:205).
 fn ensure_node_password(file: &Path) -> Result<String> {
@@ -143,13 +194,19 @@ impl Api {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            bail!("{what}: {status}: {}", body.trim());
+            let msg = format!("{what}: {status}: {}", body.trim());
+            // 400/401/403 (bad node name, wrong token, node-password conflict)
+            // can never succeed on retry.
+            return Err(if matches!(status.as_u16(), 400 | 401 | 403) {
+                fatal(msg)
+            } else {
+                anyhow!(msg)
+            });
         }
         Ok(body)
     }
 
     /// `getKubeletClientCert` / `getKubeletServingCert` / kube-proxy cert.
-    #[allow(clippy::too_many_arguments)]
     async fn fetch_cert(
         &self,
         name: &str,
@@ -197,8 +254,8 @@ pub fn ensure_crypto_provider() {
 /// kubeconfigs, read cluster parameters.
 pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
     ensure_crypto_provider();
-    let tok = parse_token(&p.token).map_err(|e| anyhow!("invalid token: {e}"))?;
-    let server = normalize_server(&p.server)?;
+    let tok = parse_token(&p.token).map_err(|e| fatal(format!("invalid token: {e}")))?;
+    let server = normalize_server(&p.server).map_err(|e| fatal(format!("{e:#}")))?;
     let agent = p.data_dir.join("agent");
     std::fs::create_dir_all(&agent)?;
 
@@ -216,11 +273,13 @@ pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
         .error_for_status()?
         .text()
         .await?;
-    let (got, ca_der, ca_pem) = single_ca(&fetched)?;
+    let (got, ca_der, ca_pem) = single_ca(&fetched).map_err(|e| fatal(format!("{e:#}")))?;
     match &tok.ca_hash {
-        Some(want) if !want.eq_ignore_ascii_case(&got) => bail!(
-            "CA hash mismatch: token has {want}, server CA is {got}; refusing to join"
-        ),
+        Some(want) if !want.eq_ignore_ascii_case(&got) => {
+            return Err(fatal(format!(
+                "CA hash mismatch: token has {want}, server CA is {got}; refusing to join"
+            )))
+        }
         Some(_) => {}
         None => tracing::warn!(
             "token has no CA hash; the server certificate was not pinned. Use the full K10<hash>::server:<secret> token"
@@ -327,11 +386,7 @@ fn kube_proxy_config(node_name: &str, c: &ClusterInfo) -> k3rs_kube_proxy::KubeP
     k3rs_kube_proxy::KubeProxyConfig {
         node_name: node_name.to_string(),
         cluster_cidr: c.service_cidr.clone(),
-        node_net: Some(k3rs_kube_proxy::node_net::NodeNetConfig {
-            node_name: node_name.to_string(),
-            cni_conf_path: "/etc/cni/net.d/10-k3rs.conflist".to_string(),
-            no_masq_cidrs: vec![c.cluster_cidr.clone(), c.service_cidr.clone()],
-        }),
+        node_net: Some(crate::util::node_net_config(node_name, c)),
         ..Default::default()
     }
 }
@@ -366,14 +421,26 @@ pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
         None => default_node_name()?,
     };
     a.node_name = Some(node_name.clone());
-    let creds = join(&JoinParams {
-        server: a.server.clone(),
-        token,
-        node_name: node_name.clone(),
-        node_ip: a.node_ip.clone(),
-        data_dir: PathBuf::from(&a.data_dir),
-    })
-    .await?;
+    let shutdown = k3rs_common::signal::setup_signal_context();
+    let Some(creds) = join_with_retry(
+        &JoinParams {
+            server: a.server.clone(),
+            token,
+            node_name: node_name.clone(),
+            node_ip: a.node_ip.clone(),
+            data_dir: PathBuf::from(&a.data_dir),
+        },
+        &shutdown,
+    )
+    .await?
+    else {
+        tracing::info!("received shutdown signal before joining");
+        return Ok(());
+    };
+
+    // stderr so it shows even before/without a tracing subscriber.
+    eprintln!("WARNING: {}", crate::util::KUBELET_ANON_WARNING);
+    tracing::warn!("{}", crate::util::KUBELET_ANON_WARNING);
 
     let kubelet_client = client_from_kubeconfig(&creds.kubelet_kubeconfig)?;
     let storage = std::sync::Arc::new(k3rs_storage::StorageBackend::new_api(kubelet_client));
@@ -386,7 +453,6 @@ pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
         tokio::spawn(async move { k3rs_kube_proxy::run_with_api(proxy_client, pcfg).await });
     tracing::info!("k3rs agent started: node {node_name}");
 
-    let shutdown = k3rs_common::signal::setup_signal_context();
     let res = tokio::select! {
         r = &mut kubelet => component_exit("kubelet", r),
         r = &mut proxy => component_exit("kube-proxy", r),
@@ -435,6 +501,17 @@ mod run_tests {
             service_cidr: "10.96.0.0/12".into(),
             cluster_dns: "10.96.0.10".into(),
         }
+    }
+
+    #[test]
+    fn retry_classification() {
+        assert!(is_fatal(&fatal("CA hash mismatch")));
+        assert!(is_fatal(&fatal("x").context("outer")));
+        assert!(!is_fatal(&anyhow!("connection refused")));
+        assert!(!is_fatal(&anyhow!("fetch cluster config: 503: not ready")));
+        assert!(normalize_server("http://h:6443").is_err());
+        let d = jittered(JOIN_RETRY_PERIOD);
+        assert!(d >= JOIN_RETRY_PERIOD && d < JOIN_RETRY_PERIOD * 2);
     }
 
     #[test]

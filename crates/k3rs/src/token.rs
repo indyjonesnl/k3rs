@@ -9,7 +9,6 @@
 //! Deviation: kubeadm-style bootstrap tokens (`abcdef.0123456789abcdef`) are
 //! out of scope; a bare string is the password with user `server`.
 
-use std::io::Write;
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
@@ -79,7 +78,8 @@ pub fn parse_token(s: &str) -> Result<TokenInfo, TokenError> {
     })
 }
 
-/// Port of `FormatToken` (token.go:600): `K10<ca-hash>::<user>:<password>`.
+/// Port of `FormatToken` (token.go:600): `K10<ca-hash>::server:<password>`
+/// (the user is always `server`, the only one `verify_basic` accepts).
 pub fn format_token(ca_hash: &str, password: &str) -> String {
     format_creds(ca_hash, DEFAULT_USER, password)
 }
@@ -104,7 +104,16 @@ pub fn load_or_create_token(
         .and_then(|t| parse_token(t.trim()).ok());
 
     let info = match (preset, existing) {
-        (Some(p), _) => parse_token(p.trim())?,
+        (Some(p), _) => {
+            let info = parse_token(p.trim())?;
+            if info.username != DEFAULT_USER {
+                anyhow::bail!(
+                    "invalid token: user must be \"{DEFAULT_USER}\" (got {:?}); the supervisor only accepts that user",
+                    info.username
+                );
+            }
+            info
+        }
         (None, Some(info)) => info,
         (None, None) => {
             let mut b = [0u8; 24];
@@ -133,17 +142,7 @@ pub fn load_or_create_token(
 }
 
 fn write_private(path: &Path, contents: &str) -> anyhow::Result<()> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
-    f.write_all(contents.as_bytes())?;
-    // `mode` is masked by umask and ignored for existing files.
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    Ok(())
+    crate::util::write_file_mode(path, contents, 0o600)
 }
 
 fn link_to_token(data_dir: &Path, name: &str) -> anyhow::Result<()> {
@@ -278,6 +277,16 @@ mod tests {
         assert_eq!(t, format_token(&hash(), "mysecret"));
         let again = load_or_create_token(d.path(), &hash(), None).unwrap();
         assert_eq!(again, t);
+    }
+
+    #[test]
+    fn preset_token_with_other_user_is_rejected() {
+        let d = tempfile::tempdir().unwrap();
+        let t = format!("K10{}::admin:pw", hash());
+        assert!(load_or_create_token(d.path(), &hash(), Some(&t)).is_err());
+        assert!(!d.path().join("token").exists());
+        let ok = format!("K10{}::server:pw", hash());
+        assert!(load_or_create_token(d.path(), &hash(), Some(&ok)).is_ok());
     }
 
     #[test]

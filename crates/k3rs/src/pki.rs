@@ -6,13 +6,11 @@
 //! `ClientKubeProxyCert`): the CSR contributes only the public key (k3s agents
 //! send an empty-subject CSR, `getCSRBytes`); the subject comes from the server.
 
-use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use base64::Engine;
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, CertificateSigningRequestParams,
@@ -23,8 +21,12 @@ use sha2::{Digest, Sha256};
 use time::{Duration, OffsetDateTime};
 
 /// notBefore backdating, absorbs clock skew between server and agents.
+/// kubernetes `pkg/controller/certificates/signer/signer.go:209`
+/// (`Backdate: 5 * time.Minute`).
 const BACKDATE: Duration = Duration::minutes(5);
+/// 10 years: client-go `util/cert/cert.go:79` (`duration365d * 10`, CA).
 const CA_VALIDITY: Duration = Duration::days(3650);
+/// 1 year: client-go `util/cert/cert.go:40` (`duration365d`), the leaf TTL.
 const LEAF_VALIDITY: Duration = Duration::days(365);
 const OID_EC_PUBLIC_KEY: &str = "1.2.840.10045.2.1";
 const OID_P256: &str = "1.2.840.10045.3.1.7";
@@ -64,17 +66,7 @@ pub struct Pki {
     client: Ca,
 }
 
-fn write_file(path: &Path, data: &str, mode: u32) -> Result<()> {
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(mode)
-        .open(path)
-        .with_context(|| format!("write {}", path.display()))?;
-    f.write_all(data.as_bytes())?;
-    Ok(())
-}
+use crate::util::write_file_mode as write_file;
 
 fn write_key(path: &Path, kp: &KeyPair) -> Result<()> {
     write_file(path, &kp.serialize_pem(), 0o600)
@@ -122,11 +114,25 @@ fn load_ca(crt: &Path, key: &Path) -> Result<Ca> {
     Ok(Ca { cert, key, pem })
 }
 
+/// Exactly one of the CA cert/key exists: a broken `tls/` that forces a new CA.
+fn ca_half_present(crt: &Path, key: &Path) -> bool {
+    crt.exists() != key.exists()
+}
+
 fn ensure_ca(tls: &Path, name: &str, cn: &str) -> Result<(Ca, bool)> {
     let crt = tls.join(format!("{name}.crt"));
     let key = tls.join(format!("{name}.key"));
     if crt.exists() && key.exists() {
         return Ok((load_ca(&crt, &key)?, false));
+    }
+    if ca_half_present(&crt, &key) {
+        let msg = format!(
+            "regenerating CA {name} (only one of {} / {} exists); all issued tokens and agent pins are invalidated",
+            crt.display(),
+            key.display()
+        );
+        eprintln!("WARNING: {msg}");
+        tracing::warn!("{msg}");
     }
     let ca = new_ca(cn)?;
     write_key(&key, &ca.key)?;
@@ -433,6 +439,17 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let pki = Pki::load_or_create(d.path(), &["my.example.org".to_string()]).unwrap();
         (d, pki)
+    }
+
+    #[test]
+    fn ca_half_present_detects_partial_tls_dir() {
+        let d = tempfile::tempdir().unwrap();
+        let (crt, key) = (d.path().join("a.crt"), d.path().join("a.key"));
+        assert!(!ca_half_present(&crt, &key));
+        std::fs::write(&crt, "x").unwrap();
+        assert!(ca_half_present(&crt, &key));
+        std::fs::write(&key, "x").unwrap();
+        assert!(!ca_half_present(&crt, &key));
     }
 
     #[test]

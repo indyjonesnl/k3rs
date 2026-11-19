@@ -22,7 +22,6 @@ use anyhow::{anyhow, Context, Result};
 use k3rs::cli::ServerArgs;
 use k3rs::supervisor::{ClusterInfo, SupervisorState};
 use k3rs_controller_manager::controllers::node_ipam::{NodeCidrMaskSizes, NodeIpamConfig};
-use k3rs_kube_proxy::node_net::NodeNetConfig;
 
 use crate::{api_port, run_all_in_one, Args, Overrides};
 
@@ -33,8 +32,6 @@ pub(crate) const SERVICE_CIDR: &str = "10.96.0.0/12";
 pub(crate) const CLUSTER_DNS: &str = "10.96.0.10";
 /// `cfg.ClusterDomain` default.
 const CLUSTER_DOMAIN: &str = "cluster.local";
-/// The per-node CNI conflist the node-network agent writes (same as agent).
-const CNI_CONF_PATH: &str = "/etc/cni/net.d/10-k3rs.conflist";
 /// CN of `front-proxy-client.crt` (pki.rs). k3s uses `deps.RequestHeaderCN`
 /// = `system:auth-proxy` for its own front-proxy cert; the allowed name must
 /// match the cert this PKI issues.
@@ -47,7 +44,11 @@ const SKIP_AUTH_WARNING: &str = "authorization is disabled (--skip-auth): any cl
 
 /// The operator-facing `--skip-auth` warning for the API port.
 pub(crate) fn skip_auth_warning(port: u16) -> String {
-    SKIP_AUTH_WARNING.replace("{port}", &port.to_string())
+    format!(
+        "{}; {}",
+        SKIP_AUTH_WARNING.replace("{port}", &port.to_string()),
+        k3rs::util::KUBELET_ANON_WARNING
+    )
 }
 
 /// `printToken` (pkg/server/server.go:496-498), with the node IP as the
@@ -177,16 +178,6 @@ pub(crate) fn node_ipam(info: &ClusterInfo) -> Result<NodeIpamConfig> {
     .map_err(|e| anyhow!("node IPAM: {e}"))
 }
 
-/// The server's own node-network agent, configured exactly as an agent's
-/// (`agent::kube_proxy_config`): pod and service CIDRs are not masqueraded.
-pub(crate) fn node_net(node_name: &str, info: &ClusterInfo) -> NodeNetConfig {
-    NodeNetConfig {
-        node_name: node_name.to_string(),
-        cni_conf_path: CNI_CONF_PATH.to_string(),
-        no_masq_cidrs: vec![info.cluster_cidr.clone(), info.service_cidr.clone()],
-    }
-}
-
 /// The api-server reads the cluster CA (kube-root-ca.crt, SA token `ca.crt`)
 /// from `ca.crt` next to `--tls-cert-file` (`resolve_ca_cert_pem`). Point it
 /// at the server CA, which signs the serving cert, so it never falls back to
@@ -266,7 +257,7 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
             })
         })),
         node_ipam: Some(node_ipam(&info)?),
-        node_net: Some(node_net(&node_name, &info)),
+        node_net: Some(k3rs::util::node_net_config(&node_name, &info)),
         // kube-dns Service + EndpointSlice (k3rs-dns runs in-process). The hook
         // is synchronous and runs before signal setup, so spawn the retrying
         // apply and only log on failure.
@@ -373,8 +364,9 @@ mod tests {
     fn skip_auth_warning_names_the_port() {
         assert_eq!(
             skip_auth_warning(6443),
-            "authorization is disabled (--skip-auth): any client that can reach :6443 has full API access; RBAC is a follow-up"
+            "authorization is disabled (--skip-auth): any client that can reach :6443 has full API access; RBAC is a follow-up; the kubelet API on :10250 is anonymous (AlwaysAllow): exec/attach/run/portForward/pprof/debug are open to any client that can reach it; client-CA authn is a follow-up"
         );
+        assert!(skip_auth_warning(6443).contains(":10250"));
         assert!(skip_auth_warning(16443).contains(":16443 has full API access"));
     }
 
@@ -414,7 +406,7 @@ mod tests {
         assert_eq!(ipam.cluster_cidrs, ["10.244.0.0/16".parse().unwrap()]);
         assert_eq!(ipam.node_masks, [24]);
         assert_eq!(ipam.service_cidrs, ["10.96.0.0/12".parse().unwrap()]);
-        let nn = node_net("node-a", &info);
+        let nn = k3rs::util::node_net_config("node-a", &info);
         assert_eq!(nn.node_name, "node-a");
         assert_eq!(nn.cni_conf_path, "/etc/cni/net.d/10-k3rs.conflist");
         assert_eq!(nn.no_masq_cidrs, ["10.244.0.0/16", "10.96.0.0/12"]);

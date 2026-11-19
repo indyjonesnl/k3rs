@@ -233,6 +233,14 @@ pub async fn run(storage: Arc<StorageBackend>, config: KubeletConfig) -> anyhow:
     let tls_node_name = config.node_name.clone();
     // `BuildAuth` with `kubeDeps.KubeClient == nil` and the legacy flag
     // defaults (`applyLegacyDefaults`): anonymous requests, `AlwaysAllow`.
+    //
+    // SECURITY POSTURE: with no client-CA authn and `AlwaysAllow`, :10250
+    // serves exec/attach/run/portForward/pprof/debug to anonymous clients.
+    // Client-CA authn (`--client-ca-file` x509 + webhook/Node authz) is a
+    // follow-up; until then :10250 must not be reachable from untrusted nets.
+    tracing::warn!(
+        "kubelet API :10250 is anonymous (AlwaysAllow): exec/attach/run/portForward/pprof/debug are open to any client that can reach it; client-CA authn is a follow-up"
+    );
     let (authn_config, authz_config) =
         server_auth::resolve_auth_config(None, &server_auth::AuthFlags::default());
     let (auth, _client_ca) =
