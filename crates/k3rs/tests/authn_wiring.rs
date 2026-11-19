@@ -348,3 +348,147 @@ async fn anonymous_enabled_by_default_is_unchanged() {
     assert_eq!(status_ready(&c, format!("{}/readyz", e.base)).await, 200);
     assert_eq!(status(&c, format!("{}/api", e.base)).await, 403);
 }
+
+// ---- Task 5: the authenticated kubelet API against this api-server ---------
+
+/// The kubelet's own identity must be able to create the reviews its API's
+/// webhook authn/authz posts. Upstream grants `create` on `tokenreviews` and
+/// `subjectaccessreviews` in `NodeRules()` (plugin/pkg/auth/authorizer/rbac/
+/// bootstrappolicy/policy.go:194-198), which the Node authorizer applies to
+/// every `system:nodes` member (plugin/pkg/auth/authorizer/node/
+/// node_authorizer.go:165 `rbac.RulesAllow(attrs, r.nodeRules...)`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn node_identity_can_create_token_and_access_reviews() {
+    let e = boot_with(false).await;
+    let creds = e.pki.ensure_component_creds("n2", "192.0.2.2").unwrap();
+    let kubelet =
+        k3rs::util::client_from_kubeconfig(&creds.kubeconfig("kubelet"), Some(&e.base)).unwrap();
+    let sar = serde_json::json!({
+        "apiVersion": "authorization.k8s.io/v1",
+        "kind": "SubjectAccessReview",
+        "spec": {
+            "user": "system:admin",
+            "groups": ["system:masters", "system:authenticated"],
+            "resourceAttributes": {"verb": "get", "resource": "nodes", "subresource": "proxy", "name": "n2"}
+        }
+    });
+    let (code, r) = kubelet
+        .post_with_status::<_, serde_json::Value>(
+            "/apis/authorization.k8s.io/v1/subjectaccessreviews",
+            &sar,
+        )
+        .await;
+    let r = r.unwrap_or_else(|err| panic!("SAR as system:node:n2 -> {code}: {err:#}"));
+    assert_eq!(r["status"]["allowed"], true, "{r}");
+    let tr = serde_json::json!({
+        "apiVersion": "authentication.k8s.io/v1",
+        "kind": "TokenReview",
+        "spec": {"token": "not-a-token"}
+    });
+    let (code, r) = kubelet
+        .post_with_status::<_, serde_json::Value>(
+            "/apis/authentication.k8s.io/v1/tokenreviews",
+            &tr,
+        )
+        .await;
+    let r = r.unwrap_or_else(|err| panic!("TokenReview as system:node:n2 -> {code}: {err:#}"));
+    assert_ne!(r["status"]["authenticated"], true, "{r}");
+}
+
+/// End to end: node n2's kubelet API served with `kubelet_api_serving` from
+/// the server's real credentials (client CA, `serving-kubelet` pair, the
+/// `system:node:n2` client posting SubjectAccessReviews to this api-server).
+/// Anonymous is 401; `system:apiserver` and `system:admin` (system:masters)
+/// are allowed by RBAC; another node is denied (the Node authorizer grants no
+/// `nodes/proxy`, and `system:node` RBAC has no subjects).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn kubelet_api_authenticates_against_the_api_server() {
+    let e = boot_with(false).await;
+    let creds = e.pki.ensure_component_creds("n2", "192.0.2.2").unwrap();
+    let kubelet = Arc::new(
+        k3rs::util::client_from_kubeconfig(&creds.kubeconfig("kubelet"), Some(&e.base)).unwrap(),
+    );
+    let auth = k3rs_kubelet::KubeletApiAuth {
+        client_ca_file: creds.client_ca().to_string_lossy().into_owned(),
+        api_client: kubelet,
+        serving_cert_file: creds.serving_cert(),
+        serving_key_file: creds.serving_key(),
+    };
+    let serving = k3rs_kubelet::kubelet_api_serving("n2", Some(&auth)).unwrap();
+    let app = k3rs_kubelet::api_router(
+        k3rs_kubelet::server::ServerState {
+            node_name: "n2".into(),
+            storage: Arc::new(StorageBackend::new_memory()),
+            kubelet: None,
+        },
+        Arc::new(
+            k3rs_common::observability::MetricsRegistry::new()
+                .with_kubelet_metrics()
+                .unwrap(),
+        ),
+        Arc::new(k3rs_kubelet::config::KubeletConfiguration::default()),
+        std::env::temp_dir(),
+        serving.auth.clone(),
+    );
+    let listener = k3rs_kubelet::bind_kubelet_api("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(k3rs_kubelet::serve_kubelet_api(listener, app, serving));
+    // The serving cert is signed by the server CA with SAN 127.0.0.1, so the
+    // clients below (trusting only the server CA) verify it.
+    let url = format!("https://127.0.0.1:{port}/pods");
+
+    let anon = base_builder(&e.pki).build().unwrap();
+    assert_eq!(status(&anon, url.clone()).await, 401, "anonymous");
+    let apiserver = client_for(&e.pki, "system:apiserver", &["system:masters"]);
+    assert_eq!(
+        status(&apiserver, url.clone()).await,
+        200,
+        "system:apiserver"
+    );
+    let admin = client_for(&e.pki, "system:admin", &["system:masters"]);
+    assert_eq!(status(&admin, url.clone()).await, 200, "system:admin");
+    let n3 = client_for(&e.pki, "system:node:n3", &["system:nodes"]);
+    assert_eq!(status(&n3, url.clone()).await, 403, "system:node:n3");
+}
+
+/// A SubjectAccessReview keeps its `subresource` (`ResourceAttributesFrom`,
+/// pkg/registry/authorization/util/helpers.go:35-46): another node may `get`
+/// the Node object n2 (Node authorizer `NodeRules`), but not `nodes/proxy`
+/// or `nodes/pods` on it, the subresources a kubelet's webhook authz asks.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn subject_access_review_keeps_the_subresource() {
+    let e = boot_with(false).await;
+    let creds = e.pki.ensure_component_creds("n2", "192.0.2.2").unwrap();
+    let admin =
+        k3rs::util::client_from_kubeconfig(&creds.kubeconfig("admin"), Some(&e.base)).unwrap();
+    let review = |verb: &str, sub: Option<&str>| {
+        let mut ra = serde_json::json!({"verb": verb, "resource": "nodes", "name": "n2"});
+        if let Some(sub) = sub {
+            ra["subresource"] = sub.into();
+        }
+        serde_json::json!({
+            "apiVersion": "authorization.k8s.io/v1",
+            "kind": "SubjectAccessReview",
+            "spec": {
+                "user": "system:node:n3",
+                "groups": ["system:nodes", "system:authenticated"],
+                "resourceAttributes": ra
+            }
+        })
+    };
+    for (verb, sub, want) in [
+        ("get", None, true),
+        ("get", Some("proxy"), false),
+        ("create", Some("proxy"), false),
+        ("get", Some("pods"), false),
+    ] {
+        let (code, r) = admin
+            .post_with_status::<_, serde_json::Value>(
+                "/apis/authorization.k8s.io/v1/subjectaccessreviews",
+                &review(verb, sub),
+            )
+            .await;
+        let r = r.unwrap_or_else(|err| panic!("SAR -> {code}: {err:#}"));
+        assert_eq!(r["status"]["allowed"], want, "{verb} nodes/{sub:?}: {r}");
+    }
+}

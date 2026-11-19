@@ -242,11 +242,6 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
     );
     let port = api_port(&a.bind_address);
     println!("{}", join_line(&node_ip, port, &token));
-    // The node's kubelet API still serves anonymously until it gets x509
-    // authn + webhook authz. stderr so it shows without a tracing subscriber
-    // (tracing is initialised later, inside run_all_in_one).
-    eprintln!("WARNING: {}", k3rs::util::KUBELET_ANON_WARNING);
-    tracing::warn!("{}", k3rs::util::KUBELET_ANON_WARNING);
 
     // Per-component client identities (k3s `genClientCerts`,
     // pkg/daemons/control/deps/deps.go:330-420), plus this node's kubelet

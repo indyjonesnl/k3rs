@@ -445,6 +445,11 @@ impl ComponentCreds {
     pub fn kubeconfig(&self, name: &str) -> PathBuf {
         self.dir.join("cred").join(format!("{name}.kubeconfig"))
     }
+    /// The cluster client CA (`--client-ca-file`), also the node kubelet
+    /// API's `x509.clientCAFile`.
+    pub fn client_ca(&self) -> PathBuf {
+        self.dir.join("tls").join("client-ca.crt")
+    }
     pub fn serving_cert(&self) -> PathBuf {
         self.dir.join("tls").join("serving-kubelet.crt")
     }

@@ -98,12 +98,14 @@ pub struct JoinParams {
     pub data_dir: PathBuf,
 }
 
-/// `serving_cert`/`serving_key` are fetched and written, but the kubelet still
-/// self-signs its :10250 serving certificate; wiring these in is the queued
-/// serving-TLS follow-up.
+/// What `join` leaves under `<data-dir>/agent`. `client_ca`, `serving_cert`
+/// and `serving_key` are the kubelet API's `x509.clientCAFile` and
+/// `tlsCertFile`/`tlsPrivateKeyFile` (k3s pkg/agent/config/config.go:469-485,
+/// pkg/daemons/agent/agent.go:228-236).
 #[derive(Clone, Debug)]
 pub struct AgentCreds {
     pub ca_pem: String,
+    pub client_ca: PathBuf,
     pub kubelet_kubeconfig: PathBuf,
     pub kube_proxy_kubeconfig: PathBuf,
     pub cluster: ClusterInfo,
@@ -320,6 +322,17 @@ pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
         write_file(file, &kc, 0o600)?;
     }
 
+    // `getHostFile(clientCAFile)` (config.go:469-472): the client CA the
+    // kubelet API authenticates x509 clients against, written 0600.
+    let client_ca = agent.join("client-ca.crt");
+    let client_ca_pem = api
+        .send(
+            api.http.get(format!("{server}/v1-k3rs/client-ca.crt")),
+            "fetch client-ca.crt",
+        )
+        .await?;
+    write_file(&client_ca, &client_ca_pem, 0o600)?;
+
     let body = api
         .send(
             api.http.get(format!("{server}/v1-k3rs/config")),
@@ -331,6 +344,7 @@ pub async fn join(p: &JoinParams) -> Result<AgentCreds> {
 
     Ok(AgentCreds {
         ca_pem,
+        client_ca,
         kubelet_kubeconfig,
         kube_proxy_kubeconfig,
         cluster,
@@ -391,6 +405,21 @@ fn kube_proxy_config(node_name: &str, c: &ClusterInfo) -> k3rs_kube_proxy::KubeP
     }
 }
 
+/// The joined agent's kubelet API auth: `client-ca.crt` and the
+/// `serving-kubelet` pair written by [`join`], and the kubelet's
+/// `system:node:<node>` client for the reviews.
+pub fn kubelet_api_auth(
+    creds: &AgentCreds,
+    client: std::sync::Arc<k3rs_client::http::ApiClient>,
+) -> k3rs_kubelet::KubeletApiAuth {
+    k3rs_kubelet::KubeletApiAuth {
+        client_ca_file: creds.client_ca.to_string_lossy().into_owned(),
+        api_client: client,
+        serving_cert_file: creds.serving_cert.clone(),
+        serving_key_file: creds.serving_key.clone(),
+    }
+}
+
 pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
     ensure_crypto_provider();
     let token = match (&a.token, &a.token_file) {
@@ -423,14 +452,15 @@ pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
         return Ok(());
     };
 
-    // stderr so it shows even before/without a tracing subscriber.
-    eprintln!("WARNING: {}", crate::util::KUBELET_ANON_WARNING);
-    tracing::warn!("{}", crate::util::KUBELET_ANON_WARNING);
-
     let kubelet_client = std::sync::Arc::new(crate::util::client_from_kubeconfig(
         &creds.kubelet_kubeconfig,
         None,
     )?);
+    // The kubelet API on :10250 authenticates x509 clients against the
+    // cluster client CA and TokenReview bearers, and authorizes through
+    // SubjectAccessReview with the kubelet's own client (k3s
+    // pkg/daemons/agent/agent.go:199-236).
+    let api_auth = kubelet_api_auth(&creds, kubelet_client.clone());
     let storage = std::sync::Arc::new(k3rs_storage::StorageBackend::new_api(kubelet_client));
     let kcfg = kubelet_config(&a, &creds.cluster)?;
     let pcfg = kube_proxy_config(&node_name, &creds.cluster);
@@ -439,7 +469,10 @@ pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
         None,
     )?);
 
-    let mut kubelet = tokio::spawn(async move { k3rs_kubelet::run(storage, kcfg).await });
+    let mut kubelet =
+        tokio::spawn(
+            async move { k3rs_kubelet::run_with_auth(storage, kcfg, Some(api_auth)).await },
+        );
     let mut proxy =
         tokio::spawn(async move { k3rs_kube_proxy::run_with_api(proxy_client, pcfg).await });
     tracing::info!("k3rs agent started: node {node_name}");

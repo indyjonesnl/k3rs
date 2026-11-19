@@ -83,10 +83,19 @@ async fn join_writes_creds_and_kubeconfigs() {
         "kubelet.kubeconfig",
         "kube-proxy.kubeconfig",
         "node-password",
+        "client-ca.crt",
     ] {
         assert!(a.join(f).exists(), "{f} missing");
     }
+    // `getHostFile` (k3s pkg/agent/config/config.go:275-284): the server's
+    // client CA, written 0600, is the kubelet API's x509 client CA.
+    assert_eq!(
+        std::fs::read_to_string(a.join("client-ca.crt")).unwrap(),
+        s.pki.client_ca_pem()
+    );
+    assert_eq!(c.client_ca, a.join("client-ca.crt"));
     for f in [
+        "client-ca.crt",
         "client-kubelet.key",
         "serving-kubelet.key",
         "client-kube-proxy.key",

@@ -14,11 +14,6 @@ use crate::supervisor::ClusterInfo;
 /// The per-node CNI conflist the node-network agent writes.
 pub const CNI_CONF_PATH: &str = "/etc/cni/net.d/10-k3rs.conflist";
 
-/// Operator-facing posture warning for the kubelet API port: `kubelet::run`
-/// serves it with `AlwaysAllow` and no client-CA authn. Printed by server and
-/// agent startup until the kubelet gets x509 authn + webhook authz.
-pub const KUBELET_ANON_WARNING: &str = "the kubelet API on :10250 is anonymous (AlwaysAllow): exec/attach/run/portForward/pprof/debug are open to any client that can reach it; client-CA authn is a follow-up";
-
 /// Write `data` to `path` with `mode`, set at creation and re-applied when an
 /// existing file is rewritten (`mode` alone is masked by umask and ignored for
 /// existing files).

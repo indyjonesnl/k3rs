@@ -783,14 +783,22 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
     // With component identities the kubelet goes through the api-server as
     // `system:node:<node>` (Node authorizer + NodeRestriction), the same path
     // as a joined agent (`agent::run_agent`); bare all-in-one shares storage.
-    let kubelet_storage = match creds {
-        Some(_) => Arc::new(StorageBackend::new_api(Arc::new(embedded_client(
-            creds,
-            "kubelet",
-            &loopback_url,
-            args.tls,
-        )?))),
-        None => storage.clone(),
+    // Its kubelet API (:10250) then authenticates like a joined agent's
+    // (`agent::kubelet_api_auth`, k3s pkg/daemons/agent/agent.go:199-236):
+    // the cluster client CA, this node's `serving-kubelet` pair, and the
+    // kubelet client for TokenReview / SubjectAccessReview.
+    let (kubelet_storage, kubelet_api_auth) = match creds {
+        Some(c) => {
+            let client = Arc::new(embedded_client(creds, "kubelet", &loopback_url, args.tls)?);
+            let auth = k3rs_kubelet::KubeletApiAuth {
+                client_ca_file: c.client_ca().to_string_lossy().into_owned(),
+                api_client: client.clone(),
+                serving_cert_file: c.serving_cert(),
+                serving_key_file: c.serving_key(),
+            };
+            (Arc::new(StorageBackend::new_api(client)), Some(auth))
+        }
+        None => (storage.clone(), None),
     };
     let kubelet_sa = kubelet_service_account(&args.service_account, creds.is_some());
     let kubelet_config = k3rs_kubelet::KubeletConfig {
@@ -811,10 +819,14 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
             .or_else(|| std::env::var("KUBERNETES_SERVICE_HOST_OVERRIDE").ok())
             .unwrap_or_else(|| service_ranges.api_server_service_ip().to_string()),
     };
-    tokio::spawn(async move {
-        if let Err(e) = k3rs_kubelet::run(kubelet_storage, kubelet_config).await {
-            error!("Kubelet error: {}", e);
+    let kubelet_authenticated = kubelet_api_auth.is_some();
+    let kubelet_handle = tokio::spawn(async move {
+        let res =
+            k3rs_kubelet::run_with_auth(kubelet_storage, kubelet_config, kubelet_api_auth).await;
+        if let Err(e) = &res {
+            error!("Kubelet error: {:#}", e);
         }
+        res
     });
 
     // --- Kube-proxy ---
@@ -906,11 +918,29 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
 
     // The API server task blocks on its listener — wait for it or ctrl-c
     let shutdown_ctx = k3rs_common::signal::setup_signal_context();
+    // With component identities (`k3rs server`) a kubelet that cannot serve
+    // its authenticated API ends the server, as a joined agent's does
+    // (`agent::run_agent`) and as upstream's `ListenAndServeKubeletServer`
+    // exits the process. The bare all-in-one keeps logging only.
+    let kubelet_exit = async move {
+        if kubelet_authenticated {
+            kubelet_handle.await
+        } else {
+            std::future::pending().await
+        }
+    };
     tokio::select! {
         result = api_handle => {
             if let Err(e) = result {
                 error!("API server task panicked: {}", e);
             }
+        }
+        result = kubelet_exit => {
+            return Err(match result {
+                Ok(Ok(())) => anyhow::anyhow!("kubelet exited"),
+                Ok(Err(e)) => e.context("kubelet"),
+                Err(e) => anyhow::anyhow!("kubelet task: {e}"),
+            });
         }
         _ = shutdown_ctx.cancelled() => {
             info!("Received shutdown signal, stopping k3rs");
