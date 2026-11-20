@@ -2287,9 +2287,14 @@ name = "k3rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
+ "axum-server",
+ "base64",
+ "chrono",
  "clap",
  "dhat",
+ "hex",
  "k3rs-api-server",
  "k3rs-client",
  "k3rs-common",
@@ -2299,10 +2304,27 @@ dependencies = [
  "k3rs-kubelet",
  "k3rs-scheduler",
  "k3rs-storage",
+ "k3rs-streamproxy",
+ "libc",
  "mimalloc",
+ "pem",
+ "rand 0.9.4",
+ "rcgen",
+ "reqwest",
+ "rsa",
+ "rustls",
+ "serde",
+ "serde_json",
  "serial_test",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
  "tokio",
+ "tower 0.4.13",
+ "tower-http",
  "tracing",
+ "x509-parser",
 ]
 
 [[package]]
@@ -2620,6 +2642,7 @@ name = "k3rs-kube-proxy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "chrono",
  "clap",
@@ -2856,6 +2879,8 @@ dependencies = [
  "hyper-util",
  "rustls",
  "rustls-pemfile",
+ "serial_test",
+ "tempfile",
  "tokio",
  "tracing",
 ]

@@ -454,67 +454,68 @@ impl<S: AuthzStorage> RBACAuthorizer<S> {
         rules.iter().any(|rule| self.rule_allows(rule, attrs))
     }
 
-    /// Check if a single policy rule allows the requested action
+    /// `RuleAllows` (pkg/registry/rbac/validation/rule.go) with the matchers of
+    /// `pkg/apis/rbac/v1/evaluation_helpers.go` (`VerbMatches`,
+    /// `APIGroupMatches`, `ResourceMatches`, `ResourceNameMatches`,
+    /// `NonResourceURLMatches`). A resource request is matched only against the
+    /// resource fields of a rule and a non-resource request only against its
+    /// `nonResourceURLs`; an empty list never matches (except `resourceNames`,
+    /// where empty means any name). Without this split the `system:discovery`
+    /// rule (non-resource URLs only) matched every resource request.
     pub fn rule_allows(&self, rule: &PolicyRule, attrs: &RequestAttributes) -> bool {
-        // Check verb
-        if !rule.verbs.contains(&attrs.verb) && !rule.verbs.contains(&"*".to_string()) {
+        // VerbMatches
+        if !rule.verbs.iter().any(|v| v == "*" || *v == attrs.verb) {
             return false;
         }
 
-        // Handle non-resource requests
+        // Non-resource request: NonResourceURLMatches.
         if attrs.is_non_resource_request {
-            if let Some(ref non_resource_urls) = rule.non_resource_urls {
-                if let Some(ref path) = attrs.path {
-                    // Check if the path matches any of the non-resource URLs
-                    return non_resource_urls
-                        .iter()
-                        .any(|url| url == "*" || url == path || path.starts_with(url));
-                }
-            }
+            let Some(path) = attrs.path.as_deref() else {
+                return false;
+            };
+            return rule.non_resource_urls.iter().flatten().any(|url| {
+                url == "*"
+                    || url == path
+                    || (url.ends_with('*') && path.starts_with(url.trim_end_matches('*')))
+            });
+        }
+
+        // APIGroupMatches
+        if !rule
+            .api_groups
+            .iter()
+            .flatten()
+            .any(|g| g == "*" || *g == attrs.api_group)
+        {
             return false;
         }
 
-        // Check API group
-        if let Some(ref api_groups) = rule.api_groups {
-            if !api_groups.contains(&attrs.api_group) && !api_groups.contains(&"*".to_string()) {
-                return false;
-            }
+        // ResourceMatches over the combined `resource/subresource`: `*` matches
+        // all; an exact rule resource matches the COMBINED name (a rule on the
+        // bare resource does NOT grant its subresources, e.g. the scheduler's
+        // `create` on `pods/binding` needs a rule naming `pods/binding`, #1667);
+        // and `*/subresource` matches that subresource on any resource.
+        let sub = attrs.subresource.as_deref().filter(|s| !s.is_empty());
+        let combined = match sub {
+            Some(s) => format!("{}/{}", attrs.resource, s),
+            None => attrs.resource.clone(),
+        };
+        let matched = rule.resources.iter().flatten().any(|r| {
+            r == "*" || *r == combined || matches!(sub, Some(s) if *r == format!("*/{s}"))
+        });
+        if !matched {
+            return false;
         }
 
-        // Check resource + subresource, mirroring upstream
-        // `pkg/apis/rbac/v1` `resourceMatches`: `*` matches all; an exact rule
-        // resource matches the COMBINED `resource/subresource` (or the bare
-        // resource when there is no subresource); and `*/subresource` matches
-        // that subresource on any resource. A rule on the bare resource does
-        // NOT grant its subresources — so e.g. `system:kube-scheduler`'s
-        // `create` on `pods/binding` requires the rule to name `pods/binding`,
-        // and a request for resource=pods subresource=binding must be tested as
-        // `pods/binding`, not `pods` (otherwise the scheduler's Bind is denied
-        // and no pod is ever scheduled against a swapped api-server — #1667).
-        if let Some(ref resources) = rule.resources {
-            let sub = attrs.subresource.as_deref().filter(|s| !s.is_empty());
-            let combined = match sub {
-                Some(s) => format!("{}/{}", attrs.resource, s),
-                None => attrs.resource.clone(),
-            };
-            let matched = resources.iter().any(|r| {
-                r == "*" || *r == combined || matches!(sub, Some(s) if *r == format!("*/{s}"))
-            });
-            if !matched {
-                return false;
+        // ResourceNameMatches: no names means any name; otherwise the request
+        // name (empty for list/create) must be one of them.
+        match rule.resource_names.as_deref() {
+            None | Some([]) => true,
+            Some(names) => {
+                let name = attrs.name.as_deref().unwrap_or("");
+                names.iter().any(|n| n == name)
             }
         }
-
-        // Check resource name if specified
-        if let Some(ref name) = attrs.name {
-            if let Some(ref resource_names) = rule.resource_names {
-                if !resource_names.contains(name) && !resource_names.contains(&"*".to_string()) {
-                    return false;
-                }
-            }
-        }
-
-        true
     }
 }
 

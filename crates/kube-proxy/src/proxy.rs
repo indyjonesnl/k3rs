@@ -27,6 +27,9 @@ pub struct KubeProxy<S: Storage> {
     /// `proxier.serviceHealthServer` (iptables/proxier.go:171). `None` until
     /// the diagnostics listeners are set up.
     service_health_server: Option<Arc<dyn ServiceHealthServer>>,
+    /// Program KUBE-HOSTPORTS from the node's pods (k3rs-only; off when the
+    /// CNI `portmap` plugin owns hostPorts, see `run_proxy`).
+    host_ports: bool,
 }
 
 impl<S: Storage> KubeProxy<S> {
@@ -45,7 +48,13 @@ impl<S: Storage> KubeProxy<S> {
             node_name,
             last_sync_hash: 0,
             service_health_server: None,
+            host_ports: true,
         })
+    }
+
+    /// Whether to program KUBE-HOSTPORTS (and list Pods for it).
+    pub fn set_host_ports(&mut self, host_ports: bool) {
+        self.host_ports = host_ports;
     }
 
     /// Install the healthCheckNodePort server (`NewServiceHealthServer`,
@@ -112,11 +121,14 @@ impl<S: Storage> KubeProxy<S> {
         // Get all pods so we can install KUBE-HOSTPORTS DNAT rules for pods
         // scheduled on this node. Filtering is done inside
         // `build_hostport_rules` based on `pod.spec.node_name`.
-        let all_pods: Vec<Pod> = self
-            .storage
-            .list("/registry/pods/")
-            .await
-            .unwrap_or_default();
+        let all_pods: Vec<Pod> = if self.host_ports {
+            self.storage
+                .list("/registry/pods/")
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         // Build EndpointSlice map: key = "namespace/service-name" -> list of (ip, port_name, port_number)
         // This preserves port information from EndpointSlices so kube-proxy can route multi-port services

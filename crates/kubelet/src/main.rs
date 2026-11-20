@@ -468,32 +468,6 @@ async fn main() -> Result<()> {
     let eviction_manager = build_eviction_manager(&args, config_file.as_ref())?;
 
     // Build runtime configuration with proper precedence
-    // enableDebuggingHandlers / enableSystemLogHandler (nil => true, v1beta1
-    // defaults.go:122-124,280-282); read before the config file is consumed.
-    let enable_debugging_handlers = config_file
-        .as_ref()
-        .is_none_or(|c| c.debugging_handlers_enabled());
-    let enable_system_log_handler = config_file
-        .as_ref()
-        .is_none_or(|c| c.system_log_handler_enabled());
-    // kubelet.go:1783: the query-aware /logs/ handler needs both the gate and
-    // enableSystemLogQuery.
-    let enable_system_log_query = config::node_log_query_gate_enabled()
-        && config_file
-            .as_ref()
-            .is_some_and(|c| c.system_log_query_enabled());
-    // enableProfilingHandler / enableContentionProfiling / enableDebugFlagsHandler
-    // (v1beta1 defaults.go:283-288): only honoured under enableDebuggingHandlers.
-    let enable_profiling_handler = config_file
-        .as_ref()
-        .is_none_or(|c| c.profiling_handler_enabled());
-    let enable_contention_profiling = config_file
-        .as_ref()
-        .is_some_and(|c| c.contention_profiling_enabled());
-    let enable_debug_flags_handler = config_file
-        .as_ref()
-        .is_none_or(|c| c.debug_flags_handler_enabled());
-
     let runtime_config = RuntimeConfig::build(
         args.root_dir,
         args.volume_dir,
@@ -772,6 +746,13 @@ async fn main() -> Result<()> {
 
     // `getCheckpointsDir` (kubelet_getters.go:89): `<rootDir>/checkpoints`.
     let checkpoints_dir = runtime_config.root_dir.join("checkpoints");
+    // NewServer's handler switches (server.go:311-330), shared with `run()`.
+    let router_opts = server::ServerRouterOptions::from_config(
+        config_file.as_ref(),
+        checkpoints_dir,
+        std::path::PathBuf::from(server_logs::NODE_LOG_DIR),
+    );
+    let enable_debugging_handlers = router_opts.enable_debugging_handlers;
     let server_state = server::ServerState {
         node_name: runtime_config.node_name.clone(),
         storage: storage.clone(),
@@ -815,16 +796,7 @@ async fn main() -> Result<()> {
             server_state,
             metrics_clone,
             kubelet_config_clone,
-            server::ServerRouterOptions {
-                enable_debugging_handlers,
-                enable_system_log_handler,
-                enable_system_log_query,
-                enable_profiling_handler,
-                enable_contention_profiling,
-                enable_debug_flags_handler,
-                checkpoints_dir,
-                logs_root: std::path::PathBuf::from(server_logs::NODE_LOG_DIR),
-            },
+            router_opts,
         );
         // server.go:312-314 `InstallAuthFilter`: wraps every route registered
         // above (and /statusz).

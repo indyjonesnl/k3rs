@@ -762,6 +762,33 @@ pub struct ServerRouterOptions {
     pub logs_root: std::path::PathBuf,
 }
 
+impl ServerRouterOptions {
+    /// The switches from an optional kubelet config file, with the v1beta1
+    /// defaults when absent or unset (defaults.go:122-124,280-288:
+    /// enableDebuggingHandlers / enableSystemLogHandler /
+    /// enableProfilingHandler / enableDebugFlagsHandler true,
+    /// enableContentionProfiling / enableSystemLogQuery false). The query-aware
+    /// `/logs/` handler also needs the `NodeLogQuery` gate (kubelet.go:1783).
+    /// Shared by the standalone kubelet (`main.rs`) and the library `run()`.
+    pub fn from_config(
+        cfg: Option<&crate::config::KubeletConfiguration>,
+        checkpoints_dir: std::path::PathBuf,
+        logs_root: std::path::PathBuf,
+    ) -> Self {
+        Self {
+            enable_debugging_handlers: cfg.is_none_or(|c| c.debugging_handlers_enabled()),
+            enable_system_log_handler: cfg.is_none_or(|c| c.system_log_handler_enabled()),
+            enable_system_log_query: crate::config::node_log_query_gate_enabled()
+                && cfg.is_some_and(|c| c.system_log_query_enabled()),
+            enable_profiling_handler: cfg.is_none_or(|c| c.profiling_handler_enabled()),
+            enable_contention_profiling: cfg.is_some_and(|c| c.contention_profiling_enabled()),
+            enable_debug_flags_handler: cfg.is_none_or(|c| c.debug_flags_handler_enabled()),
+            checkpoints_dir,
+            logs_root,
+        }
+    }
+}
+
 /// The handler installation of `NewServer` (server.go:311-328), up to and
 /// including `installStatusZ`: `InstallAuthNotRequiredHandlers`, then
 /// `InstallAuthRequiredHandlers` + `InstallSystemLogHandler` +

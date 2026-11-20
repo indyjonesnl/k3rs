@@ -301,3 +301,87 @@ async fn every_registered_path_is_served_with_debugging_handlers() {
 async fn every_registered_path_is_served_without_debugging_handlers() {
     assert_every_registered_path_is_served(false).await;
 }
+
+/// `k3rs_kubelet::run()` (the all-in-one / `k3rs server` / `k3rs agent`
+/// kubelet) serves the router `api_router` builds. It must route the
+/// streaming paths the api-server proxies `pods/exec`, `pods/attach`,
+/// `pods/portforward` and `pods/log` to (pkg/kubelet/server/server.go
+/// `InstallAuthRequiredHandlers`), not 404 them (regression: it used to
+/// serve only /metrics, /configz and the read-only routes), with the same
+/// anonymous/AlwaysAllow posture `run()` builds.
+#[tokio::test]
+async fn run_api_router_serves_streaming_paths() {
+    use k3rs_kubelet::server_auth;
+    let storage = Arc::new(StorageBackend::new_memory());
+    let dir = tempfile::tempdir().unwrap();
+    let (authn, authz) = server_auth::resolve_auth_config(None, &server_auth::AuthFlags::default());
+    let (auth, _) = server_auth::build_auth("node-1", None, &authn, &authz).unwrap();
+    let app = k3rs_kubelet::api_router(
+        server_state(storage, "node-1"),
+        Arc::new(
+            k3rs_common::observability::MetricsRegistry::new()
+                .with_kubelet_metrics()
+                .unwrap(),
+        ),
+        Arc::new(Default::default()),
+        dir.path().join("checkpoints"),
+        auth,
+    );
+    for (method, p) in [
+        ("POST", "/exec/default/pod/c?command=echo&stdout=true"),
+        ("POST", "/exec/default/pod/uid/c?command=echo&stdout=true"),
+        ("POST", "/attach/default/pod/c?stdout=true"),
+        ("POST", "/portForward/default/pod"),
+        ("GET", "/containerLogs/default/pod/c"),
+        ("POST", "/run/default/pod/c?cmd=echo"),
+        ("GET", "/healthz"),
+        ("GET", "/configz"),
+    ] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(p)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = resp.status();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(
+            !(status == StatusCode::NOT_FOUND && body.is_empty()),
+            "{method} {p} is not routed"
+        );
+        // 405 is `InstallDebuggingDisabledHandlers`: debugging handlers off.
+        assert_ne!(status, StatusCode::METHOD_NOT_ALLOWED, "{method} {p}");
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "{method} {p}");
+        assert_ne!(status, StatusCode::FORBIDDEN, "{method} {p}");
+    }
+}
+
+/// No kubelet config file: `NewServer` with the v1beta1 defaults, exactly as
+/// the standalone kubelet computes them without `--config`.
+#[test]
+fn router_options_without_config_are_v1beta1_defaults() {
+    let o = k3rs_kubelet::server::ServerRouterOptions::from_config(None, "/c".into(), "/l".into());
+    assert!(o.enable_debugging_handlers);
+    assert!(o.enable_system_log_handler);
+    assert!(!o.enable_system_log_query);
+    assert!(o.enable_profiling_handler);
+    assert!(!o.enable_contention_profiling);
+    assert!(o.enable_debug_flags_handler);
+    let cfg = k3rs_kubelet::config::KubeletConfiguration {
+        enable_debugging_handlers: Some(false),
+        enable_contention_profiling: Some(true),
+        ..Default::default()
+    };
+    let o = k3rs_kubelet::server::ServerRouterOptions::from_config(
+        Some(&cfg),
+        "/c".into(),
+        "/l".into(),
+    );
+    assert!(!o.enable_debugging_handlers);
+    assert!(o.enable_contention_profiling);
+}

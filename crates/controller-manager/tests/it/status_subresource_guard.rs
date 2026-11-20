@@ -54,7 +54,11 @@ fn offenders() -> BTreeSet<String> {
         let src = fs::read_to_string(&path).expect("read controller source");
 
         let assigns_status = src.contains("status = Some(");
-        let writes_status = src.contains("update_status(") || src.contains("update_status_cas(");
+        // A strategic-merge PATCH of `/status` (`utilpod.PatchPodStatus`,
+        // `nodeutil.PatchNodeStatus`) is a status-subresource write too.
+        let writes_status = src.contains("update_status(")
+            || src.contains("update_status_cas(")
+            || src.contains("patch_status_strategic_merge");
         if assigns_status && !writes_status && !ALLOWED.iter().any(|(f, _)| *f == name) {
             out.insert(name);
         }

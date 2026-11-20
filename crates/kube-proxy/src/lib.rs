@@ -36,6 +36,16 @@ pub struct KubeProxyConfig {
     /// server listens; empty disables it. Defaults per
     /// [`serve_metrics::default_metrics_bind_address`].
     pub metrics_bind_address: String,
+    /// k3rs-only KUBE-HOSTPORTS programming, which needs a cluster-wide Pod
+    /// list/watch. `true` (default) keeps it, as the standalone kube-proxy
+    /// (also with `--configure-node-network`, the conformance and compose
+    /// stacks) and the bare all-in-one need. `k3rs server`/`agent` set
+    /// `false`: there hostPorts are the CNI `portmap` plugin's job (the node
+    /// conflist chains it, as k3s' flannel conflist does), upstream kube-proxy
+    /// has no Pod informer (cmd/kube-proxy/app/server.go), and the seeded
+    /// `system:node-proxier` role their `system:kube-proxy` identity is bound
+    /// to grants no Pod access.
+    pub host_ports: bool,
 }
 
 impl Default for KubeProxyConfig {
@@ -47,6 +57,7 @@ impl Default for KubeProxyConfig {
             nodeport_range: iptables::DEFAULT_NODEPORT_RANGE.to_string(),
             node_net: None,
             metrics_bind_address: serve_metrics::default_metrics_bind_address(""),
+            host_ports: true,
         }
     }
 }
@@ -118,6 +129,9 @@ async fn run_proxy<S: Storage + Send + Sync + 'static>(
         config.nodeport_range.clone(),
         config.node_name.clone(),
     )?));
+    // See `KubeProxyConfig::host_ports` (off for k3rs server/agent only).
+    let host_ports = config.host_ports;
+    kube_proxy.lock().await.set_host_ports(host_ports);
 
     // newProxyServer's configz registration is fatal on duplicate names and
     // stores the effective component config (server.go:189-193). Serialize the
@@ -211,6 +225,8 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
     }
 
     let sync_interval = tokio::time::Duration::from_secs(config.sync_interval);
+    // See `KubeProxyConfig::host_ports` (off for k3rs server/agent only).
+    let host_ports = config.host_ports;
 
     let queue = WorkQueue::new();
 
@@ -243,7 +259,18 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .expect("install SIGTERM handler");
 
+    let mut watch_broken = false;
     loop {
+        if watch_broken && !host_ports {
+            // k3rs server/agent only: a watch that ends or errors is
+            // re-established after a fixed 800 ms pause, a partial port of the
+            // reflector's back-off between ListAndWatch attempts (client-go
+            // tools/cache/reflector.go:282 starts an exponential back-off at
+            // 800 ms; this is fixed, not exponential). Re-watching at once
+            // spins when the stream fails on arrival (e.g. a 403). The default
+            // path keeps its previous immediate re-watch timing.
+            tokio::time::sleep(sync_interval.max(std::time::Duration::from_millis(800))).await;
+        }
         queue.add(RECONCILE_ALL_SENTINEL.into()).await;
 
         // Watch services, endpoints, AND endpointslices for fast iptables updates.
@@ -254,7 +281,11 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
         let es_watch = storage.watch("/registry/endpointslices/").await;
         // Watch pods so that hostPort changes (new pod scheduled, pod IP
         // assigned, pod deleted) trigger a fast KUBE-HOSTPORTS rebuild.
-        let pod_watch = storage.watch("/registry/pods/").await;
+        let pod_watch = if host_ports {
+            storage.watch("/registry/pods/").await
+        } else {
+            Ok(futures::stream::pending().boxed())
+        };
 
         let mut svc_watch = match svc_watch {
             Ok(w) => w,
@@ -294,7 +325,7 @@ async fn run_loop<S: Storage + Send + Sync + 'static>(
         let mut resync = tokio::time::interval(std::time::Duration::from_secs(10));
         resync.tick().await; // consume the immediate first tick
 
-        let mut watch_broken = false;
+        watch_broken = false;
         while !watch_broken {
             tokio::select! {
                 event = svc_watch.next() => {

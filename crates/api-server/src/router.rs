@@ -1164,7 +1164,6 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
         // the protected_routes auth middleware. Wiring them here previously
         // produced a 500 on every request — the extension extractor failed
         // before the handler ran.
-        .route("/version", get(handlers::discovery::get_version))
         // OpenAPI spec endpoints
         .route("/openapi/v2", get(handlers::openapi::get_swagger_spec))
         // `specProxier.register` wraps both handlers in
@@ -1205,10 +1204,17 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
             },
         ));
 
-    let public_routes = public_routes.merge(discovery_routes);
+    // Upstream authenticates and authorizes discovery and OpenAPI: the
+    // `system:discovery` ClusterRole (non-resource /api, /api/*, /apis,
+    // /apis/*, /openapi, /openapi/*, ...) is bound to `system:authenticated`
+    // only, so an anonymous caller gets 403 (plugin/pkg/auth/authorizer/rbac/
+    // bootstrappolicy/policy.go "system:discovery" + its clusterrolebinding).
+    // Only `system:public-info-viewer` (/healthz, /livez, /readyz, /version)
+    // is anonymous-readable, so `/version` stays public.
+    let public_routes = public_routes.route("/version", get(handlers::discovery::get_version));
 
     // Routes that require authentication (unless skip_auth is enabled)
-    let mut protected_routes = Router::new()
+    let mut protected_routes = discovery_routes
         // Core v1 API
         .route("/api/v1/namespaces", get(handlers::namespace::list)
             .post(handlers::namespace::create))
@@ -2972,6 +2978,25 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
     // protected_routes so they are authenticated and authorized (#3436).
     protected_routes = crate::zpages::install(protected_routes);
 
+    // Upstream has no unauthenticated route split: every path runs the whole
+    // `DefaultBuildHandlerChain` (server/config.go), and the health probes,
+    // `/version` and OIDC discovery are reachable anonymously only because
+    // the anonymous authenticator turns the caller into `system:anonymous`,
+    // which `system:public-info-viewer` /
+    // `system:service-account-issuer-discovery` admit. With
+    // `--anonymous-auth=false` that authenticator is gone
+    // (pkg/kubeapiserver/authenticator/config.go:242-246), so those routes
+    // join the authenticated and authorized chain and an unauthenticated
+    // probe gets 401 like any other request. With anonymous auth on (the
+    // default) they stay on the public router, exactly as before.
+    let anonymous_auth = state.anonymous_auth;
+    let public_routes = if !skip_auth && !anonymous_auth {
+        protected_routes = protected_routes.merge(public_routes);
+        Router::new()
+    } else {
+        public_routes
+    };
+
     // Conditionally apply authentication middleware
     if skip_auth {
         // In skip-auth mode, inject a default admin user context
@@ -3138,6 +3163,9 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
             .layer(axum_middleware::from_fn(
                 crate::apiserver_request_metrics::with_latency_trackers_filter,
             ))
+            .layer(Extension(middleware::AnonymousAuth {
+                enabled: anonymous_auth,
+            }))
             .layer(Extension(state.token_manager.clone()))
             .layer(Extension(state.bootstrap_token_manager.clone()))
             .layer(Extension(state.storage.clone()))

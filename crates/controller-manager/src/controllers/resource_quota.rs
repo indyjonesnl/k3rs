@@ -383,18 +383,29 @@ impl<S: Storage + 'static> ResourceQuotaController<S> {
                     continue;
                 }
             };
-            let storage_key = build_key("resourcequotas", Some(ns), name);
-            match self.storage.get::<ResourceQuota>(&storage_key).await {
-                Ok(resource) => match self.reconcile_quota(&resource).await {
+            // Upstream `syncResourceQuotaFromKey`
+            // (pkg/controller/resourcequota/resource_quota_controller.go:340-364)
+            // reads the quota from its lister, never with a live GET:
+            // `system:controller:resourcequota-controller` has list/watch on
+            // `*/*` but no `get`, so a GET here is a 403 under the
+            // controller's own identity. Only a NotFound from the lister means
+            // "deleted" (forget); any other error is requeued rate-limited, as
+            // upstream's `worker` does for every sync error (`:270-277`).
+            match self.read_quota(ns, name).await {
+                Ok(Some(resource)) => match self.reconcile_quota(&resource).await {
                     Ok(()) => queue.forget(&key).await,
                     Err(e) => {
                         error!("Failed to reconcile {}: {}", key, e);
                         queue.requeue_rate_limited(key.clone()).await;
                     }
                 },
-                Err(_) => {
-                    // Resource was deleted — nothing to reconcile
+                Ok(None) => {
+                    // Deleted — nothing to reconcile.
                     queue.forget(&key).await;
+                }
+                Err(e) => {
+                    error!("Unable to retrieve resource quota {}: {}", key, e);
+                    queue.requeue_rate_limited(key.clone()).await;
                 }
             }
             queue.done(&key).await;
@@ -429,9 +440,25 @@ impl<S: Storage + 'static> ResourceQuotaController<S> {
     /// reconcile) and recomputes `.status.used`. This is the per-key entry
     /// point used by the controller's worker loop and by integration tests.
     pub async fn reconcile_one(&self, namespace: &str, name: &str) -> Result<()> {
-        let key = build_key("resourcequotas", Some(namespace), name);
-        let quota: ResourceQuota = self.storage.get(&key).await?;
-        self.reconcile_quota(&quota).await
+        match self.read_quota(namespace, name).await? {
+            Some(quota) => self.reconcile_quota(&quota).await,
+            // `syncResourceQuotaFromKey`: a quota gone from the lister has
+            // been deleted, which is not an error.
+            None => Ok(()),
+        }
+    }
+
+    /// The quota `namespace/name` read the way upstream reads it: from the
+    /// lister (`rq.rqLister.ResourceQuotas(namespace).Get(name)`), i.e. the
+    /// LIST/WATCH path the role grants, not an object GET it does not.
+    async fn read_quota(&self, namespace: &str, name: &str) -> Result<Option<ResourceQuota>> {
+        Ok(super::lister::get_via_list(
+            self.storage.as_ref(),
+            "resourcequotas",
+            Some(namespace),
+            name,
+        )
+        .await?)
     }
 
     pub async fn reconcile_all(&self) -> Result<()> {

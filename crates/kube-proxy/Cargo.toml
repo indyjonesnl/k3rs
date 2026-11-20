@@ -43,6 +43,7 @@ crc = "3.4"
 futures = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 tower = { workspace = true }
 serial_test = { workspace = true }
 # Integration tests drive the Endpoints/EndpointSlice controllers to populate

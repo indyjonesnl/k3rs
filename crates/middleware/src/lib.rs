@@ -1010,6 +1010,16 @@ impl Drop for AuthenticationLatencyGuard {
     }
 }
 
+/// `--anonymous-auth` (`AnonymousAuthenticationOptions.Allow`,
+/// pkg/kubeapiserver/options/authentication.go:103-106, :358-363), resolved
+/// into `kubeauthenticator.Config.Anonymous.Enabled` (:589-601). Installed as
+/// a request extension by the router; [`auth_middleware`] treats a missing
+/// extension as enabled, the upstream default (`WithAnonymous`, :186-191).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AnonymousAuth {
+    pub enabled: bool,
+}
+
 /// Authentication middleware that extracts and validates JWT tokens.
 ///
 /// Mirrors upstream `pkg/serviceaccount/legacy.go` / `bound.go`: after a JWT
@@ -1129,8 +1139,30 @@ pub async fn auth_middleware(
     } else if let Some(err) = authn_error {
         warn!("Rejecting request: {}", err);
         return Err((StatusCode::UNAUTHORIZED, "Unauthorized").into_response());
+    } else if request
+        .extensions()
+        .get::<AnonymousAuth>()
+        .is_some_and(|a| !a.enabled)
+    {
+        // `--anonymous-auth=false`: no anonymous authenticator in the union
+        // (pkg/kubeapiserver/authenticator/config.go:242-246), so nothing
+        // authenticated the request and `WithAuthentication` hands it to the
+        // `Unauthorized` handler (staging/src/k8s.io/apiserver/pkg/endpoints/
+        // filters/authentication.go:73-78, :127-149):
+        // `ErrorNegotiated(NewUnauthorized("Unauthorized"))`.
+        debug!("Rejecting unauthenticated request: anonymous auth is disabled");
+        let status: k3rs_common::types::Status =
+            serde_json::from_value(secure_serving::filters::unauthorized_status())
+                .expect("unauthorized_status deserializes into a Status");
+        return Err(negotiated_error::error_negotiated(
+            &status,
+            request.headers(),
+            request.uri().query(),
+        ));
     } else {
-        // Anonymous user
+        // The anonymous authenticator, last in the union
+        // (`union.NewFailOnError(authenticator, anonymous.NewAuthenticator)`,
+        // config.go:242-246): only when anonymous auth is enabled.
         debug!("Anonymous request");
         UserInfo::anonymous()
     };

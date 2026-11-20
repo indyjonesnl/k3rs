@@ -108,12 +108,165 @@ impl Default for KubeletConfig {
     }
 }
 
+/// Inputs for an authenticated kubelet API (`:10250`), as k3s configures its
+/// kubelet (pkg/daemons/agent/agent.go:199-236): anonymous off, webhook
+/// (TokenReview) authentication, `Webhook` (SubjectAccessReview)
+/// authorization, `x509.clientCAFile` and `tlsCertFile`/`tlsPrivateKeyFile`.
+pub struct KubeletApiAuth {
+    /// `authentication.x509.clientCAFile` (k3s `<data-dir>/agent/client-ca.crt`).
+    pub client_ca_file: String,
+    /// `kubeDeps.KubeClient`: the kubelet's own API client, which posts the
+    /// TokenReviews and SubjectAccessReviews.
+    pub api_client: Arc<k3rs_client::http::ApiClient>,
+    /// `tlsCertFile` (k3s `serving-kubelet.crt`).
+    pub serving_cert_file: std::path::PathBuf,
+    /// `tlsPrivateKeyFile` (k3s `serving-kubelet.key`).
+    pub serving_key_file: std::path::PathBuf,
+}
+
+/// What the kubelet API server needs: the auth filter's authenticator and
+/// authorizer, the client-CA content to keep reloading, and the TLS config.
+pub struct KubeletApiServing {
+    pub auth: Arc<server_auth::KubeletAuth>,
+    pub client_ca: Option<Arc<server_auth::ClientCaContent>>,
+    pub tls: axum_server::tls_rustls::RustlsConfig,
+}
+
+/// Build the kubelet API's auth and TLS (`BuildAuth`, cmd/kubelet/app/server.go:
+/// 719-725, and `InitializeTLS`, :1100-1180).
+///
+/// `None`: the all-in-one posture, `BuildAuth` with `kubeDeps.KubeClient ==
+/// nil` and the legacy flag defaults (`applyLegacyDefaults`): anonymous
+/// requests, `AlwaysAllow`, a self-signed serving cert.
+///
+/// `Some`: the k3s kubelet configuration (agent.go:199-231) as flags through
+/// [`server_auth::resolve_auth_config`]. Every failure is an error: an empty
+/// client CA path, an unreadable or empty CA bundle, or an unreadable /
+/// unparsable / mismatched serving pair never falls back to anonymous access
+/// or a self-signed certificate.
+pub fn kubelet_api_serving(
+    node_name: &str,
+    auth: Option<&KubeletApiAuth>,
+) -> anyhow::Result<KubeletApiServing> {
+    let Some(a) = auth else {
+        // SECURITY POSTURE: with no client-CA authn and `AlwaysAllow`, :10250
+        // serves exec/attach/run/portForward/pprof/debug to anonymous clients.
+        // `k3rs server`/`k3rs agent` pass `Some` (x509 + webhook); the bare
+        // all-in-one keeps this, so :10250 must not be reachable from
+        // untrusted nets.
+        tracing::warn!(
+            "kubelet API :10250 is anonymous (AlwaysAllow): exec/attach/run/portForward/pprof/debug are open to any client that can reach it; client-CA authn is a follow-up"
+        );
+        let (authn_config, authz_config) =
+            server_auth::resolve_auth_config(None, &server_auth::AuthFlags::default());
+        let (auth, client_ca) =
+            server_auth::build_auth(node_name, None, &authn_config, &authz_config)?;
+        let tls = serving_tls::kubelet_serving_tls(node_name)?;
+        return Ok(KubeletApiServing {
+            auth,
+            client_ca,
+            tls,
+        });
+    };
+
+    // `--client-ca-file` with an empty value would leave x509 authn off and
+    // webhook-token authn as the only method; refuse rather than serve a
+    // kubelet whose client certificates are silently ignored.
+    if a.client_ca_file.is_empty() {
+        anyhow::bail!("kubelet API authentication: client CA file path is empty");
+    }
+    // k3s `defaultConfig` (agent.go:199-215, 228-230): Anonymous.Enabled=false,
+    // Webhook.Enabled=true (CacheTTL 2m), Authorization.Mode=Webhook
+    // (CacheAuthorizedTTL 5m, CacheUnauthorizedTTL 30s), X509.ClientCAFile.
+    // The TTLs equal `resolve_auth_config`'s defaults.
+    let flags = server_auth::AuthFlags {
+        anonymous_auth: Some(false),
+        authentication_token_webhook: Some(true),
+        authentication_token_webhook_cache_ttl: Some(std::time::Duration::from_secs(120)),
+        client_ca_file: Some(a.client_ca_file.clone()),
+        authorization_mode: Some("Webhook".to_string()),
+        authorization_webhook_cache_authorized_ttl: Some(std::time::Duration::from_secs(300)),
+        authorization_webhook_cache_unauthorized_ttl: Some(std::time::Duration::from_secs(30)),
+    };
+    let (authn_config, authz_config) = server_auth::resolve_auth_config(None, &flags);
+    // `NewDynamicCAContentFromFile` fails on a missing or empty bundle.
+    let (auth, client_ca) = server_auth::build_auth(
+        node_name,
+        Some(a.api_client.clone()),
+        &authn_config,
+        &authz_config,
+    )
+    .map_err(|e| anyhow::anyhow!("kubelet API authentication: {e:#}"))?;
+    let tls = serving_tls::kubelet_serving_tls_from_files(
+        &a.serving_cert_file,
+        &a.serving_key_file,
+        Some(&a.client_ca_file),
+    )?;
+    Ok(KubeletApiServing {
+        auth,
+        client_ca,
+        tls,
+    })
+}
+
+/// Bind the kubelet API port up front so a bind failure is returned to the
+/// caller instead of ending a detached task.
+pub fn bind_kubelet_api(addr: &str) -> anyhow::Result<std::net::TcpListener> {
+    let listener = std::net::TcpListener::bind(addr)
+        .map_err(|e| anyhow::anyhow!("kubelet API: bind {addr}: {e}"))?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
+}
+
+/// Serve the kubelet API (`ListenAndServeKubeletServer`, pkg/kubelet/server/
+/// server.go:170-207) on `listener` over HTTPS with the peer certificates
+/// surfaced to the x509 authenticator, and run the client-CA reload
+/// (`runAuthenticatorCAReload`) for as long as it serves. Returns only on a
+/// serve error; upstream exits the process there (`os.Exit(1)`).
+pub async fn serve_kubelet_api(
+    listener: std::net::TcpListener,
+    app: axum::Router,
+    serving: KubeletApiServing,
+) -> anyhow::Result<()> {
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+    if let Some(ca) = serving.client_ca {
+        tokio::spawn(ca.run(stop_rx));
+    }
+    let tls = serving.tls;
+    let res = axum_server::from_tcp_rustls(listener, tls.clone())
+        .acceptor(serving_tls::PeerCertAcceptor::new(tls))
+        .serve(app.into_make_service())
+        .await;
+    let _ = stop_tx.send(true);
+    match res {
+        Ok(()) => anyhow::bail!("kubelet API server stopped"),
+        Err(e) => Err(anyhow::anyhow!("kubelet API server: {e}")),
+    }
+}
+
 /// Run the kubelet component.
 ///
 /// This is the main entry point for embedding the kubelet in the all-in-one binary.
 /// Starts the kubelet sync loop and metrics server, blocks until shutdown.
+/// The kubelet API is anonymous (`AlwaysAllow`); see [`run_with_auth`].
 pub async fn run(storage: Arc<StorageBackend>, config: KubeletConfig) -> anyhow::Result<()> {
+    run_with_auth(storage, config, None).await
+}
+
+/// [`run`] with the kubelet API's authentication: `Some` serves `:10250` with
+/// x509 + webhook authn and webhook authz (see [`kubelet_api_serving`]). Any
+/// auth/TLS failure, or a bind failure, is returned before the kubelet
+/// starts; a later serve failure ends this function with an error.
+pub async fn run_with_auth(
+    storage: Arc<StorageBackend>,
+    config: KubeletConfig,
+    auth: Option<KubeletApiAuth>,
+) -> anyhow::Result<()> {
     info!("Starting k3rs Kubelet for node: {}", config.node_name);
+
+    // `BuildAuth` + `InitializeTLS` run before the kubelet is constructed
+    // (server.go:719-725 precede RunKubelet), so a bad credential fails fast.
+    let api_serving = kubelet_api_serving(&config.node_name, auth.as_ref())?;
 
     // RunKubelet: ParseNodeIPArgument + NewMainKubelet's cloud-provider gate
     // (server.go:1216-1222, kubelet.go:461-464, 619).
@@ -174,7 +327,7 @@ pub async fn run(storage: Arc<StorageBackend>, config: KubeletConfig) -> anyhow:
 
     let metrics_addr = format!("0.0.0.0:{}", config.metrics_port);
     info!(
-        "Starting kubelet API server on {} (metrics + configz)",
+        "Starting kubelet API server on {} (exec/attach/portForward/logs, metrics)",
         metrics_addr
     );
 
@@ -186,6 +339,9 @@ pub async fn run(storage: Arc<StorageBackend>, config: KubeletConfig) -> anyhow:
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/kubelet"));
+    // `getCheckpointsDir` (kubelet_getters.go:89): `<rootDir>/checkpoints`,
+    // with the same root as above.
+    let checkpoints_dir = eviction_root.join("checkpoints");
 
     let k = Arc::new(
         kubelet::Kubelet::new_with_eviction(
@@ -227,68 +383,57 @@ pub async fn run(storage: Arc<StorageBackend>, config: KubeletConfig) -> anyhow:
         storage: storage.clone(),
         kubelet: Some(k.clone()),
     };
-    let tls_node_name = config.node_name.clone();
-    // `BuildAuth` with `kubeDeps.KubeClient == nil` and the legacy flag
-    // defaults (`applyLegacyDefaults`): anonymous requests, `AlwaysAllow`.
-    let (authn_config, authz_config) =
-        server_auth::resolve_auth_config(None, &server_auth::AuthFlags::default());
-    let (auth, _client_ca) =
-        server_auth::build_auth(&config.node_name, None, &authn_config, &authz_config)?;
-    tokio::spawn(async move {
-        use axum::{routing::get, Json, Router};
-        let app = Router::new()
-            .route("/metrics", get(|| async move { metrics_clone.gather() }))
-            .route(
-                "/configz",
-                get(|| async move { Json(kubelet_config_clone.as_ref().clone()) }),
-            )
-            .merge(server::read_only_router(server_state));
-        // The all-in-one binary has no kubelet config file: upstream defaults
-        // (enableDebuggingHandlers / enableSystemLogHandler = true).
-        let app = server_logs::install_logs_handlers(
-            app,
-            true,
-            true,
-            false,
-            std::path::PathBuf::from(server_logs::NODE_LOG_DIR),
-        );
-        // server.go:328 `installStatusZ()`: last, over the routes registered so far.
-        // No kubelet config file here: `EnableDebuggingHandlers` defaults to
-        // true; the exec/attach/run handlers are not part of this binary.
-        // Only `Container.Handle`d paths are registered (see
-        // `server::registered_handle_paths`); this binary serves /metrics,
-        // /healthz and /configz of those.
-        let registered: Vec<String> = [
-            "/healthz",
-            "/healthz/ping",
-            "/healthz/log",
-            "/healthz/syncloop",
-            "/metrics",
-            "/configz",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        let app = server::install_statusz(app, registered);
-        let app = server_auth::install_auth_filter(app, Some(auth));
-        // server.go:1176 `ServeHTTP`: request metrics outside the auth filter.
-        let app = server::install_metrics_filter(
-            app,
-            server::MetricsBuckets::new_server(server::server_bucket_options(true)),
-            true,
-        );
-        // Serve the kubelet API port over HTTPS (#1644) — a Kubernetes
-        // api-server proxies logs/exec/attach/metrics via `https://…:10250`.
-        let addr: std::net::SocketAddr = metrics_addr.parse().expect("valid metrics addr");
-        let tls = serving_tls::kubelet_serving_tls(&tls_node_name)
-            .expect("build kubelet serving TLS config");
-        axum_server::bind_rustls(addr, tls)
-            .serve(app.into_make_service())
-            .await
-            .unwrap();
-    });
+    let app = api_router(
+        server_state,
+        metrics_clone,
+        kubelet_config_clone,
+        checkpoints_dir,
+        api_serving.auth.clone(),
+    );
+    // Serve the kubelet API port over HTTPS (#1644) — a Kubernetes
+    // api-server proxies logs/exec/attach/metrics via `https://…:10250`.
+    let listener = bind_kubelet_api(&metrics_addr)?;
+    let mut api_server = tokio::spawn(serve_kubelet_api(listener, app, api_serving));
 
-    k.run().await?;
+    tokio::select! {
+        r = k.run() => r?,
+        r = &mut api_server => {
+            // `ListenAndServeKubeletServer` exits the process on a serve
+            // error (server.go:200-203); end the kubelet with that error.
+            return Err(match r {
+                Ok(Err(e)) => e,
+                Ok(Ok(())) => anyhow::anyhow!("kubelet API server stopped"),
+                Err(e) => anyhow::anyhow!("kubelet API server task: {e}"),
+            });
+        }
+    }
 
     Ok(())
+}
+
+/// The kubelet API (`:10250`) router `run()` serves: `NewServer`'s handlers
+/// via the standalone kubelet's `server::build_server_router` (same
+/// implementation, so exec/attach/portForward/containerLogs/run that the
+/// api-server proxies to are served), with `NewServer`'s defaults for a
+/// kubelet without a config file (`ServerRouterOptions::from_config(None)`),
+/// wrapped in the auth filter (`InstallAuthFilter`, server.go:312-314) and
+/// the request-metrics filter (`ServeHTTP`, server.go:1176).
+pub fn api_router(
+    state: server::ServerState,
+    metrics: Arc<k3rs_common::observability::MetricsRegistry>,
+    kubelet_config: Arc<KubeletConfiguration>,
+    checkpoints_dir: std::path::PathBuf,
+    auth: Arc<server_auth::KubeletAuth>,
+) -> axum::Router {
+    let opts = server::ServerRouterOptions::from_config(
+        None,
+        checkpoints_dir,
+        std::path::PathBuf::from(server_logs::NODE_LOG_DIR),
+    );
+    let buckets = server::MetricsBuckets::new_server(server::server_bucket_options(
+        opts.enable_debugging_handlers,
+    ));
+    let app = server::build_server_router(state, metrics, kubelet_config, opts);
+    let app = server_auth::install_auth_filter(app, Some(auth));
+    server::install_metrics_filter(app, buckets, true)
 }

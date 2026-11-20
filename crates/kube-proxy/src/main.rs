@@ -162,6 +162,9 @@ async fn main() -> Result<()> {
         metrics_bind_address: k3rs_kube_proxy::serve_metrics::default_metrics_bind_address(
             &args.metrics_bind_address,
         ),
+        // KUBE-HOSTPORTS stays on for the standalone binary (compose and
+        // conformance stacks), with or without --configure-node-network.
+        host_ports: true,
     };
 
     let diagnostics = k3rs_kube_proxy::serve_metrics::DiagnosticsOptions {

@@ -350,6 +350,31 @@ impl ApiClient {
         }
     }
 
+    /// This client (base URL, rate limiter, `User-Agent`) authenticating with
+    /// `other`'s credentials: its HTTP clients (TLS client identity, trust
+    /// roots, connection pools) and bearer token. The limiter is the SAME
+    /// `Arc`, so both clients draw from one token bucket.
+    ///
+    /// The controller-manager uses this for
+    /// `--use-service-account-credentials` (k3s `pkg/daemons/control/
+    /// server.go:124`): upstream's `DynamicControllerClientBuilder` hands each
+    /// controller a config that keeps the skeleton's server and rate limits
+    /// but swaps the credentials (`restclient.AnonymousClientConfig` + the
+    /// controller's ServiceAccount token,
+    /// `staging/src/k8s.io/controller-manager/pkg/clientbuilder/client_builder_dynamic.go`
+    /// `Config`). k3rs presents a per-controller client cert instead of a token.
+    pub fn with_credentials_from(&self, other: &ApiClient) -> Self {
+        Self {
+            base_url: self.base_url.clone(),
+            client: other.client.clone(),
+            stream_client: other.stream_client.clone(),
+            token: other.token.clone(),
+            limiter: Arc::clone(&self.limiter),
+            default_user_agent: self.default_user_agent.clone(),
+            user_agent: self.user_agent.clone(),
+        }
+    }
+
     /// Set the component's default `User-Agent` and send it on every request
     /// (`SetKubernetesDefaults`, `rest/config.go:484-489`). Pass
     /// `k3rs_common::compatibility::default_kubernetes_user_agent()`.
@@ -975,6 +1000,23 @@ pYMXass1aOZuRtmE5ibX9iPpBQ==
         let start = tokio::time::Instant::now();
         b.limiter.acquire().await;
         assert_eq!(start.elapsed(), std::time::Duration::ZERO);
+    }
+
+    /// `with_credentials_from` keeps the skeleton's limiter (same bucket),
+    /// URL and User-Agent, and takes the other client's credentials.
+    #[test]
+    fn with_credentials_from_swaps_only_credentials() {
+        let skeleton = ApiClient::new("http://127.0.0.1:1", true, None)
+            .unwrap()
+            .with_default_user_agent("k3rs/v1")
+            .with_rate_limit(10.0, 3.0)
+            .for_controller("ReplicaSet");
+        let creds = ApiClient::new("http://127.0.0.1:2", true, Some("tok".into())).unwrap();
+        let c = skeleton.with_credentials_from(&creds);
+        assert!(c.shares_limiter_with(&skeleton));
+        assert_eq!(c.base_url, "http://127.0.0.1:1");
+        assert_eq!(c.user_agent.as_deref(), Some("k3rs/v1/ReplicaSet"));
+        assert_eq!(c.token.as_deref(), Some("tok"));
     }
 
     /// An `ApiClient` that never opted in must behave exactly as before the

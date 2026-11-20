@@ -808,43 +808,51 @@ impl<S: Storage + 'static> EndpointSliceController<S> {
     /// Only mirrors Endpoints for services without selectors or standalone Endpoints.
     /// K8s ref: pkg/controller/endpointslicemirroring/reconciler.go
     async fn mirror_endpoint(&self, ns: &str, name: &str) -> Result<()> {
-        let ep_key = build_key("endpoints", Some(ns), name);
-
-        // Check if the Endpoints resource still exists
-        let ep: Endpoints = match self.storage.get(&ep_key).await {
-            Ok(ep) => ep,
-            Err(_) => {
-                // Endpoints deleted — clean up mirrored EndpointSlices
-                let es_prefix = build_prefix("endpointslices", Some(ns));
-                let existing_slices: Vec<EndpointSlice> =
-                    self.storage.list(&es_prefix).await.unwrap_or_default();
-                for slice in &existing_slices {
-                    let managed = slice
-                        .metadata
-                        .labels
-                        .as_ref()
-                        .and_then(|l| l.get("endpointslice.kubernetes.io/managed-by"))
-                        .map(|m| m == "endpointslice-mirroring-controller.k8s.io")
-                        .unwrap_or(false);
-                    let owned = slice
-                        .metadata
-                        .labels
-                        .as_ref()
-                        .and_then(|l| l.get("kubernetes.io/service-name"))
-                        .map(|n| n == name)
-                        .unwrap_or(false);
-                    if managed && owned {
-                        let slice_key = build_key("endpointslices", Some(ns), &slice.metadata.name);
-                        let _ = self.storage.delete(&slice_key).await;
-                        debug!(
-                            "Deleted mirrored EndpointSlice {}/{} (source Endpoints deleted)",
-                            ns, slice.metadata.name
-                        );
+        // Check if the Endpoints resource still exists. Read through the
+        // listing, as upstream's endpoints lister does
+        // (pkg/controller/endpointslicemirroring/endpointslicemirroring_controller.go
+        // :303 `c.endpointsLister.Endpoints(namespace).Get(name)`): the
+        // endpointslice-controller ServiceAccount has no `get` on endpoints,
+        // and a failed read must never count as "deleted" (it would delete
+        // every mirrored slice). Only a successful listing without it does.
+        let ep: Endpoints =
+            match super::lister::get_via_list(self.storage.as_ref(), "endpoints", Some(ns), name)
+                .await?
+            {
+                Some(ep) => ep,
+                None => {
+                    // Endpoints deleted — clean up mirrored EndpointSlices
+                    let es_prefix = build_prefix("endpointslices", Some(ns));
+                    let existing_slices: Vec<EndpointSlice> =
+                        self.storage.list(&es_prefix).await.unwrap_or_default();
+                    for slice in &existing_slices {
+                        let managed = slice
+                            .metadata
+                            .labels
+                            .as_ref()
+                            .and_then(|l| l.get("endpointslice.kubernetes.io/managed-by"))
+                            .map(|m| m == "endpointslice-mirroring-controller.k8s.io")
+                            .unwrap_or(false);
+                        let owned = slice
+                            .metadata
+                            .labels
+                            .as_ref()
+                            .and_then(|l| l.get("kubernetes.io/service-name"))
+                            .map(|n| n == name)
+                            .unwrap_or(false);
+                        if managed && owned {
+                            let slice_key =
+                                build_key("endpointslices", Some(ns), &slice.metadata.name);
+                            let _ = self.storage.delete(&slice_key).await;
+                            debug!(
+                                "Deleted mirrored EndpointSlice {}/{} (source Endpoints deleted)",
+                                ns, slice.metadata.name
+                            );
+                        }
                     }
+                    return Ok(());
                 }
-                return Ok(());
-            }
-        };
+            };
 
         // Skip Endpoints that have the skip-mirror label
         // K8s ref: endpointslicemirroring/utils.go — shouldMirror()
@@ -1161,11 +1169,18 @@ impl<S: Storage + 'static> EndpointSliceController<S> {
                     Some("endpointslice-mirroring-controller.k8s.io") => {
                         // Mirrored: delete if source Endpoints no longer exists
                         // K8s ref: pkg/controller/endpointslicemirroring/reconciler.go
-                        let ep_key = build_key("endpoints", Some(ns), svc_name);
-                        self.storage
-                            .get::<serde_json::Value>(&ep_key)
-                            .await
-                            .is_err()
+                        // Lister read; a failed read keeps the slice
+                        // (see `mirror_endpoint`).
+                        matches!(
+                            super::lister::get_via_list::<_, serde_json::Value>(
+                                self.storage.as_ref(),
+                                "endpoints",
+                                Some(ns),
+                                svc_name,
+                            )
+                            .await,
+                            Ok(None)
+                        )
                     }
                     _ => false,
                 };
@@ -1745,10 +1760,18 @@ impl<S: Storage + 'static> EndpointSliceController<S> {
                 }
                 Some("endpointslice-mirroring-controller.k8s.io") => {
                     // Mirrored: delete if source Endpoints no longer exists
-                    self.storage
-                        .get::<serde_json::Value>(&build_key("endpoints", Some(ns), &svc_name))
-                        .await
-                        .is_err()
+                    // Lister read; a failed read keeps the slice (see
+                    // `mirror_endpoint`).
+                    matches!(
+                        super::lister::get_via_list::<_, serde_json::Value>(
+                            self.storage.as_ref(),
+                            "endpoints",
+                            Some(ns),
+                            &svc_name,
+                        )
+                        .await,
+                        Ok(None)
+                    )
                 }
                 _ => false,
             };

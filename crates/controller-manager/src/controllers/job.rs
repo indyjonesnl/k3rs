@@ -12,8 +12,8 @@ use super::controller_utils::{is_pod_ready, sort_active_pods};
 use super::expectations::ControllerExpectations;
 use super::job_tracking::{
     clean_uncounted_pods_without_finalizers, has_job_tracking_finalizer, push_uncounted_failed,
-    push_uncounted_succeeded, remove_tracking_finalizer, uncounted_has_failed,
-    uncounted_has_succeeded, FinalizerExpectations, JOB_TRACKING_FINALIZER,
+    push_uncounted_succeeded, uncounted_has_failed, uncounted_has_succeeded, FinalizerExpectations,
+    JOB_TRACKING_FINALIZER,
 };
 use super::pod_informer::{ControllerRef, PodEventTarget, ResolvedController, SharedPodInformer};
 use super::replicationcontroller::{
@@ -536,16 +536,18 @@ impl<S: Storage + 'static> JobController<S> {
                     e
                 };
                 if has_job_tracking_finalizer(pod) {
-                    let patched = match self.storage.get::<Pod>(&pod_key).await {
-                        Ok(mut fresh) => {
-                            if remove_tracking_finalizer(&mut fresh) {
-                                self.storage.update(&pod_key, &fresh).await.map(|_| ())
-                            } else {
-                                Ok(())
-                            }
+                    // PATCH, not GET + PUT: the job-controller role has pods
+                    // `patch` but no `get`/`update` (controller_policy.go).
+                    let patch = serde_json::json!({
+                        "metadata": {
+                            "$deleteFromPrimitiveList/finalizers": [JOB_TRACKING_FINALIZER],
                         }
-                        Err(e) => Err(e),
-                    };
+                    });
+                    let patched = self
+                        .storage
+                        .patch_strategic_merge::<Pod>(&pod_key, &patch)
+                        .await
+                        .map(|_| ());
                     if let Err(e) = patched {
                         return (false, Some(fail(e)));
                     }
@@ -810,34 +812,58 @@ impl<S: Storage + 'static> JobController<S> {
     ) -> HashSet<String> {
         let mut released = HashSet::new();
         for pod in pods {
-            let pod_key = build_key("pods", Some(namespace), &pod.metadata.name);
-            let Ok(mut fresh) = self.storage.get::<Pod>(&pod_key).await else {
-                // Already gone: nothing holds it, so the expectation is moot.
-                self.finalizer_expectations
-                    .removal_observed(job_key, &pod.metadata.uid);
-                released.insert(pod.metadata.uid.clone());
-                continue;
-            };
-            if !remove_tracking_finalizer(&mut fresh) {
+            // `removeTrackingFinalizerFromPods` (job_controller.go:1470-1510):
+            // a pod without the finalizer needs no write; otherwise
+            // `PatchPod(removeTrackingFinalizerPatch(pod))` (:1954-1965) and
+            // only NotFound counts as released. No GET + PUT: the seeded
+            // `system:controller:job-controller` role grants pods
+            // create/delete/list/patch/watch and neither get nor update
+            // (bootstrappolicy/controller_policy.go), so a live GET is 403 —
+            // which the old code took for "pod gone" and counted.
+            if !pod
+                .metadata
+                .finalizers
+                .as_ref()
+                .is_some_and(|f| f.iter().any(|f| f == JOB_TRACKING_FINALIZER))
+            {
                 released.insert(pod.metadata.uid.clone());
                 continue;
             }
+            let pod_key = build_key("pods", Some(namespace), &pod.metadata.name);
             // Record the expectation BEFORE the write, as upstream does: if the
             // write lands but our next list is stale, the expectation is what
             // stops the pod being counted a second time.
             self.finalizer_expectations
                 .expect_removed(job_key, [pod.metadata.uid.clone()]);
-            if let Err(e) = self.storage.update(&pod_key, &fresh).await {
-                // The removal did not happen, so it must not stay expected —
-                // otherwise the pod is skipped forever and its outcome is lost.
-                self.finalizer_expectations
-                    .removal_observed(job_key, &pod.metadata.uid);
-                warn!(
-                    "Failed to remove the job-tracking finalizer from pod {}: {}",
-                    pod.metadata.name, e
-                );
-            } else {
-                released.insert(pod.metadata.uid.clone());
+            let patch = serde_json::json!({
+                "metadata": {
+                    "$deleteFromPrimitiveList/finalizers": [JOB_TRACKING_FINALIZER],
+                }
+            });
+            match self
+                .storage
+                .patch_strategic_merge::<Pod>(&pod_key, &patch)
+                .await
+            {
+                Ok(_) => {
+                    released.insert(pod.metadata.uid.clone());
+                }
+                Err(k3rs_common::Error::NotFound(_)) => {
+                    // Already gone: nothing holds it, so the expectation is moot.
+                    self.finalizer_expectations
+                        .removal_observed(job_key, &pod.metadata.uid);
+                    released.insert(pod.metadata.uid.clone());
+                }
+                Err(e) => {
+                    // The removal did not happen, so it must not stay expected —
+                    // otherwise the pod is skipped forever and its outcome is lost.
+                    self.finalizer_expectations
+                        .removal_observed(job_key, &pod.metadata.uid);
+                    warn!(
+                        "Failed to remove the job-tracking finalizer from pod {}: {}",
+                        pod.metadata.name, e
+                    );
+                }
             }
         }
         released

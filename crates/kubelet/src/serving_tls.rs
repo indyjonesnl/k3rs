@@ -15,7 +15,8 @@
 //! self-signed cert is accepted — this matches upstream's default
 //! kubelet-serving posture.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use std::path::Path;
 use std::sync::Arc;
 
 /// Build an `axum-server` rustls config with a self-signed serving certificate
@@ -69,7 +70,52 @@ pub fn kubelet_serving_tls_with_options(
             .map_err(|e| anyhow!("unable to load kubelet serving cert {cert}/{key}: {e}"))?,
         None => k3rs_common::tls::TlsConfig::generate_self_signed(node_name, sans)?,
     };
+    build_serving_config(tls.cert, tls.key, client_ca_file)
+}
 
+/// The kubelet serving config from `tlsCertFile`/`tlsPrivateKeyFile`
+/// (`TLSOptions.CertFile`/`KeyFile`, cmd/kubelet/app/server.go:1160-1167, which
+/// k3s sets to its `serving-kubelet.{crt,key}`, pkg/daemons/agent/agent.go:233-236),
+/// with the same `RequestClientCert` client-CA handling and HTTP/1.1-only ALPN
+/// as [`kubelet_serving_tls_with_client_ca`].
+///
+/// Like `http.Server.ListenAndServeTLS(certFile, keyFile)` (pkg/kubelet/server/
+/// server.go:200) the pair is loaded with `tls.LoadX509KeyPair` semantics
+/// ([`k3rs_common::tls::x509_key_pair`]): an unreadable file, a file without a
+/// certificate or key, or a key that does not match the certificate is an
+/// error, so the caller never serves with a substitute certificate. The pair
+/// is loaded once (the `ReloadKubeletServerCertificateFile` reload is not
+/// ported).
+pub fn kubelet_serving_tls_from_files(
+    cert_file: &Path,
+    key_file: &Path,
+    client_ca_file: Option<&str>,
+) -> Result<axum_server::tls_rustls::RustlsConfig> {
+    let cert_pem = std::fs::read(cert_file)
+        .with_context(|| format!("read kubelet serving cert {}", cert_file.display()))?;
+    let key_pem = std::fs::read(key_file)
+        .with_context(|| format!("read kubelet serving key {}", key_file.display()))?;
+    k3rs_common::tls::x509_key_pair(&cert_pem, &key_pem).map_err(|e| {
+        anyhow!(
+            "kubelet serving cert {} / key {}: {e}",
+            cert_file.display(),
+            key_file.display()
+        )
+    })?;
+    // from_pem_files installs the process-wide rustls crypto provider.
+    let tls = k3rs_common::tls::TlsConfig::from_pem_files(
+        &cert_file.to_string_lossy(),
+        &key_file.to_string_lossy(),
+    )?;
+    build_serving_config(tls.cert, tls.key, client_ca_file)
+}
+
+/// The rustls server config shared by the self-signed and file-backed paths.
+fn build_serving_config(
+    cert: Vec<rustls::pki_types::CertificateDer<'static>>,
+    key: rustls::pki_types::PrivateKeyDer<'static>,
+    client_ca_file: Option<&str>,
+) -> Result<axum_server::tls_rustls::RustlsConfig> {
     let builder = rustls::ServerConfig::builder();
     let builder = match client_ca_file {
         None => builder.with_no_client_auth(),
@@ -81,7 +127,7 @@ pub fn kubelet_serving_tls_with_options(
         }
     };
     let mut cfg = builder
-        .with_single_cert(tls.cert, tls.key)
+        .with_single_cert(cert, key)
         .map_err(|e| anyhow!("kubelet serving TLS config: {e}"))?;
     cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
 

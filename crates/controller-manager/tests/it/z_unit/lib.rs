@@ -249,3 +249,87 @@ mod csi_attach_wiring_tests {
         assert_eq!(count(two, true), base + 3);
     }
 }
+
+mod identity_table_tests {
+    use super::__parent::*;
+    use k3rs_controller_manager::identities::*;
+    use k3rs_controller_manager::*;
+
+    /// Every `storage_for("...")` name in `spawn_controllers` (gated and
+    /// opt-in ones included, hence a source scan) has exactly one identity,
+    /// and the table names no controller that is never spawned.
+    #[test]
+    fn identity_table_covers_every_spawned_controller() {
+        let src = include_str!("../../../src/lib.rs");
+        let body = &src[src.find("pub fn spawn_controllers").unwrap()..];
+        let mut spawned: Vec<String> = Vec::new();
+        for part in body.split("storage_for(").skip(1) {
+            let arg = part.split(')').next().unwrap().trim();
+            let name = if arg == "NAMESPACE_CONTROLLER_CLIENT" {
+                NAMESPACE_CONTROLLER_CLIENT.to_string()
+            } else {
+                arg.trim_matches('"').to_string()
+            };
+            spawned.push(name);
+        }
+        spawned.sort();
+        spawned.dedup();
+        assert!(spawned.len() > 40, "scan found {spawned:?}");
+        let mut table: Vec<String> = CONTROLLER_IDENTITIES
+            .iter()
+            .map(|(n, _)| n.to_string())
+            .collect();
+        table.sort();
+        let before = table.len();
+        table.dedup();
+        assert_eq!(
+            before,
+            table.len(),
+            "duplicate names in CONTROLLER_IDENTITIES"
+        );
+        assert_eq!(spawned, table);
+    }
+
+    #[test]
+    fn service_account_identity_matches_upstream_user_info() {
+        assert_eq!(
+            service_account_username("replicaset-controller"),
+            "system:serviceaccount:kube-system:replicaset-controller"
+        );
+        assert_eq!(
+            SERVICE_ACCOUNT_GROUPS,
+            [
+                "system:serviceaccounts",
+                "system:serviceaccounts:kube-system"
+            ]
+        );
+        let sas = controller_service_accounts();
+        assert!(sas.contains(&"node-controller"));
+        let mut dedup = sas.clone();
+        dedup.sort();
+        dedup.dedup();
+        assert_eq!(dedup.len(), sas.len());
+    }
+
+    /// Fail closed: a missing credential is an error, never a silent
+    /// fallback to the controller-manager's own identity.
+    #[test]
+    fn identity_storage_for_requires_every_credential() {
+        let root = Arc::new(ApiClient::new("http://127.0.0.1:1", true, None).unwrap());
+        let all = || {
+            let mut creds = ControllerCredentials::new();
+            for sa in controller_service_accounts() {
+                creds.insert(
+                    sa,
+                    ApiClient::new("http://127.0.0.1:1", true, None).unwrap(),
+                );
+            }
+            creds
+        };
+        assert!(identity_storage_for(Arc::clone(&root), all()).is_ok());
+        let mut creds = all();
+        creds.remove("replicaset-controller");
+        let err = identity_storage_for(root, creds).err().unwrap().to_string();
+        assert!(err.contains("replicaset-controller"), "{err}");
+    }
+}

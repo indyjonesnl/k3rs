@@ -73,7 +73,17 @@ type DynamicTypes = Arc<RwLock<Option<HashMap<String, (String, bool)>>>>;
 
 /// A [`Storage`] implementation that proxies to the api-server over REST.
 pub struct ApiStorage {
+    /// Writes and object GETs: the controller's own identity.
     client: Arc<ApiClient>,
+    /// LIST, WATCH and discovery: the reads upstream serves from shared
+    /// informers, whose client is always the controller-manager's own
+    /// (`rootClientBuilder.Client("shared-informers")` /
+    /// `DiscoveryClient("controller-discovery")`,
+    /// cmd/kube-controller-manager/app/controllermanager.go:473-510; the
+    /// `system:kube-controller-manager` role's "Needed for all shared
+    /// informers" `list`/`watch` on `*/*`, bootstrappolicy/policy.go). Equal
+    /// to `client` unless [`ApiStorage::with_clients`] split them.
+    informer: Arc<ApiClient>,
     /// Discovery-resolved `plural -> (api_root, namespaced)` for types not in
     /// the built-in [`static_resource_info`] table (CRDs, aggregated APIs, and
     /// the arbitrary types the garbage collector traverses). `None` until the
@@ -89,6 +99,7 @@ pub struct ApiStorage {
 impl ApiStorage {
     pub fn new(client: Arc<ApiClient>) -> Self {
         Self {
+            informer: Arc::clone(&client),
             client,
             dynamic: Arc::new(RwLock::new(None)),
             shared_watches: Arc::new(Mutex::new(HashMap::new())),
@@ -102,8 +113,20 @@ impl ApiStorage {
     /// its own rate limiter, #1863) but must not give up the one-connection-
     /// per-resource-type watch sharing, so only the client differs.
     pub fn with_client(&self, client: Arc<ApiClient>) -> Self {
+        self.with_clients(Arc::clone(&client), client)
+    }
+
+    /// As [`Self::with_client`], with list/watch/discovery sent through
+    /// `informer` (the controller-manager's own identity) and every other
+    /// request through `client` (the controller's identity). This is the
+    /// split `--use-service-account-credentials` makes upstream: informers
+    /// run under the root client, a controller's own API calls under its
+    /// ServiceAccount (controllermanager.go:471-472, `createClientBuilders`
+    /// :758-773).
+    pub fn with_clients(&self, informer: Arc<ApiClient>, client: Arc<ApiClient>) -> Self {
         Self {
             client,
+            informer,
             dynamic: Arc::clone(&self.dynamic),
             shared_watches: Arc::clone(&self.shared_watches),
         }
@@ -256,11 +279,11 @@ impl ApiStorage {
     async fn load_discovery(&self) -> HashMap<String, (String, bool)> {
         let mut map = HashMap::new();
         // Core group.
-        if let Ok(list) = self.client.get::<Value>("/api/v1").await {
+        if let Ok(list) = self.informer.get::<Value>("/api/v1").await {
             ingest_resource_list(&mut map, "/api/v1", &list);
         }
         // Named groups: /apis -> APIGroupList, then each preferred groupVersion.
-        if let Ok(groups) = self.client.get::<Value>("/apis").await {
+        if let Ok(groups) = self.informer.get::<Value>("/apis").await {
             if let Some(arr) = groups.get("groups").and_then(|g| g.as_array()) {
                 for g in arr {
                     let gv = g
@@ -269,7 +292,7 @@ impl ApiStorage {
                         .and_then(|v| v.as_str());
                     if let Some(gv) = gv {
                         let root = format!("/apis/{gv}");
-                        if let Ok(list) = self.client.get::<Value>(&root).await {
+                        if let Ok(list) = self.informer.get::<Value>(&root).await {
                             ingest_resource_list(&mut map, &root, &list);
                         }
                     }
@@ -954,7 +977,7 @@ impl Storage for ApiStorage {
             return Ok(Vec::new());
         };
         let path = build_collection_for_prefix(&root, namespaced, &rt, &rest)?;
-        let list: KubernetesList<Value> = self.client.get(&path).await.map_err(map_get_err)?;
+        let list: KubernetesList<Value> = self.informer.get(&path).await.map_err(map_get_err)?;
         let mut out = Vec::with_capacity(list.items.len());
         for item in list.items {
             out.push(serde_json::from_value(item).map_err(Error::Serialization)?);
@@ -1019,7 +1042,7 @@ impl Storage for ApiStorage {
     async fn current_revision(&self) -> Result<i64> {
         let path = self.namespaces_collection().await?;
         let list: KubernetesList<Value> = self
-            .client
+            .informer
             .get(&format!("{path}?limit=1"))
             .await
             .map_err(map_get_err)?;
@@ -1040,7 +1063,7 @@ impl Storage for ApiStorage {
     async fn is_revision_compacted(&self, revision: i64) -> Result<bool> {
         let path = self.namespaces_collection().await?;
         let url = format!("{path}?limit=1&resourceVersion={revision}&resourceVersionMatch=Exact");
-        match self.client.get::<KubernetesList<Value>>(&url).await {
+        match self.informer.get::<KubernetesList<Value>>(&url).await {
             Ok(_) => Ok(false),
             Err(GetError::Other(e)) if is_expired_error(&e) => Ok(true),
             Err(e) => Err(map_get_err(e)),
@@ -1082,15 +1105,13 @@ impl ApiStorage {
         let path = build_collection_for_prefix(&root, namespaced, &rt, &rest)?;
         let sep = if path.contains('?') { '&' } else { '?' };
         let list: KubernetesList<Value> = self
-            .client
+            .informer
             .get(&format!("{path}{sep}{query}"))
             .await
             .map_err(|e| match e {
-                GetError::Other(ref err) if is_expired_error(err) => {
-                    Error::Gone(format!("{err:#}"))
-                }
-                e => map_get_err(e),
-            })?;
+            GetError::Other(ref err) if is_expired_error(err) => Error::Gone(format!("{err:#}")),
+            e => map_get_err(e),
+        })?;
         let next = list
             .metadata
             .and_then(|m| m.continue_token)
@@ -1133,7 +1154,7 @@ impl ApiStorage {
 
         if let Some(rv) = rv {
             return Ok(dedicated_watch(
-                self.client.clone(),
+                self.informer.clone(),
                 path,
                 rt,
                 namespaced,
@@ -1150,7 +1171,7 @@ impl ApiStorage {
                     let (tx, rx) = broadcast::channel::<Arc<WatchEvent>>(SHARED_WATCH_BUFFER);
                     guard.insert(path.clone(), tx.clone());
                     tokio::spawn(shared_upstream(
-                        self.client.clone(),
+                        self.informer.clone(),
                         path,
                         rt,
                         namespaced,

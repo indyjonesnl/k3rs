@@ -99,10 +99,10 @@ RUN set -eux; \
     for c in client common controller-core storage streamproxy cel-checker csi test_support; do \
         mkdir -p crates/$c/src && : > crates/$c/src/lib.rs; \
     done; \
-    for c in kubectl k3rs; do \
+    for c in kubectl; do \
         mkdir -p crates/$c/src && echo "fn main(){}" > crates/$c/src/main.rs; \
     done; \
-    for c in api-server controller-manager dns kubelet kube-proxy scheduler; do \
+    for c in api-server controller-manager dns kubelet kube-proxy scheduler k3rs; do \
         mkdir -p crates/$c/src && \
         : > crates/$c/src/lib.rs && \
         echo "fn main(){}" > crates/$c/src/main.rs; \

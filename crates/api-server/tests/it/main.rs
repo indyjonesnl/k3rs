@@ -453,6 +453,7 @@ mod custom_resource_root_meta_unknown_test;
 mod custom_resource_stored_meta_test;
 mod custom_resource_strict_pruner_paths_test;
 mod external_metrics_shape_test;
+mod extra_router_test;
 mod list_exact_all_handlers_test;
 mod list_options_all_routes_test;
 mod list_resource_version_match_exact_test;

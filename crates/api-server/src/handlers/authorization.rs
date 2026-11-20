@@ -17,6 +17,26 @@ use k3rs_common::{
 use std::sync::Arc;
 use tracing::info;
 
+/// The `APIVersion` and `Subresource` of `ResourceAttributesFrom`
+/// (pkg/registry/authorization/util/helpers.go:35-46), which every
+/// access-review registry uses: `APIVersion: matchAllVersionIfEmpty(in.Version)`
+/// and `Subresource: in.Subresource`. Dropping the subresource turned a review
+/// of `nodes/proxy` into one of `nodes`, which the Node authorizer grants every
+/// node (`NodeRules`), so a kubelet's webhook authorizer allowed any node to
+/// exec on any other.
+fn with_version_and_subresource(
+    mut attrs: RequestAttributes,
+    in_attrs: &k3rs_common::resources::ResourceAttributes,
+) -> RequestAttributes {
+    // `matchAllVersionIfEmpty` (helpers.go:215-220).
+    let version = in_attrs.version.as_deref().unwrap_or("");
+    attrs = attrs.with_api_version(if version.is_empty() { "*" } else { version });
+    if let Some(sub) = in_attrs.subresource.as_deref().filter(|s| !s.is_empty()) {
+        attrs = attrs.with_subresource(sub);
+    }
+    attrs
+}
+
 /// Create a SubjectAccessReview (authorization.k8s.io/v1)
 /// SubjectAccessReview checks whether or not a user or group can perform an action.
 pub async fn create_subject_access_review(
@@ -79,7 +99,7 @@ pub async fn create_subject_access_review(
             attrs = attrs.with_name(name);
         }
 
-        attrs
+        with_version_and_subresource(attrs, resource_attrs)
     } else if let Some(ref non_resource_attrs) = sar.spec.non_resource_attributes {
         RequestAttributes::new_non_resource(
             UserInfo {
@@ -185,7 +205,7 @@ pub async fn create_self_subject_access_review(
             attrs = attrs.with_name(name);
         }
 
-        attrs
+        with_version_and_subresource(attrs, resource_attrs)
     } else if let Some(ref non_resource_attrs) = ssar.spec.non_resource_attributes {
         RequestAttributes::new_non_resource(
             auth_ctx.user.clone(),
@@ -298,7 +318,7 @@ pub async fn create_local_subject_access_review(
             attrs = attrs.with_name(name);
         }
 
-        attrs
+        with_version_and_subresource(attrs, resource_attrs)
     } else {
         // Unreachable: validation above rejected a spec without
         // resourceAttributes (nonResourceAttributes is disallowed here, and a

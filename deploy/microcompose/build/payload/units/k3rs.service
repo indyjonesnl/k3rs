@@ -1,0 +1,29 @@
+[Unit]
+Description=k3rs (server on node1, agent elsewhere; role from /etc/k3rs/node.env)
+After=containerd.service network-online.target
+Wants=containerd.service network-online.target
+ConditionPathExists=/usr/local/bin/k3rs
+ConditionPathExists=/etc/k3rs/node.env
+[Service]
+Environment=RUST_LOG=info RUST_MIN_STACK=8388608
+Environment=CONTAINER_RUNTIME_ENDPOINT=unix:///run/containerd/containerd.sock
+# exec/attach/portForward: the kubelet proxies to containerd's CRI stream
+# server (stream_server_port 10010, deploy/containerd/config.toml). The
+# default target host is the compose service name `containerd`; here
+# containerd runs on the same host as the kubelet.
+Environment=CONTAINERD_STREAM_HOST=127.0.0.1 CONTAINERD_STREAM_PORT=10010
+# Written by sync.sh:
+#   K3RS_ROLE  server | agent
+#   NODE_IP    this VM's address on the microcompose network
+#   K3RS_ARGS  role flags, e.g. `--tls-san node1` (server) or
+#              `--server https://node1:6443 --token-file /etc/k3rs/token` (agent)
+# `node1` resolves through the peers block microcompose writes into /etc/hosts.
+EnvironmentFile=/etc/k3rs/node.env
+ExecStart=/usr/local/bin/k3rs $K3RS_ROLE --node-name %H --node-ip ${NODE_IP} --data-dir /var/lib/k3rs $K3RS_ARGS
+# Containers live under containerd's shims, not this cgroup; stop only k3rs.
+KillMode=process
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+[Install]
+WantedBy=multi-user.target

@@ -217,6 +217,13 @@ pub struct ApiServerConfig {
     pub tls_self_signed: bool,
     pub tls_san: String,
     pub skip_auth: bool,
+    /// `--anonymous-auth` (pkg/kubeapiserver/options/authentication.go:
+    /// 358-363, default true). `false` removes the anonymous authenticator
+    /// (authenticator/config.go:242-246): with authentication on, a request
+    /// no authenticator accepts is 401 on every route, `/healthz`, `/livez`,
+    /// `/readyz`, `/metrics`, `/version` and OIDC discovery included. k3s
+    /// sets it false (pkg/daemons/control/server.go:222).
+    pub anonymous_auth: bool,
     /// `--authorization-mode`; empty means the default `Node,RBAC` (#2854).
     pub authorization_mode: Vec<String>,
     /// `--authorization-policy-file` for ABAC mode.
@@ -250,6 +257,13 @@ pub struct ApiServerConfig {
     /// calling [`prepare_tls_for_config`] so the CA handed to other components
     /// matches the certificate served by the API server.
     pub prepared_tls: Option<PreparedTlsConfig>,
+    /// Extra routes merged into the api-server router so they share its
+    /// listener and TLS (the k3rs supervisor's `/cacerts`, `/ping`,
+    /// `/v1-k3rs/*`). Merged AFTER `build_router`, so they sit outside every
+    /// authn/authz layer the api-server wraps around its own routes: the
+    /// caller owns their authentication. Paths must not overlap built-in
+    /// routes (axum panics on overlap).
+    pub extra_router: Option<axum::Router>,
     /// `--service-node-port-range` (cmd/kube-apiserver/app/options/options.go:
     /// 124): the range NodePorts are allocated from. A zero-size range means
     /// unspecified and falls back to 30000-32767 (pkg/controlplane/
@@ -401,6 +415,7 @@ impl Default for ApiServerConfig {
             tls_self_signed: false,
             tls_san: "localhost,127.0.0.1".to_string(),
             skip_auth: true,
+            anonymous_auth: true,
             authorization_mode: Vec::new(),
             authorization_policy_file: String::new(),
             authorization_webhook: Default::default(),
@@ -413,6 +428,7 @@ impl Default for ApiServerConfig {
             client_ca_file: None,
             request_header: Default::default(),
             prepared_tls: None,
+            extra_router: None,
             service_node_port_range:
                 registry::core::service::portallocator::DEFAULT_SERVICE_NODE_PORT_RANGE,
             service_cluster_ip_range:
@@ -634,6 +650,7 @@ pub async fn run(storage: Arc<StorageBackend>, mut config: ApiServerConfig) -> a
         .with_crd_controllers(crd_controllers)
         .with_service_node_port_range(config.service_node_port_range)
         .with_event_ttl(config.event_ttl)
+        .with_anonymous_auth(config.anonymous_auth)
         .with_prometheus_client(prom_client),
     );
 
@@ -642,7 +659,14 @@ pub async fn run(storage: Arc<StorageBackend>, mut config: ApiServerConfig) -> a
     // every Service stored without one.
     bootstrap::start_service_ip_repair_controllers(&state).await?;
 
-    let app = router::build_router(state, config.console_dir.as_deref());
+    let mut app = router::build_router(state, config.console_dir.as_deref());
+    // Deviation: k3s fronts the API server with the supervisor router
+    // (pkg/server/handlers/router.go `NewHandler`, falling back to the
+    // apiserver); k3rs merges the supervisor routes into the api-server
+    // router instead of fronting it.
+    if let Some(extra) = config.extra_router.take() {
+        app = app.merge(extra);
+    }
 
     if config.tls {
         // Reuse the cert generated/loaded above so the serving cert matches

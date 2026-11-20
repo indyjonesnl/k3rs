@@ -211,18 +211,18 @@ COPY crates/kubelet/proto        crates/kubelet/proto
 # CRATE-ENUMERATION (2/3): dummy lib.rs / main.rs per crate. Lib vs
 # bin choice MUST match each Cargo.toml's [lib] + [[bin]] entries.
 #   - lib only:   common, controller-core, storage, cri, test_support
-#   - bin only:   kubectl, k3rs
-#   - lib + bin:  api-server, controller-manager, dns, kubelet, kube-proxy,
+#   - bin only:   kubectl
+#   - lib + bin:  api-server, controller-manager, dns, kubelet, kube-proxy, k3rs,
 #                 scheduler
 # `echo "fn main(){}"` in every main.rs; empty lib.rs is fine.
 RUN set -eux; \
     for c in client common controller-core storage protobuf middleware admission-webhook discovery cri streamproxy cel-checker csi test_support; do \
         mkdir -p crates/$c/src && : > crates/$c/src/lib.rs; \
     done; \
-    for c in kubectl k3rs; do \
+    for c in kubectl; do \
         mkdir -p crates/$c/src && echo "fn main(){}" > crates/$c/src/main.rs; \
     done; \
-    for c in api-server controller-manager dns kubelet kube-proxy scheduler; do \
+    for c in api-server controller-manager dns kubelet kube-proxy scheduler k3rs; do \
         mkdir -p crates/$c/src && \
         : > crates/$c/src/lib.rs && \
         echo "fn main(){}" > crates/$c/src/main.rs; \

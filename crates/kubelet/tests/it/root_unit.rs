@@ -17,6 +17,7 @@ mod image_gc;
 mod image_gc_cri;
 mod image_manager;
 mod kubelet;
+mod kubelet_api_auth;
 mod labels;
 mod lifecycle;
 mod node_ip;

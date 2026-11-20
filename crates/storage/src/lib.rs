@@ -957,6 +957,29 @@ where
         .and_then(|v| PatchSchema::for_object(&v));
     for attempt in 0..MAX_ATTEMPTS {
         let current: serde_json::Value = storage.get(key).await?;
+        // A `metadata.uid` in the patch is a precondition, as the api-server
+        // treats it: the patched object's UID becomes `Preconditions.UID`
+        // (`defaultUpdatedObjectInfo.Preconditions`,
+        // staging/src/k8s.io/apiserver/pkg/registry/rest/update.go:188-203)
+        // and `Preconditions.Check` (storage/interfaces.go:138-165) rejects a
+        // mismatch. `utilpod.PatchPodStatus` (pkg/util/pod/pod.go:56-60) relies
+        // on it; without the check a direct backend would rewrite the UID of a
+        // pod recreated under the same name.
+        if let Some(uid) = patch
+            .pointer("/metadata/uid")
+            .and_then(|u| u.as_str())
+            .filter(|u| !u.is_empty())
+        {
+            let stored = current
+                .pointer("/metadata/uid")
+                .and_then(|u| u.as_str())
+                .unwrap_or("");
+            if uid != stored {
+                return Err(Error::Conflict(format!(
+                    "Precondition failed: UID in precondition: {uid}, UID in object meta: {stored}"
+                )));
+            }
+        }
         let schema = typed_schema
             .clone()
             .or_else(|| PatchSchema::for_object(&current));
