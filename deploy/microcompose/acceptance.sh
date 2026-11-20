@@ -6,7 +6,8 @@
 #   2. every node has spec.podCIDR, all distinct
 #   3. kube-dns Service has an endpoint
 #   4. busybox pinned (nodeName) on node2 and node3 each Running
-#   5. node2 pod: nslookup kubernetes.default.svc.cluster.local 10.96.0.10 answers
+#   5. node2 pod: nslookup kubernetes.default.svc.cluster.local 10.96.0.10 answers,
+#      and an external name (EXTERNAL_NAME, default dns.google) is forwarded
 #   6. node2 pod can wget an nginx pod's IP on node3
 # Security posture (all run; the script exits non-zero if any failed). The
 # curls run on node2, so `node1`/`node3` resolve and node2's own kubelet
@@ -139,7 +140,15 @@ out="$(k -n $NS exec acc-bb-node2 -- nslookup kubernetes.default.svc.cluster.loc
 kip="$(k -n default get svc kubernetes -o jsonpath='{.spec.clusterIP}')"
 grep -Eq "Address:?[[:space:]]+$kip\$" <<<"$out" \
   || fail 5 "nslookup kubernetes.default.svc.cluster.local via 10.96.0.10 did not return $kip" "$out"
-pass 5 "nslookup -> $kip"; echo "$out"
+echo "$out"
+# Non-cluster names are forwarded upstream by k3rs-dns (CoreDNS `forward .
+# /etc/resolv.conf`, crates/dns/src/forward.rs, #4482): a ClusterFirst pod
+# lists only 10.96.0.10, so an external name must resolve through it too.
+ext="${EXTERNAL_NAME:-dns.google}"
+out="$(k -n $NS exec acc-bb-node2 -- nslookup "$ext" 10.96.0.10 2>&1)" || true
+grep -A3 "^Name:" <<<"$out" | grep -Eq "^Address:?[[:space:]]+[0-9a-fA-F.:]+" \
+  || fail 5 "nslookup $ext via 10.96.0.10 (upstream forwarding) returned no address" "$out"
+pass 5 "nslookup -> $kip; $ext forwarded upstream"; echo "$out"
 
 # --- 6. node2 pod -> nginx pod IP on node3 --------------------------------
 wait_for "$POD_TIMEOUT" "acc-nginx-node3 Running" running acc-nginx-node3 \
