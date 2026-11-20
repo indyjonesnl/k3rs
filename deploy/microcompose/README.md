@@ -77,7 +77,12 @@ Pod networking: node IPAM gives each node a /24 of 10.244.0.0/16; the
 in-process node-network agent writes `/etc/cni/net.d/10-k3rs.conflist` and
 host-gw routes (all VMs share one L2 bridge, 10.72.0.0/24). DNS: k3rs-dns on
 node1 binds `10.72.0.2:53` (not `0.0.0.0`: systemd-resolved owns
-127.0.0.53/54:53 in the guest); `kube-dns` 10.96.0.10 points at it.
+127.0.0.53/54:53 in the guest); `kube-dns` 10.96.0.10 points at it, and it
+forwards non-cluster names to the guest's `/etc/resolv.conf` (CoreDNS
+`forward`, #4482). The multi-container stacks run upstream CoreDNS from the
+k3s manifest instead (#4473); `k3rs server`, like the all-in-one, keeps the
+in-process k3rs-dns under its own identity `system:k3rs-dns` (narrower than
+k3s `system:coredns`, which also lists endpoints and namespaces).
 `kubectl exec`/`attach`/`port-forward`: the kubelet proxies to containerd's
 CRI stream server on the same VM (`CONTAINERD_STREAM_HOST=127.0.0.1`, port
 10010, set in `k3rs.service`).
@@ -87,7 +92,8 @@ CRI stream server on the same VM (`CONTAINERD_STREAM_HOST=127.0.0.1`, port
 Checks 1-6 exit non-zero on the first failure: (1) 3 nodes Ready within
 3 min, (2) distinct `spec.podCIDR`s, (3) kube-dns has an endpoint,
 (4) busybox pinned on node2 and node3 Running, (5) `kubectl exec` nslookup of
-`kubernetes.default.svc.cluster.local` via 10.96.0.10 from the node2 pod,
+`kubernetes.default.svc.cluster.local` via 10.96.0.10 from the node2 pod, and
+of an external name (`EXTERNAL_NAME`, default `dns.google`) forwarded upstream,
 (6) `kubectl exec` wget from the node2 pod to an nginx pod IP on node3.
 Checks 7-14 all run (non-zero exit if any failed); the curls run on node2
 with and without node2's own kubelet client cert
@@ -143,6 +149,20 @@ manage:
   PriorityClass, Service and APIServiceAvailability (the last two are covered
   by the api-server, see above).
 - `kubectl exec` over WebSocket falls back to SPDY.
+- The bundled addons main runs on the multi-container stacks from
+  `scripts/bootstrap-cluster.sh` (upstream CoreDNS #4473, local-path-provisioner
+  #4475, metrics-server #4476, traefik via helm-controller #4480) are not
+  deployed by `k3rs server`: the binary has no addon/manifest bootstrap yet
+  (k3s applies them with its deploy controller from `server/manifests`). Their
+  RBAC ships inside those manifests, so nothing is seeded for them here. In
+  their place: in-process k3rs-dns, and the api-server's seeded `standard`
+  StorageClass (k3rs.io/hostpath).
+- The cloud-provider node lifecycle controller (#4448) is a library only;
+  nothing starts it, so it has no identity in
+  `crates/controller-manager/src/identities.rs`. When it is started it should
+  run like k3s' embedded cloud-controller-manager
+  (User + ClusterRole `k3s-cloud-controller-manager`, k3s
+  `manifests/ccm.yaml`; started from `pkg/daemons/control/server.go`).
 
 ## Notes
 
