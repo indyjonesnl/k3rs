@@ -34,14 +34,18 @@ const KUBELET_CLIENT_KEY: &str = "/etc/kubernetes/pki/apiserver-kubelet-client.k
 pub const KUBELET_CLIENT_CERT_ENV: &str = "K3RS_KUBELET_CLIENT_CERT";
 /// Env override for the key path (`--kubelet-client-key`).
 pub const KUBELET_CLIENT_KEY_ENV: &str = "K3RS_KUBELET_CLIENT_KEY";
-/// Env override for the kubelet serving CA (k3rs's
-/// `--kubelet-certificate-authority`, cmd/kube-apiserver/app/options/options.go:149;
-/// k3s sets it to the server CA, pkg/daemons/control/server.go:248).
-pub const KUBELET_CERTIFICATE_AUTHORITY_ENV: &str = "K3RS_KUBELET_CERTIFICATE_AUTHORITY";
-
-/// In-process `--kubelet-certificate-authority`, set once by `k3rs server` or
-/// the api-server flag. Takes precedence over the env var.
+/// In-process `--kubelet-certificate-authority`
+/// (cmd/kube-apiserver/app/options/options.go:149; k3s sets it to the server
+/// CA, pkg/daemons/control/server.go:248), set once by `k3rs server` or the
+/// api-server flag.
 static CONFIGURED_CA: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+tokio::task_local! {
+    /// A task-scoped CA that replaces [`CONFIGURED_CA`] for one future, so a
+    /// test (or an embedder) can choose the CA per call without mutating
+    /// process state shared with other tests.
+    static SCOPED_CA: Option<std::path::PathBuf>;
+}
 
 /// Configure the kubelet serving CA in-process. May be called once.
 pub fn set_kubelet_certificate_authority(path: std::path::PathBuf) -> Result<(), String> {
@@ -50,16 +54,31 @@ pub fn set_kubelet_certificate_authority(path: std::path::PathBuf) -> Result<(),
         .map_err(|_| "kubelet certificate authority already configured".to_string())
 }
 
-/// The configured kubelet serving CA file, if any (in-process setting, else
-/// a non-empty [`KUBELET_CERTIFICATE_AUTHORITY_ENV`]). `None` keeps upstream's
-/// "no CA => Insecure" default.
+/// Run `f` with `ca` as the kubelet serving CA (`None`: no CA) instead of the
+/// process-wide setting. Applies to everything `f` builds on this task.
+pub async fn with_kubelet_certificate_authority<F: std::future::Future>(
+    ca: Option<std::path::PathBuf>,
+    f: F,
+) -> F::Output {
+    SCOPED_CA.scope(ca, f).await
+}
+
+/// Synchronous [`with_kubelet_certificate_authority`].
+pub fn with_kubelet_certificate_authority_sync<R>(
+    ca: Option<std::path::PathBuf>,
+    f: impl FnOnce() -> R,
+) -> R {
+    SCOPED_CA.sync_scope(ca, f)
+}
+
+/// The kubelet serving CA file in effect: the task-scoped one inside
+/// [`with_kubelet_certificate_authority`], else the configured one. `None`
+/// keeps upstream's "no CA => Insecure" default.
 pub fn kubelet_certificate_authority() -> Option<std::path::PathBuf> {
-    if let Some(p) = CONFIGURED_CA.get() {
-        return Some(p.clone());
+    if let Ok(scoped) = SCOPED_CA.try_with(Clone::clone) {
+        return scoped;
     }
-    std::env::var_os(KUBELET_CERTIFICATE_AUTHORITY_ENV)
-        .filter(|v| !v.is_empty())
-        .map(Into::into)
+    CONFIGURED_CA.get().cloned()
 }
 
 /// Load the kubelet serving CA bundle as a root store: `Ok(None)` when no CA
@@ -348,7 +367,6 @@ mod tests {
     fn clear() {
         std::env::remove_var(KUBELET_CLIENT_CERT_ENV);
         std::env::remove_var(KUBELET_CLIENT_KEY_ENV);
-        std::env::remove_var(KUBELET_CERTIFICATE_AUTHORITY_ENV);
     }
 
     /// A CA and a kubelet serving cert it signed for `sans` (like the
@@ -449,16 +467,14 @@ mod tests {
         let pki = mint(&["node1", "127.0.0.1"]);
         let addr = serve(&pki).await;
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var(
-            KUBELET_CERTIFICATE_AUTHORITY_ENV,
-            write_ca(&dir, &pki.ca_pem),
-        );
-        let r = get(
-            kubelet_proxy_connector().unwrap(),
-            format!("https://{addr}/"),
-        )
+        let r = with_kubelet_certificate_authority(Some(write_ca(&dir, &pki.ca_pem)), async {
+            get(
+                kubelet_proxy_connector().unwrap(),
+                format!("https://{addr}/"),
+            )
+            .await
+        })
         .await;
-        clear();
         assert_eq!(r, Ok(200));
     }
 
@@ -471,16 +487,14 @@ mod tests {
         let other = mint(&["node1", "127.0.0.1"]);
         let addr = serve(&kubelet).await;
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var(
-            KUBELET_CERTIFICATE_AUTHORITY_ENV,
-            write_ca(&dir, &other.ca_pem),
-        );
-        let r = get(
-            kubelet_proxy_connector().unwrap(),
-            format!("https://{addr}/"),
-        )
+        let r = with_kubelet_certificate_authority(Some(write_ca(&dir, &other.ca_pem)), async {
+            get(
+                kubelet_proxy_connector().unwrap(),
+                format!("https://{addr}/"),
+            )
+            .await
+        })
         .await;
-        clear();
         let e = r.expect_err("a cert from another CA must be refused");
         assert!(e.contains("InvalidCertificate"), "{e}");
     }
@@ -494,16 +508,14 @@ mod tests {
         let pki = mint(&["node2", "10.9.9.9"]);
         let addr = serve(&pki).await;
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var(
-            KUBELET_CERTIFICATE_AUTHORITY_ENV,
-            write_ca(&dir, &pki.ca_pem),
-        );
-        let r = get(
-            kubelet_proxy_connector().unwrap(),
-            format!("https://{addr}/"),
-        )
+        let r = with_kubelet_certificate_authority(Some(write_ca(&dir, &pki.ca_pem)), async {
+            get(
+                kubelet_proxy_connector().unwrap(),
+                format!("https://{addr}/"),
+            )
+            .await
+        })
         .await;
-        clear();
         let e = r.expect_err("a cert for another address must be refused");
         assert!(e.contains("NotValidForName"), "{e}");
     }
@@ -532,16 +544,14 @@ mod tests {
         let other = mint(&["node1"]);
         let addr = serve(&kubelet).await;
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var(
-            KUBELET_CERTIFICATE_AUTHORITY_ENV,
-            write_ca(&dir, &other.ca_pem),
-        );
-        let r = get(
-            kubelet_proxy_connector_insecure().unwrap(),
-            format!("https://{addr}/"),
-        )
+        let r = with_kubelet_certificate_authority(Some(write_ca(&dir, &other.ca_pem)), async {
+            get(
+                kubelet_proxy_connector_insecure().unwrap(),
+                format!("https://{addr}/"),
+            )
+            .await
+        })
         .await;
-        clear();
         assert_eq!(r, Ok(200));
     }
 
@@ -551,18 +561,33 @@ mod tests {
     #[serial]
     fn bad_ca_is_an_error() {
         clear();
-        std::env::set_var(KUBELET_CERTIFICATE_AUTHORITY_ENV, "/nonexistent/ca.crt");
-        assert!(kubelet_proxy_connector().is_err());
-        assert!(kubelet_proxy_connector_insecure().is_err());
+        with_kubelet_certificate_authority_sync(Some("/nonexistent/ca.crt".into()), || {
+            assert!(kubelet_proxy_connector().is_err());
+            assert!(kubelet_proxy_connector_insecure().is_err());
+        });
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var(
-            KUBELET_CERTIFICATE_AUTHORITY_ENV,
-            write_ca(&dir, "not a pem"),
+        with_kubelet_certificate_authority_sync(Some(write_ca(&dir, "not a pem")), || {
+            let e = kubelet_ca_roots().expect_err("garbage CA");
+            assert!(e.contains("no valid certificates"), "{e}");
+            assert!(kubelet_proxy_connector().is_err());
+        });
+    }
+
+    /// The scope replaces the process-wide CA only inside it.
+    #[test]
+    fn scoped_ca_applies_only_inside_the_scope() {
+        let p = std::path::PathBuf::from("/scoped/ca.crt");
+        let inside =
+            with_kubelet_certificate_authority_sync(Some(p.clone()), kubelet_certificate_authority);
+        assert_eq!(inside, Some(p));
+        assert_eq!(
+            with_kubelet_certificate_authority_sync(None, kubelet_certificate_authority),
+            None
         );
-        let e = kubelet_ca_roots().expect_err("garbage CA");
-        assert!(e.contains("no valid certificates"), "{e}");
-        assert!(kubelet_proxy_connector().is_err());
-        clear();
+        assert_eq!(
+            kubelet_certificate_authority(),
+            CONFIGURED_CA.get().cloned()
+        );
     }
 
     // Regression for #1644: the kubelet-proxy connector must build (TLS wiring

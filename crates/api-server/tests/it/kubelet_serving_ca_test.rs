@@ -12,8 +12,24 @@ use futures::StreamExt;
 use k3rs_api_server::handlers::pod_subresources::{
     fetch_kubelet_log_stream, insecure_skip_tls_verify_backend,
 };
-use serial_test::serial;
+use k3rs_streamproxy::with_kubelet_certificate_authority;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+/// The CA bundle file for one test, removed on drop. The CA reaches the code
+/// under test through a task scope, never the process environment, so these
+/// tests need no ordering against the other fake-kubelet tests.
+struct CaFile(tempfile::TempDir);
+
+impl CaFile {
+    fn new(pem: &str) -> Self {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("server-ca.crt"), pem).unwrap();
+        Self(d)
+    }
+    fn path(&self) -> std::path::PathBuf {
+        self.0.path().join("server-ca.crt")
+    }
+}
 
 struct Minted {
     ca_pem: String,
@@ -99,22 +115,19 @@ async fn fetch(addr: std::net::SocketAddr, insecure: bool) -> Result<Vec<u8>, St
 }
 
 #[tokio::test]
-#[serial]
 async fn log_fetch_verifies_kubelet_serving_cert_against_configured_ca() {
     let good = mint("server-ca", &["node1", "127.0.0.1"]);
     let rogue = mint("rogue-ca", &["node1", "127.0.0.1"]);
-    let ca = std::env::temp_dir().join(format!(
-        "k3rs-kubelet-ca-{}-{}.crt",
-        std::process::id(),
-        line!()
-    ));
-    std::fs::write(&ca, &good.ca_pem).unwrap();
-    std::env::set_var(k3rs_streamproxy::KUBELET_CERTIFICATE_AUTHORITY_ENV, &ca);
+    let ca = CaFile::new(&good.ca_pem);
 
-    let ok = fetch(kubelet(&good).await, false).await;
-    let refused = fetch(kubelet(&rogue).await, false).await;
-    let skipped = fetch(kubelet(&rogue).await, true).await;
-    std::env::remove_var(k3rs_streamproxy::KUBELET_CERTIFICATE_AUTHORITY_ENV);
+    let (ok, refused, skipped) = with_kubelet_certificate_authority(Some(ca.path()), async {
+        (
+            fetch(kubelet(&good).await, false).await,
+            fetch(kubelet(&rogue).await, false).await,
+            fetch(kubelet(&rogue).await, true).await,
+        )
+    })
+    .await;
 
     assert_eq!(ok.unwrap(), b"line1\n");
     let e = refused.expect_err("a kubelet cert from another CA is refused");
@@ -124,11 +137,12 @@ async fn log_fetch_verifies_kubelet_serving_cert_against_configured_ca() {
 }
 
 #[tokio::test]
-#[serial]
 async fn log_fetch_without_ca_keeps_unverified_default() {
-    std::env::remove_var(k3rs_streamproxy::KUBELET_CERTIFICATE_AUTHORITY_ENV);
     let any = mint("whatever", &["elsewhere"]);
-    assert_eq!(fetch(kubelet(&any).await, false).await.unwrap(), b"line1\n");
+    let got =
+        with_kubelet_certificate_authority(None, async { fetch(kubelet(&any).await, false).await })
+            .await;
+    assert_eq!(got.unwrap(), b"line1\n");
 }
 
 #[test]
@@ -173,18 +187,11 @@ fn node(name: &str, kubelet_port: u16) -> k3rs_common::resources::Node {
 /// serving cert is verified; any other port uses the unverified
 /// `ProxyTransport`.
 #[tokio::test]
-#[serial]
 async fn node_proxy_to_kubelet_port_verifies_serving_cert() {
     use k3rs_storage::{build_key, Storage};
     let good = mint("server-ca", &["n", "127.0.0.1"]);
     let rogue = mint("rogue-ca", &["n", "127.0.0.1"]);
-    let ca = std::env::temp_dir().join(format!(
-        "k3rs-kubelet-ca-{}-{}.crt",
-        std::process::id(),
-        line!()
-    ));
-    std::fs::write(&ca, &good.ca_pem).unwrap();
-    std::env::set_var(k3rs_streamproxy::KUBELET_CERTIFICATE_AUTHORITY_ENV, &ca);
+    let ca = CaFile::new(&good.ca_pem);
 
     let good_port = kubelet(&good).await.port();
     let rogue_port = kubelet(&rogue).await.port();
@@ -202,12 +209,17 @@ async fn node_proxy_to_kubelet_port_verifies_serving_cert() {
             (s.as_u16(), String::from_utf8_lossy(&b).to_string())
         }
     };
-    let ok = get("/api/v1/nodes/good/proxy/pods".into()).await;
-    let refused = get("/api/v1/nodes/rogue/proxy/pods".into()).await;
-    let refused_explicit = get(format!("/api/v1/nodes/rogue:{rogue_port}/proxy/pods")).await;
-    // A non-kubelet port: `proxyTransport`, not verified.
-    let other_port = get(format!("/api/v1/nodes/good:{rogue_port}/proxy/pods")).await;
-    std::env::remove_var(k3rs_streamproxy::KUBELET_CERTIFICATE_AUTHORITY_ENV);
+    let (ok, refused, refused_explicit, other_port) =
+        with_kubelet_certificate_authority(Some(ca.path()), async {
+            (
+                get("/api/v1/nodes/good/proxy/pods".into()).await,
+                get("/api/v1/nodes/rogue/proxy/pods".into()).await,
+                get(format!("/api/v1/nodes/rogue:{rogue_port}/proxy/pods")).await,
+                // A non-kubelet port: `proxyTransport`, not verified.
+                get(format!("/api/v1/nodes/good:{rogue_port}/proxy/pods")).await,
+            )
+        })
+        .await;
 
     assert_eq!(ok.0, 200, "{}", ok.1);
     assert_eq!(ok.1, "line1\n");
