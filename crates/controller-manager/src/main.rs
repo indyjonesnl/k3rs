@@ -863,9 +863,20 @@ async fn run_api_mode(
         // name (`AddUserAgent`).
         .with_default_user_agent(k3rs_common::compatibility::default_kubernetes_user_agent()),
     );
-    let config = k3rs_controller_manager::ControllerManagerConfig {
+    let config = api_mode_config(&args, ca_pem, token, insecure)?;
+    k3rs_controller_manager::run_with_api(client, config).await
+}
+
+/// The library `ControllerManagerConfig` for API mode (`run_api_mode`).
+fn api_mode_config(
+    args: &Args,
+    ca_pem: Option<Vec<u8>>,
+    token: Option<String>,
+    insecure: bool,
+) -> Result<k3rs_controller_manager::ControllerManagerConfig> {
+    Ok(k3rs_controller_manager::ControllerManagerConfig {
         sync_interval: args.sync_interval,
-        pv_recycler: recycler_config!(&args, k3rs_controller_manager::controllers::pv_recycler)?,
+        pv_recycler: recycler_config!(args, k3rs_controller_manager::controllers::pv_recycler)?,
         // The standalone binary spawns these itself (with leader election).
         csi_attachers: Vec::new(),
         attach_detach_controller: false,
@@ -897,12 +908,17 @@ async fn run_api_mode(
         // so it can (re)create kube-root-ca.crt in every namespace.
         ca_cert_pem: ca_pem.and_then(|b| String::from_utf8(b).ok()),
         legacy_sa_token_clean_up_period: args.legacy_service_account_token_clean_up_period,
-        // This binary runs its own ServiceAccount controller (below); the
-        // key is applied there.
-        service_account_private_key_file: None,
+        // API mode runs the lib's ServiceAccount controller (`run_with_api`
+        // -> `spawn_controllers`), so `--service-account-private-key-file`
+        // must reach it here; `main` already loaded it once to fail fast
+        // (`newServiceAccountTokenController`, service_accounts.go:55-58).
+        service_account_private_key_file: args
+            .service_account_private_key_file
+            .as_deref()
+            .map(std::path::PathBuf::from),
         // Lib-qualified NodeIpamConfig (distinct from the bin's `mod controllers`
         // copy), so it matches the type ControllerManagerConfig expects.
-        node_ipam: match node_ipam_params(&args)? {
+        node_ipam: match node_ipam_params(args)? {
             Some((cidr, masks, svc)) => Some(
                 k3rs_controller_manager::controllers::node_ipam::NodeIpamConfig::from_flags(
                     &cidr,
@@ -917,8 +933,7 @@ async fn run_api_mode(
             ),
             None => None,
         },
-    };
-    k3rs_controller_manager::run_with_api(client, config).await
+    })
 }
 
 /// Apply `--emulated-version`, `--min-compatibility-version` and
@@ -2515,5 +2530,85 @@ mod secure_serving_flag_tests {
     #[test]
     fn insecure_metrics_port_flag_is_gone() {
         assert!(Args::try_parse_from(["controller-manager", "--metrics-port=8080"]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod api_mode_service_account_key_tests {
+    use super::*;
+    use k3rs_common::resources::{Secret, ServiceAccount};
+    use k3rs_storage::{MemoryStorage, Storage};
+
+    /// API mode (`--kubeconfig`) runs the library's ServiceAccount controller,
+    /// so `--service-account-private-key-file` must reach it: a legacy
+    /// `kubernetes.io/service-account-token` Secret is signed with the flag's
+    /// key (`newServiceAccountTokenController` -> `JWTTokenGenerator`,
+    /// cmd/kube-controller-manager/app/service_accounts.go:47-77), not left
+    /// unsigned because the API-mode config dropped the path.
+    #[tokio::test]
+    async fn api_mode_signs_legacy_tokens_with_the_flag_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join("sa.key");
+        let kp = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+        std::fs::write(&key_path, kp.serialize_pem()).unwrap();
+        let kid = k3rs_common::sa_keys::signing_key_from_pem(kp.serialize_pem().as_bytes())
+            .unwrap()
+            .key_id;
+        let args = Args::try_parse_from([
+            "controller-manager",
+            "--kubeconfig",
+            "/dev/null",
+            "--service-account-private-key-file",
+            key_path.to_str().unwrap(),
+        ])
+        .unwrap();
+        let config = api_mode_config(&args, None, None, false).unwrap();
+        assert_eq!(
+            config.service_account_private_key_file.as_deref(),
+            Some(key_path.as_path())
+        );
+
+        let storage = Arc::new(MemoryStorage::new());
+        let sa: ServiceAccount = serde_json::from_value(serde_json::json!({
+            "apiVersion": "v1", "kind": "ServiceAccount",
+            "metadata": {"name": "legacy", "namespace": "default", "uid": "sa-uid"}
+        }))
+        .unwrap();
+        storage
+            .create("/registry/serviceaccounts/default/legacy", &sa)
+            .await
+            .unwrap();
+        let secret: Secret = serde_json::from_value(serde_json::json!({
+            "apiVersion": "v1", "kind": "Secret",
+            "metadata": {"name": "legacy-token", "namespace": "default", "uid": "s-uid",
+                "annotations": {"kubernetes.io/service-account.name": "legacy"}},
+            "type": "kubernetes.io/service-account-token"
+        }))
+        .unwrap();
+        storage
+            .create("/registry/secrets/default/legacy-token", &secret)
+            .await
+            .unwrap();
+
+        let handles = k3rs_controller_manager::spawn_controllers(|_| storage.clone(), config);
+        let mut token = None;
+        for _ in 0..100 {
+            let s: Secret = storage
+                .get("/registry/secrets/default/legacy-token")
+                .await
+                .unwrap();
+            if let Some(t) = s.data.as_ref().and_then(|d| d.get("token")) {
+                token = Some(String::from_utf8(t.clone()).unwrap());
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        for h in &handles {
+            h.abort();
+        }
+        let token = token.expect("the ServiceAccount controller populated the token");
+        let header = jsonwebtoken::decode_header(&token).unwrap();
+        assert_eq!(header.alg, jsonwebtoken::Algorithm::ES256);
+        assert_eq!(header.kid.as_deref(), Some(kid.as_str()));
     }
 }
