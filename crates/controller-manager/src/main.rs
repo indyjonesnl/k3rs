@@ -572,7 +572,8 @@ struct Args {
     root_ca_file: Option<String>,
 
     /// Upstream `--service-account-private-key-file`
-    /// (`serviceaccountcontroller.go:36`). Accepted, ignored.
+    /// (`serviceaccountcontroller.go:36`): the RSA or ECDSA key legacy
+    /// service-account token Secrets are signed with.
     #[arg(long)]
     service_account_private_key_file: Option<String>,
 
@@ -657,10 +658,6 @@ impl Args {
                 "--configure-cloud-routes",
             ),
             (self.root_ca_file.is_some(), "--root-ca-file"),
-            (
-                self.service_account_private_key_file.is_some(),
-                "--service-account-private-key-file",
-            ),
             (
                 self.cluster_signing_cert_file.is_some(),
                 "--cluster-signing-cert-file",
@@ -900,6 +897,9 @@ async fn run_api_mode(
         // so it can (re)create kube-root-ca.crt in every namespace.
         ca_cert_pem: ca_pem.and_then(|b| String::from_utf8(b).ok()),
         legacy_sa_token_clean_up_period: args.legacy_service_account_token_clean_up_period,
+        // This binary runs its own ServiceAccount controller (below); the
+        // key is applied there.
+        service_account_private_key_file: None,
         // Lib-qualified NodeIpamConfig (distinct from the bin's `mod controllers`
         // copy), so it matches the type ControllerManagerConfig expects.
         node_ipam: match node_ipam_params(&args)? {
@@ -967,6 +967,13 @@ async fn main() -> Result<()> {
     for flag in args.ignored_upstream_flags() {
         warn!("{flag} is accepted for upstream argv compatibility and ignored (not implemented)");
     }
+    // `newServiceAccountTokenController`: the key is read up front and a bad
+    // one fails startup (cmd/kube-controller-manager/app/service_accounts.go:55-58).
+    let sa_signing_key = args
+        .service_account_private_key_file
+        .as_deref()
+        .map(|p| controllers::serviceaccount::load_signing_key_file(std::path::Path::new(p)))
+        .transpose()?;
     if let Some(name) = args.cloud_provider.as_deref() {
         // options.go:480-483 `cloudprovider.ErrorForDisabledProvider`.
         if !name.is_empty() && name != "external" {
@@ -1957,8 +1964,12 @@ async fn main() -> Result<()> {
     });
 
     // Start ServiceAccount controller (watch-based)
-    let serviceaccount_controller =
-        Arc::new(ServiceAccountController::new(storage.clone()).with_ca_cert(ns_ca));
+    let serviceaccount_controller = Arc::new(match sa_signing_key {
+        Some(k) => ServiceAccountController::new(storage.clone())
+            .with_ca_cert(ns_ca)
+            .with_signing_key(k),
+        None => ServiceAccountController::new(storage.clone()).with_ca_cert(ns_ca),
+    });
     spawn_controller!("ServiceAccount controller", leader_elector, {
         let controller = serviceaccount_controller.clone();
         async move {
@@ -2405,7 +2416,6 @@ mod upstream_argv_tests {
                 "--controllers",
                 "--use-service-account-credentials",
                 "--root-ca-file",
-                "--service-account-private-key-file",
                 "--cluster-signing-cert-file",
                 "--cluster-signing-key-file",
             ]

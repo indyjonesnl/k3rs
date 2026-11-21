@@ -40,6 +40,57 @@ mod tests {
     const TEST_RSA_PRIVATE_PEM: &str = "-----BEGIN RSA PRIVATE KEY-----\nMIIEogIBAAKCAQEAqB2YGMQG0Td9BCuf4kL3OS0Ze1DV6kQCou6tfUrFgsURkNCS\nfhDbojJ7AXvYfPyaZ6gZHD2BYCL7w9Q4umhP8jnrJvdOIJ71r+oY8MauKsk0Zeoo\nP/Sm2eyQ+91uMWd0nEo0o3D9Q0UlAdotCDjV7WE0onUmU/lTyiamcGsNk2WLOT7B\n2iVXZmzoSOPw2R/nt3bsNV21Pkb/YQj237PTqqT9wcsDlpG8NdJUox1E1+QTxPZU\nFYZDxL15jsoVABqKfb+ktKfnKjD2iMblE60lK/WetPNMuJcxF3qaQIl6J49Az+ha\nBCRUbbBwVwRsPTKCWG3LSqBxbwW7MbvvXvyIowIDAQABAoIBACsXGssOQ6kQjeyp\nudtmyrNPCf7/ozTepcZZYwKATcvM80mpDENf0svqIHkq4zx2CqWTAoyofybDEMEK\n/ldZMVSm380nClF2LQcf+7CLXEz/MX0F3bc24CVva2IDSaFEITGGG6Pg7Cl36Zpl\n77Dx0HN9vN3/JQnVGFLyQSsDZYFn1T2RddfX43t0HrZofcJZdeKtx0TdwY+Gy7bi\ni7HMIWD1eQk1MNuzGGisZ69R2ZT5iW+UwjrUDweBe056GioPMPV3nY/RZ2QRfhUm\nOWjWgPT9xWZpMQE1jmDGpMMOolhw/osrFG6UoT8900E/5nM7iIfwTS3IZIuxkJxs\n1kbyS6ECgYEA1CdUE1CKLKt6XeC14tBFVifTT65vo22YZ0y8VYKSecoP2T4Vscf2\nAsfZ0YBsLZqtm2XjZSRTibJG0gBQVEgLxT3ZSOXO9ase3Co9EGbrTib+eHZLw4Cl\nBnPS8MrI2TK9xqrAbiYVea3Gb63+Ek08Pesfk1KbNrbK4CNwSNWoxnkCgYEAytxK\nw12ohwCw+d0VB0FYQ4fXZb65DwWeucOtHt/cY0dolMqxO/hOLpj3IpwxADbbHa1I\nPtYJRsYK9PnVo8K8Rs8tPS81vGiX99NsgCsoh5DyuU6d6c2QFrsb26ov29OyX2lv\nvOc3XWNcao+tsKpoQ/KFKB432fHlYri/P/HVcPsCgYAfdW18J7c1hH/yp72Q0n1V\nlzY4XI9lVn0A5FoQ+/moYZQUDKa+4/3Qz7222SoxYPxZTLR5bPeONYdW4IEI3l4Q\nc2li6+DSgPtkfkbrxbcisZmOV0xIwyy1VjtzRT6fJm0Jpow+SRtqHaCNMum34QgL\nzm+yMs+dP2G59sdRpY0PUQKBgAKf9xewDo4wpBmXkr4VSl8VUuQuI5beK7+bmJHd\ns6xVMDU8qi5seBaCRDBedQPbsdogc97cRiJ0TY/965XC30zLQXqZMcjOUakTQ0Ql\nStD2Py3GpqRv1H12zlV5TkU56AT0CE4Zb831iyyVz1mJ2u+GI9LxESfwyVcNrOvW\n5TwhAoGAQjU0xBQzdO5CN6awzK0UIBYD+T9kWYfuvo3U/HM2Rvkqwkoy/joTJQW6\nVYLNOHpsxvFtfDXq1VH61L618sKgsiMzK6ccSXS6K7w1nLxtooDwFkNLFKScg/lG\nLb5SNwMRw0msssuqZ6s3jXac1UcJCNZC6P7OLAgJoNw16QyLnlU=\n-----END RSA PRIVATE KEY-----\n";
     const TEST_RSA_PUBLIC_PEM: &str = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqB2YGMQG0Td9BCuf4kL3\nOS0Ze1DV6kQCou6tfUrFgsURkNCSfhDbojJ7AXvYfPyaZ6gZHD2BYCL7w9Q4umhP\n8jnrJvdOIJ71r+oY8MauKsk0ZeooP/Sm2eyQ+91uMWd0nEo0o3D9Q0UlAdotCDjV\n7WE0onUmU/lTyiamcGsNk2WLOT7B2iVXZmzoSOPw2R/nt3bsNV21Pkb/YQj237PT\nqqT9wcsDlpG8NdJUox1E1+QTxPZUFYZDxL15jsoVABqKfb+ktKfnKjD2iMblE60l\nK/WetPNMuJcxF3qaQIl6J49Az+haBCRUbbBwVwRsPTKCWG3LSqBxbwW7MbvvXvyI\nowIDAQAB\n-----END PUBLIC KEY-----\n";
 
+    /// `signerFromECDSAPrivateKey` (pkg/serviceaccount/jwt.go:141-185): an
+    /// ECDSA key signs with the algorithm of its curve (P-256 -> ES256,
+    /// P-384 -> ES384) and `kid` = `keyIDFromPublicKey`. `k3rs server`'s
+    /// `sa.key` is P-256, so an RSA-only loader left its legacy tokens unsigned.
+    #[test]
+    fn ecdsa_key_signs_with_curve_algorithm_and_kid() {
+        for (alg, expect) in [
+            (&rcgen::PKCS_ECDSA_P256_SHA256, Algorithm::ES256),
+            (&rcgen::PKCS_ECDSA_P384_SHA384, Algorithm::ES384),
+        ] {
+            let kp = rcgen::KeyPair::generate_for(alg).unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("sa.key");
+            std::fs::write(&path, kp.serialize_pem()).unwrap();
+            let key = load_signing_key_file(&path).unwrap();
+            let public = key.public.clone();
+            let controller =
+                ServiceAccountController::new(Arc::new(MemoryStorage::new())).with_signing_key(key);
+            let token = controller
+                .generate_token("ns", "sa", "sa-uid", "tok")
+                .unwrap();
+            let header = jsonwebtoken::decode_header(&token).unwrap();
+            assert_eq!(header.alg, expect);
+            assert_eq!(header.kid.as_deref(), Some(public.key_id.as_str()));
+
+            let mut v = jsonwebtoken::Validation::new(expect);
+            v.required_spec_claims.clear();
+            v.validate_exp = false;
+            v.validate_aud = false;
+            let data = jsonwebtoken::decode::<serde_json::Value>(&token, &public.decoding_key, &v)
+                .unwrap();
+            assert_eq!(data.claims["iss"], "kubernetes/serviceaccount");
+            assert_eq!(data.claims["sub"], "system:serviceaccount:ns:sa");
+        }
+    }
+
+    /// `keyutil.PrivateKeyFromFile` errors (missing file, no key) are errors,
+    /// not a silent fallback to unsigned tokens.
+    #[test]
+    fn unreadable_or_keyless_signing_key_file_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_signing_key_file(&dir.path().join("missing.key")).is_err());
+        let p = dir.path().join("cert-only.pem");
+        std::fs::write(
+            &p,
+            "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
+        )
+        .unwrap();
+        assert!(load_signing_key_file(&p).is_err());
+    }
+
     /// Upstream `serviceaccount.LegacyClaims` + `GenerateToken`
     /// (pkg/serviceaccount/legacy.go:42-51, jwt.go:443-452): a Secret token is
     /// signed with iss `kubernetes/serviceaccount`, the subject and the four
@@ -48,12 +99,18 @@ mod tests {
     #[test]
     fn secret_token_carries_legacy_claims() {
         let storage = Arc::new(MemoryStorage::new());
-        let mut controller = ServiceAccountController::new(storage);
-        controller.signing_key =
-            Some(EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_PEM.as_bytes()).unwrap());
+        let key =
+            k3rs_common::sa_keys::signing_key_from_pem(TEST_RSA_PRIVATE_PEM.as_bytes()).unwrap();
+        let kid = key.key_id.clone();
+        let controller = ServiceAccountController::new(storage).with_signing_key(key);
         let token = controller
             .generate_token("ns", "sa", "sa-uid", "tok")
             .unwrap();
+        // `signerFromRSAPrivateKey` (jwt.go:114-139): RS256 + kid, no typ.
+        let header = jsonwebtoken::decode_header(&token).unwrap();
+        assert_eq!(header.alg, Algorithm::RS256);
+        assert_eq!(header.kid.as_deref(), Some(kid.as_str()));
+        assert_eq!(header.typ, None);
 
         let mut v = jsonwebtoken::Validation::new(Algorithm::RS256);
         v.required_spec_claims.clear();

@@ -390,6 +390,7 @@ fn spawn_identity_controllers(e: &Env, creds: &ComponentCreds) -> Vec<tokio::tas
                 k3rs_controller_manager::controllers::podgc::DEFAULT_TERMINATED_POD_GC_THRESHOLD,
             token_cleaner_controller: false,
             service_cluster_ip_range: String::new(),
+            service_account_private_key_file: None,
         },
     )
 }
@@ -528,6 +529,7 @@ async fn controllers_reconcile_under_their_own_identities() {
                 k3rs_controller_manager::controllers::podgc::DEFAULT_TERMINATED_POD_GC_THRESHOLD,
             token_cleaner_controller: false,
             service_cluster_ip_range: String::new(),
+            service_account_private_key_file: None,
         },
     );
 

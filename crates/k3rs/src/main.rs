@@ -820,6 +820,14 @@ pub(crate) async fn run_all_in_one(args: Args, ov: Overrides) -> Result<()> {
         service_cluster_ip_range: args.service_cluster_ip_range.clone(),
         legacy_sa_token_clean_up_period:
             k3rs_controller_manager::controllers::legacy_serviceaccount_token_cleaner::DEFAULT_CLEAN_UP_PERIOD,
+        // k3s passes the api-server's signing key to the controller-manager:
+        // `service-account-private-key-file` = `service-account-signing-key-file`
+        // = `runtime.ServiceCurrentKey` (pkg/daemons/control/server.go:115, :226).
+        service_account_private_key_file: args
+            .service_account
+            .service_account_signing_key_file
+            .as_ref()
+            .map(std::path::PathBuf::from),
     };
     // The controller-manager reaches cluster state through the embedded
     // api-server over the same loopback client as scheduler/DNS (#1128),

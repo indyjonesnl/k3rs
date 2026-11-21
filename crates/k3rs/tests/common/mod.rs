@@ -41,6 +41,17 @@ pub async fn start_authn_api_with(
     storage: Arc<StorageBackend>,
     anonymous_auth: bool,
 ) -> (String, JoinHandle<anyhow::Result<()>>) {
+    start_authn_api_configured(pki, storage, anonymous_auth, |_| {}).await
+}
+
+/// As [`start_authn_api_with`], with `tweak` applied to the config (e.g. the
+/// `--service-account-*` options `k3rs server` passes).
+pub async fn start_authn_api_configured(
+    pki: &Pki,
+    storage: Arc<StorageBackend>,
+    anonymous_auth: bool,
+    tweak: impl Fn(&mut ApiServerConfig),
+) -> (String, JoinHandle<anyhow::Result<()>>) {
     k3rs::agent::ensure_crypto_provider();
     let probe = base_builder(pki)
         .timeout(Duration::from_secs(2))
@@ -54,7 +65,7 @@ pub async fn start_authn_api_with(
             .unwrap()
             .port();
         let ca_path = pki.dir.join("client-ca.crt");
-        let cfg = ApiServerConfig {
+        let mut cfg = ApiServerConfig {
             bind_address: format!("127.0.0.1:{port}"),
             tls: true,
             tls_cert_file: Some(pki.dir.join("serving.crt").to_string_lossy().into()),
@@ -65,6 +76,7 @@ pub async fn start_authn_api_with(
             anonymous_auth,
             ..Default::default()
         };
+        tweak(&mut cfg);
         let base = format!("https://127.0.0.1:{port}");
         let h = tokio::spawn(run(storage.clone(), cfg));
         for _ in 0..300 {
