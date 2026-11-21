@@ -83,7 +83,17 @@ wait_for() {
 
 # --- kubeconfig from node1 (server already 127.0.0.1:6443; forced anyway) ---
 KC_TMP="$(mktemp "$HERE/.kubeconfig.tmp.XXXXXX")"   # holds admin creds: never left behind
-trap 'rm -f "$KC_TMP"' EXIT
+# One cleanup for every exit path (normal, fail, ^C, kill): the admin-creds
+# temp file and, once check 15 started it, the rogue kubelet on node3.
+ROGUE_STARTED=0
+cleanup() {
+  rm -f "$KC_TMP"
+  [ "$ROGUE_STARTED" = 1 ] && rogue_off
+  return 0
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 chmod 600 "$KC_TMP"
 nssh "$CP" 'sudo cat /var/lib/k3rs/tls/admin.kubeconfig' > "$KC_TMP" \
   || fail 0 "could not read $CP:/var/lib/k3rs/tls/admin.kubeconfig (is k3rs server up? ./sync.sh)"
@@ -247,18 +257,22 @@ for n in node2 node3; do
     || sfail 15 "kubelet_serving_cert_verified $n:10250 (InternalIP '$nip') against server-ca.crt" "$out"
 done
 # Rogue kubelet on node3: self-signed cert with node3's SANs on :10251, and
-# node1's connections to :10250 redirected to it for the duration.
+# node1's connections to :10250 redirected to it for the duration. The
+# REDIRECT rule also expires on node3 by itself after 90s, so even a killed
+# run (or a lost ssh) cannot leave node1 cut off from node3's kubelet.
+ROGUE_RULE="PREROUTING -p tcp -s $CP_IP --dport 10250 -j REDIRECT --to-ports 10251"
 rogue_off() {
-  nssh node3 "sudo sh -c 'iptables -t nat -D PREROUTING -p tcp -s $CP_IP --dport 10250 -j REDIRECT --to-ports 10251 2>/dev/null; rm -f /tmp/rogue.key /tmp/rogue.crt; pkill -f \"[o]penssl s_server -accept 10251\" 2>/dev/null; true'" >/dev/null 2>&1 || true
+  nssh node3 "sudo sh -c 'while iptables -t nat -D $ROGUE_RULE 2>/dev/null; do :; done; rm -f /tmp/rogue.key /tmp/rogue.crt; pkill -f \"[o]penssl s_server -accept 10251\" 2>/dev/null; pkill -f \"[k]3rs-rogue-expire\" 2>/dev/null; true'" >/dev/null 2>&1 || true
 }
-trap rogue_off EXIT
+ROGUE_STARTED=1
 nssh node3 "sudo sh -s" <<ROGUE >/dev/null 2>&1 || sfail 15 "could not start the rogue kubelet on node3"
 set -e
 cd /tmp
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout rogue.key -out rogue.crt -days 1 -subj /CN=system:node:node3 -addext "subjectAltName=IP:$N3_IP,DNS:node3" >/dev/null 2>&1
 nohup timeout 120 openssl s_server -accept 10251 -cert rogue.crt -key rogue.key -www -quiet >/dev/null 2>&1 &
 sleep 1
-iptables -t nat -I PREROUTING 1 -p tcp -s $CP_IP --dport 10250 -j REDIRECT --to-ports 10251
+setsid sh -c 'sleep 90; iptables -t nat -D $ROGUE_RULE; rm -f /tmp/rogue.key /tmp/rogue.crt' k3rs-rogue-expire </dev/null >/dev/null 2>&1 &
+iptables -t nat -I $ROGUE_RULE
 ROGUE
 out="$(k -n $NS logs acc-nginx-node3 --tail=5 2>&1)" && rc=0 || rc=$?
 if [ "$rc" -ne 0 ] && ! grep -q 'GET / HTTP' <<<"$out"; then
@@ -271,7 +285,12 @@ grep -q 's_server' <<<"$out" \
   && pass 15 "kubelet_serving_cert_verified --insecure-skip-tls-verify-backend reaches the rogue (InsecureSkipTLSVerifyTransport)" \
   || sfail 15 "kubelet_serving_cert_verified --insecure-skip-tls-verify-backend did not reach the rogue" "$out"
 rogue_off
-trap - EXIT
+ROGUE_STARTED=0
+if nssh node3 "sudo iptables -t nat -C $ROGUE_RULE" >/dev/null 2>&1; then
+  sfail 15 "kubelet_serving_cert_verified rogue REDIRECT rule still on node3 after cleanup: $ROGUE_RULE"
+else
+  pass 15 "kubelet_serving_cert_verified rogue REDIRECT rule removed from node3"
+fi
 out="$(k -n $NS logs acc-nginx-node3 --tail=50 2>&1)" || true
 grep -q 'GET / HTTP' <<<"$out" && pass 15 "kubelet_serving_cert_verified logs work again with the real kubelet" \
   || sfail 15 "kubelet_serving_cert_verified logs after removing the rogue" "$out"
