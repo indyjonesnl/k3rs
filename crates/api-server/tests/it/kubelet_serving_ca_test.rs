@@ -131,7 +131,9 @@ async fn log_fetch_verifies_kubelet_serving_cert_against_configured_ca() {
 
     assert_eq!(ok.unwrap(), b"line1\n");
     let e = refused.expect_err("a kubelet cert from another CA is refused");
-    assert!(e.contains("InvalidCertificate"), "{e}");
+    // The TLS cause is in the message, in Display form (never `{:?}`).
+    assert!(e.contains("invalid peer certificate"), "{e}");
+    assert!(!e.contains("kind:") && !e.contains("Some("), "{e}");
     // insecureSkipTLSVerifyBackend=true selects the insecure transport.
     assert_eq!(skipped.unwrap(), b"line1\n");
 }

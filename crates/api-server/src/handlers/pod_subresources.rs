@@ -564,10 +564,18 @@ where
         .uri(target_url.clone())
         .body(axum::body::Body::empty())
         .map_err(|e| Error::Internal(format!("kubelet log request failed: {e}")))?;
-    let resp = client
-        .request(req)
-        .await
-        .map_err(|e| Error::Internal(format!("kubelet log request failed: {e:?}")))?;
+    let resp = client.request(req).await.map_err(|e| {
+        // Display, with the wrapped causes (the TLS verification error sits
+        // under hyper's "client error (Connect)"), like Go's `url.Error`
+        // message — never the Debug form.
+        let mut message = format!("kubelet log request failed: {e}");
+        let mut src = std::error::Error::source(&e);
+        while let Some(s) = src {
+            message.push_str(&format!(": {s}"));
+            src = s.source();
+        }
+        Error::Internal(message)
+    })?;
     let (parts, body) = resp.into_parts();
     let code = parts.status;
     if !(StatusCode::OK..=StatusCode::PARTIAL_CONTENT).contains(&code) {
