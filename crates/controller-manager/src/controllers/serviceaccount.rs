@@ -1,7 +1,8 @@
 use anyhow::Result;
 use futures::StreamExt;
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use jsonwebtoken::{encode, Header};
 use k3rs_common::resources::{Namespace, Secret, ServiceAccount};
+use k3rs_common::sa_keys::SigningKey;
 use k3rs_common::types::{ObjectMeta, TypeMeta};
 use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
 use serde::Serialize;
@@ -69,6 +70,26 @@ pub fn namespace_event_key(ev: &k3rs_storage::WatchEvent) -> Option<String> {
     Some(format!("serviceaccounts/{}/default", name))
 }
 
+/// `keyutil.PrivateKeyFromFile` + `serviceaccount.JWTTokenGenerator`
+/// (cmd/kube-controller-manager/app/service_accounts.go:55-58, :77-80): the
+/// first RSA or ECDSA private key in `path`. Any failure is an error — the
+/// upstream controller does not start with an unreadable key rather than
+/// issuing unsigned tokens.
+pub fn load_signing_key_file(path: &std::path::Path) -> Result<SigningKey> {
+    let pem = std::fs::read(path).map_err(|e| {
+        anyhow::anyhow!(
+            "error reading key for service account token controller {}: {e}",
+            path.display()
+        )
+    })?;
+    k3rs_common::sa_keys::signing_key_from_pem(&pem).map_err(|e| {
+        anyhow::anyhow!(
+            "error reading key for service account token controller {}: {e}",
+            path.display()
+        )
+    })
+}
+
 /// ServiceAccountController: the union of upstream's two ServiceAccount controllers.
 ///
 /// 1. Creates the "default" ServiceAccount in each namespace — upstream
@@ -83,9 +104,10 @@ pub fn namespace_event_key(ev: &k3rs_storage::WatchEvent) -> Option<String> {
 ///    creates a Secret.
 pub struct ServiceAccountController<S: Storage> {
     pub storage: Arc<S>,
-    /// RSA private key for signing tokens (PEM format)
-    /// In production, this would be loaded from a secure key file
-    pub signing_key: Option<EncodingKey>,
+    /// The token generator's private key (`--service-account-private-key-file`):
+    /// RSA (RS256) or ECDSA (ES256 / ES384 by curve), as
+    /// `serviceaccount.JWTTokenGenerator` accepts (pkg/serviceaccount/jwt.go:61-89).
+    pub signing_key: Option<SigningKey>,
     /// PEM-encoded CA certificate injected into SA token secrets
     pub ca_cert_pem: Option<String>,
     /// ServiceAccount (name, uid) of each token Secret whose deletion the watch
@@ -117,17 +139,24 @@ impl<S: Storage + 'static> ServiceAccountController<S> {
         self
     }
 
-    /// Load the RSA private key for signing ServiceAccount tokens
-    /// Looks for the key at SA_SIGNING_KEY_PATH environment variable
-    /// or defaults to ~/.k3rs/keys/sa-signing-key.pem
-    fn load_signing_key() -> Option<EncodingKey> {
+    /// Use `key` as the token generator's private key (the KCM's
+    /// `--service-account-private-key-file`, loaded with
+    /// [`load_signing_key_file`]). Replaces any key found by [`Self::new`].
+    pub fn with_signing_key(mut self, key: SigningKey) -> Self {
+        self.signing_key = Some(key);
+        self
+    }
+
+    /// Legacy key discovery (k3rs-only): `SA_SIGNING_KEY_PATH`, else
+    /// `~/.k3rs/keys/sa-signing-key.pem`. RSA or ECDSA.
+    fn load_signing_key() -> Option<SigningKey> {
         let key_path = std::env::var("SA_SIGNING_KEY_PATH").unwrap_or_else(|_| {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
             format!("{}/.k3rs/keys/sa-signing-key.pem", home)
         });
 
         match std::fs::read(&key_path) {
-            Ok(key_bytes) => match EncodingKey::from_rsa_pem(&key_bytes) {
+            Ok(key_bytes) => match k3rs_common::sa_keys::signing_key_from_pem(&key_bytes) {
                 Ok(key) => {
                     info!("Loaded ServiceAccount signing key from {}", key_path);
                     Some(key)
@@ -482,9 +511,11 @@ impl<S: Storage + 'static> ServiceAccountController<S> {
         Ok(())
     }
 
-    /// Generate a ServiceAccount token as a signed JWT
-    /// Uses RS256 (RSA + SHA256) for signing if a signing key is available
-    /// Falls back to a simple token format if no signing key is configured
+    /// Generate a legacy ServiceAccount token: `serviceaccount.LegacyClaims`
+    /// signed by `JWTTokenGenerator(LegacyIssuer, privateKey)`
+    /// (pkg/serviceaccount/legacy.go:42-51, jwt.go:61-89, :443-452).
+    /// Falls back to a simple (unusable) token format if no signing key is
+    /// configured (k3rs-only; upstream disables the controller instead).
     pub fn generate_token(
         &self,
         namespace: &str,
@@ -503,11 +534,15 @@ impl<S: Storage + 'static> ServiceAccountController<S> {
                 namespace,
             };
 
-            // Create JWT header with RS256 algorithm
-            let header = Header::new(Algorithm::RS256);
+            // `signerFromRSAPrivateKey` / `signerFromECDSAPrivateKey`
+            // (jwt.go:114-185): `alg` from the key (RS256, or ES256/ES384 by
+            // curve) and `kid` = `keyIDFromPublicKey`; go-jose writes no `typ`.
+            let mut header = Header::new(signing_key.algorithm);
+            header.typ = None;
+            header.kid = Some(signing_key.key_id.clone());
 
             // Encode the JWT
-            let token = encode(&header, &claims, signing_key)
+            let token = encode(&header, &claims, &signing_key.encoding_key)
                 .map_err(|e| anyhow::anyhow!("Failed to encode JWT token: {}", e))?;
 
             info!(

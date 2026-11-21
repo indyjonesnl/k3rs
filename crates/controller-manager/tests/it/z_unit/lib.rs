@@ -162,6 +162,7 @@ mod per_controller_client_tests {
                     controllers::podgc::DEFAULT_TERMINATED_POD_GC_THRESHOLD,
                 token_cleaner_controller: false,
                 service_cluster_ip_range: String::new(),
+                service_account_private_key_file: None,
             },
         );
         for h in &handles {
@@ -221,6 +222,7 @@ mod csi_attach_wiring_tests {
                     controllers::podgc::DEFAULT_TERMINATED_POD_GC_THRESHOLD,
                 token_cleaner_controller: false,
                 service_cluster_ip_range: String::new(),
+                service_account_private_key_file: None,
             },
         );
         for h in &handles {

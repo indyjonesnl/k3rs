@@ -7,7 +7,7 @@ k3rs-dns in one process); `node2`/`node3` run
 
 ```bash
 ./up.sh            # make build-fast -p k3rs, bake (first time), boot, sync
-./acceptance.sh    # 14 checks (cluster + authn/RBAC posture) + per-node memory
+./acceptance.sh    # 18 checks (cluster + authn/RBAC posture) + per-node memory
 # inner loop:
 make -C ../.. build-fast ARGS="-p k3rs --bin k3rs" && ./sync.sh
 KUBECONFIG=$PWD/.kubeconfig kubectl get nodes -o wide   # written by acceptance.sh
@@ -65,11 +65,25 @@ Like k3s (`pkg/daemons/control/server.go` `apiServer`, `pkg/daemons/agent/agent.
 - **kubelet :10250** on every node: TLS with the node's `serving-kubelet`
   cert, anonymous off, x509 against the client CA, authorization by
   SubjectAccessReview (`nodes/proxy` etc.). The api-server reaches it for
-  `exec`/`logs`/`attach`/`port-forward` as `system:apiserver`.
+  `exec`/`logs`/`attach`/`port-forward` (and `nodes/<n>/proxy` on the kubelet
+  port) as `system:apiserver`, and verifies the kubelet's serving cert against
+  the server CA for the node IP it dials (k3s
+  `kubelet-certificate-authority`; `--insecure-skip-tls-verify-backend` on
+  `kubectl logs` skips it, as upstream).
+- **Legacy ServiceAccount token Secrets** are signed by the tokens controller
+  with the api-server's own signing key (`sa.key`, ECDSA P-256 -> ES256; k3s
+  passes `service-account-private-key-file` = the signing key) and
+  authenticate.
+- **k3rs-managed RBAC** (`system:k3rs-dns`, `system:k3rs-event-gc` and their
+  bindings) carries `rbac.authorization.kubernetes.io/autoupdate: "true"` and
+  is reconciled on every server start like the upstream bootstrap policy
+  (missing rules/subjects added, extra ones kept, `"false"` opts out).
+- Every 401 is a `Status` object (`reason: Unauthorized`), negotiated per
+  `Accept`.
 - The join token is still printed in the server's journal (k3s does the
   same); treat `journalctl -u k3rs` on node1 as secret.
 
-`acceptance.sh` checks 7-14 prove each of these on the running rig (see
+`acceptance.sh` checks 7-18 prove each of these on the running rig (see
 below); readiness is probed with the admin cert or the supervisor `/ping`,
 never anonymously.
 
@@ -95,7 +109,7 @@ Checks 1-6 exit non-zero on the first failure: (1) 3 nodes Ready within
 `kubernetes.default.svc.cluster.local` via 10.96.0.10 from the node2 pod, and
 of an external name (`EXTERNAL_NAME`, default `dns.google`) forwarded upstream,
 (6) `kubectl exec` wget from the node2 pod to an nginx pod IP on node3.
-Checks 7-14 all run (non-zero exit if any failed); the curls run on node2
+Checks 7-18 all run (non-zero exit if any failed); the curls run on node2
 with and without node2's own kubelet client cert
 (`/var/lib/k3rs/agent/client-kubelet.{crt,key}`):
 (7) anonymous `/api`, `/healthz` -> 401; (8) anonymous `/cacerts`, `/ping`
@@ -108,7 +122,17 @@ node's `journalctl -u k3rs` (except `FORBIDDEN_ALLOW`, a regex; counts are
 printed); it fails if a journal cannot be read or is empty, and unless the
 deliberate denials of checks 9, 10 (node1) and 12 (node3's kubelet) are in
 the journals (positive control). Run it on a rig older than 1 h too: Events
-then age out and the Events controller's cleanup is exercised. Then `free -m` and k3rs/containerd RSS per node. Test pods
+then age out and the Events controller's cleanup is exercised. (15) node2's and node3's kubelet
+serving certs verify against the server CA for each node's registered
+InternalIP (`openssl s_client` on node1), and a rogue kubelet (self-signed cert with node3's SANs, `openssl
+s_server` on node3 behind a short-lived iptables REDIRECT of node1's
+connections to :10250) is refused by `kubectl logs`, reached only with
+`--insecure-skip-tls-verify-backend`; logs work again afterwards. (16)
+`system:k3rs-dns`/`system:k3rs-event-gc` roles and bindings carry
+`autoupdate=true` and DNS can watch EndpointSlices. (17) a
+`kubernetes.io/service-account-token` Secret for `acc-legacy` gets a token
+that authenticates (SelfSubjectReview username). (18) a bad bearer token gets
+a 401 `Status` JSON. Then `free -m` and k3rs/containerd RSS per node. Test pods
 (`acc-*` in `default`) are recreated per run and left running. Images are
 pulled from Docker Hub (the VMs have outbound access); override with
 `BUSYBOX_IMAGE` / `NGINX_IMAGE`.

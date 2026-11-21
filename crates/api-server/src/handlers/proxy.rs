@@ -176,8 +176,42 @@ pub async fn proxy_node(
     let conn = super::node_conn::node_conn(&node, port_override)?;
     let target_url = format!("{}://{}:{}/{}", conn.scheme, conn.host, conn.port, suffix);
 
+    // `ResourceLocation` (pkg/registry/core/node/strategy.go:260-274): no port,
+    // or the node's kubelet port, rides the kubelet client transport
+    // (`info.Transport`: serving cert verified against
+    // `--kubelet-certificate-authority`, the api-server's kubelet client
+    // cert presented); any other port the generic `proxyTransport`.
+    let kubelet_port = super::node_conn::node_conn(&node, None)?.port;
+    let transport = if port_override.is_none_or(|p| p == kubelet_port) {
+        Transport::Kubelet
+    } else {
+        Transport::Proxy
+    };
+
     // Forward the request to the kubelet, including the original query string.
-    proxy_request(target_url, &original_uri, method, headers, body).await
+    let dialer = crate::egress_selector::egress_selector()
+        .and_then(|s| s.lookup(crate::egress_selector::EgressType::Cluster));
+    proxy_request_via(
+        target_url,
+        &original_uri,
+        method,
+        headers,
+        body,
+        None,
+        dialer,
+        transport,
+    )
+    .await
+}
+
+/// The transport `ResourceLocation` hands the proxy handler.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Transport {
+    /// `ProxyTransport` (cmd/kube-apiserver/app/server.go:251-259).
+    Proxy,
+    /// The kubelet client transport (`ConnectionInfo.Transport`,
+    /// pkg/kubelet/client/kubelet_client.go:79-128).
+    Kubelet,
 }
 
 /// Proxy HTTP requests to a service (root path — no sub-path)
@@ -630,6 +664,22 @@ fn get_proxy_client() -> &'static reqwest::Client {
     })
 }
 
+/// The kubelet client transport as a reqwest client: the same TLS config as
+/// the exec/logs connector (`k3rs_streamproxy::kubelet_tls_config`), with the
+/// proxy client's timeouts and redirect policy. Built per request like that
+/// connector, so a changed client cert/CA is picked up
+/// (`ReloadTLSFiles`, kubelet_client.go:120).
+fn kubelet_proxy_client() -> std::result::Result<reqwest::Client, String> {
+    let tls = k3rs_streamproxy::kubelet_tls_config(false)?;
+    reqwest::Client::builder()
+        .use_preconfigured_tls(tls)
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(2))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("failed to build kubelet client: {e}"))
+}
+
 /// Helper function to proxy an HTTP request to a target URL.
 ///
 /// K8s proxy endpoints return raw HTTP responses, NOT K8s Status JSON objects.
@@ -688,6 +738,31 @@ pub async fn proxy_request_with_dialer(
     proxy_base_path: Option<String>,
     dialer: Option<crate::egress_selector::Dialer>,
 ) -> Result<Response> {
+    proxy_request_via(
+        target_url,
+        original_uri,
+        method,
+        headers,
+        body,
+        proxy_base_path,
+        dialer,
+        Transport::Proxy,
+    )
+    .await
+}
+
+/// [`proxy_request_with_dialer`] over the given transport.
+#[allow(clippy::too_many_arguments)]
+async fn proxy_request_via(
+    target_url: String,
+    original_uri: &Uri,
+    method: Method,
+    headers: HeaderMap,
+    body: Body,
+    proxy_base_path: Option<String>,
+    dialer: Option<crate::egress_selector::Dialer>,
+    transport: Transport,
+) -> Result<Response> {
     // Forward the original query string verbatim. Re-encoding a HashMap
     // loses key ordering, duplicate keys, and exact encoding — all of which
     // proxy clients rely on. K8s forwards the raw query bytes through.
@@ -700,9 +775,25 @@ pub async fn proxy_request_with_dialer(
 
     info!("Forwarding {} request to {}", method, full_url);
 
-    let client = get_proxy_client();
+    let kubelet_client;
+    let client = match transport {
+        Transport::Proxy => get_proxy_client(),
+        Transport::Kubelet => match kubelet_proxy_client() {
+            Ok(c) => {
+                kubelet_client = c;
+                &kubelet_client
+            }
+            Err(e) => {
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .header("Content-Type", "text/plain")
+                    .body(Body::from(format!("error trying to reach backend: {e}")))
+                    .unwrap());
+            }
+        },
+    };
     let egress_client = match dialer {
-        Some(d) => match egress_proxy_client(d) {
+        Some(d) => match egress_client_for(d, transport) {
             Ok(c) => Some(c),
             Err(e) => {
                 return Ok(Response::builder()
@@ -883,13 +974,21 @@ enum Upstream {
     },
 }
 
-/// The `ProxyTransport` with a selected dialer (server.go:255-258
-/// `c.DialContext = dialer`): connections to the kubelet's self-signed serving
-/// certificate are not verified, as with the default client.
-fn egress_proxy_client(
+/// `transport` with a selected dialer (server.go:255-258
+/// `c.DialContext = dialer`; kubelet_client.go:96-104 for the kubelet
+/// transport): the `ProxyTransport` does not verify backend certificates, as
+/// with the default client; the kubelet transport uses the kubelet client TLS
+/// config.
+fn egress_client_for(
     dialer: crate::egress_selector::Dialer,
+    transport: Transport,
 ) -> anyhow::Result<crate::egress_http::EgressHttpClient> {
-    let tls = crate::egress_http::tls_client_config(None, true, None)?;
+    let tls = match transport {
+        Transport::Proxy => crate::egress_http::tls_client_config(None, true, None)?,
+        Transport::Kubelet => {
+            k3rs_streamproxy::kubelet_tls_config(false).map_err(|e| anyhow::anyhow!(e))?
+        }
+    };
     Ok(crate::egress_http::EgressHttpClient::new(
         dialer,
         tls,

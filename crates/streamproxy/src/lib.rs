@@ -5,8 +5,11 @@ use axum::response::{IntoResponse, Response};
 use http::{StatusCode, Uri};
 use http_body_util::BodyExt;
 pub use tls::{
-    kubelet_client_identity_pem, kubelet_client_paths, set_kubelet_client_paths,
-    KubeletClientPaths, KUBELET_CLIENT_CERT_ENV, KUBELET_CLIENT_KEY_ENV,
+    kubelet_ca_roots, kubelet_certificate_authority, kubelet_client_identity_pem,
+    kubelet_client_paths, kubelet_proxy_connector, kubelet_proxy_connector_insecure,
+    kubelet_tls_config, set_kubelet_certificate_authority, set_kubelet_client_paths,
+    with_kubelet_certificate_authority, with_kubelet_certificate_authority_sync,
+    KubeletClientPaths, KubeletProxyConnector, KUBELET_CLIENT_CERT_ENV, KUBELET_CLIENT_KEY_ENV,
 };
 use tracing::{debug, warn};
 

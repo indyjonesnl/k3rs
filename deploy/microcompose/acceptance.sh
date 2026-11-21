@@ -36,6 +36,20 @@
 #      denials at debug (`Forbidden user=...`); sync.sh turns both on. The
 #      check fails when a journal cannot be read or is empty, and unless the
 #      deliberate denials of checks 9, 10 and 12 are found (positive control).
+#  15. kubelet_serving_cert_verified: node2's and node3's kubelet serving
+#      certs verify against the server CA for each node's registered
+#      InternalIP (k3s kubelet-certificate-authority
+#      = server CA, pkg/daemons/control/server.go:248); a rogue "kubelet"
+#      (self-signed cert for node3's IP, `openssl s_server` behind a brief
+#      iptables REDIRECT of node1 -> node3:10250) is refused by the
+#      api-server for `kubectl logs`, reached only with
+#      --insecure-skip-tls-verify-backend, and logs work again afterwards
+#  16. k3rs_rbac_reconciled: system:k3rs-dns / system:k3rs-event-gc carry
+#      autoupdate=true and the current rules (bootstrap RBAC reconcile)
+#  17. legacy_sa_token_authenticates: a kubernetes.io/service-account-token
+#      Secret gets a token (signed with the server's ECDSA sa.key) that
+#      authenticates (SelfSubjectReview username)
+#  18. unauthorized_is_status: a bad bearer token gets a 401 `Status` JSON
 # Then prints per-node `free -m` used memory and k3rs/containerd RSS.
 # Test pods (acc-*) in `default` are deleted at the start and left running.
 set -euo pipefail
@@ -69,7 +83,17 @@ wait_for() {
 
 # --- kubeconfig from node1 (server already 127.0.0.1:6443; forced anyway) ---
 KC_TMP="$(mktemp "$HERE/.kubeconfig.tmp.XXXXXX")"   # holds admin creds: never left behind
-trap 'rm -f "$KC_TMP"' EXIT
+# One cleanup for every exit path (normal, fail, ^C, kill): the admin-creds
+# temp file and, once check 15 started it, the rogue kubelet on node3.
+ROGUE_STARTED=0
+cleanup() {
+  rm -f "$KC_TMP"
+  [ "$ROGUE_STARTED" = 1 ] && rogue_off
+  return 0
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 chmod 600 "$KC_TMP"
 nssh "$CP" 'sudo cat /var/lib/k3rs/tls/admin.kubeconfig' > "$KC_TMP" \
   || fail 0 "could not read $CP:/var/lib/k3rs/tls/admin.kubeconfig (is k3rs server up? ./sync.sh)"
@@ -220,6 +244,105 @@ out="$(k -n $NS logs acc-nginx-node3 --tail=50 2>&1)" || true
 grep -q 'GET / HTTP' <<<"$out" && pass 13 "exec_via_apiserver_works kubectl logs acc-nginx-node3 shows check 6's request" \
   || sfail 13 "exec_via_apiserver_works kubectl logs acc-nginx-node3" "$out"
 
+# 15. api-server -> kubelet serving-cert verification
+CP_IP="$(node_ip "$CP")"
+N3_IP="$(node_ip node3)"
+# Each agent's serving cert names the InternalIP its kubelet registered (the
+# IP the api-server dials), so the verified dial succeeds on every agent.
+for n in node2 node3; do
+  nip="$(k get node "$n" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}' 2>&1)" || true
+  out="$(nssh "$CP" "sudo openssl s_client -connect $nip:10250 -CAfile /var/lib/k3rs/tls/server-ca.crt -verify_ip $nip -verify_return_error </dev/null 2>&1 | grep 'Verify return code'" || true)"
+  grep -q 'Verify return code: 0 (ok)' <<<"$out" \
+    && pass 15 "kubelet_serving_cert_verified $n:10250 cert chains to the server CA for its InternalIP $nip" \
+    || sfail 15 "kubelet_serving_cert_verified $n:10250 (InternalIP '$nip') against server-ca.crt" "$out"
+done
+# Rogue kubelet on node3: self-signed cert with node3's SANs on :10251, and
+# node1's connections to :10250 redirected to it for the duration. The
+# REDIRECT rule also expires on node3 by itself after 90s, so even a killed
+# run (or a lost ssh) cannot leave node1 cut off from node3's kubelet.
+ROGUE_RULE="PREROUTING -p tcp -s $CP_IP --dport 10250 -j REDIRECT --to-ports 10251"
+rogue_off() {
+  nssh node3 "sudo sh -c 'while iptables -t nat -D $ROGUE_RULE 2>/dev/null; do :; done; rm -f /tmp/rogue.key /tmp/rogue.crt; pkill -f \"[o]penssl s_server -accept 10251\" 2>/dev/null; pkill -f \"[k]3rs-rogue-expire\" 2>/dev/null; true'" >/dev/null 2>&1 || true
+}
+ROGUE_STARTED=1
+nssh node3 "sudo sh -s" <<ROGUE >/dev/null 2>&1 || sfail 15 "could not start the rogue kubelet on node3"
+set -e
+cd /tmp
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout rogue.key -out rogue.crt -days 1 -subj /CN=system:node:node3 -addext "subjectAltName=IP:$N3_IP,DNS:node3" >/dev/null 2>&1
+nohup timeout 120 openssl s_server -accept 10251 -cert rogue.crt -key rogue.key -www -quiet >/dev/null 2>&1 &
+sleep 1
+setsid sh -c 'sleep 90; iptables -t nat -D $ROGUE_RULE; rm -f /tmp/rogue.key /tmp/rogue.crt' k3rs-rogue-expire </dev/null >/dev/null 2>&1 &
+iptables -t nat -I $ROGUE_RULE
+ROGUE
+out="$(k -n $NS logs acc-nginx-node3 --tail=5 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -ne 0 ] && ! grep -q 'GET / HTTP' <<<"$out"; then
+  pass 15 "kubelet_serving_cert_verified rogue kubelet cert refused: $(tail -1 <<<"$out" | cut -c1-160)"
+else
+  sfail 15 "kubelet_serving_cert_verified rogue kubelet was NOT refused (rc=$rc)" "$out"
+fi
+out="$(k -n $NS logs acc-nginx-node3 --tail=5 --insecure-skip-tls-verify-backend 2>&1)" || true
+grep -q 's_server' <<<"$out" \
+  && pass 15 "kubelet_serving_cert_verified --insecure-skip-tls-verify-backend reaches the rogue (InsecureSkipTLSVerifyTransport)" \
+  || sfail 15 "kubelet_serving_cert_verified --insecure-skip-tls-verify-backend did not reach the rogue" "$out"
+rogue_off
+ROGUE_STARTED=0
+if nssh node3 "sudo iptables -t nat -C $ROGUE_RULE" >/dev/null 2>&1; then
+  sfail 15 "kubelet_serving_cert_verified rogue REDIRECT rule still on node3 after cleanup: $ROGUE_RULE"
+else
+  pass 15 "kubelet_serving_cert_verified rogue REDIRECT rule removed from node3"
+fi
+out="$(k -n $NS logs acc-nginx-node3 --tail=50 2>&1)" || true
+grep -q 'GET / HTTP' <<<"$out" && pass 15 "kubelet_serving_cert_verified logs work again with the real kubelet" \
+  || sfail 15 "kubelet_serving_cert_verified logs after removing the rogue" "$out"
+
+# 16. k3rs-managed RBAC is reconciled on start (autoupdate + current rules)
+for r in system:k3rs-dns system:k3rs-event-gc; do
+  au="$(k get clusterrole "$r" -o jsonpath='{.metadata.annotations.rbac\.authorization\.kubernetes\.io/autoupdate}' 2>&1)" || true
+  expect 16 true "$au" "k3rs_rbac_reconciled clusterrole $r autoupdate"
+  au="$(k get clusterrolebinding "$r" -o jsonpath='{.metadata.annotations.rbac\.authorization\.kubernetes\.io/autoupdate}' 2>&1)" || true
+  expect 16 true "$au" "k3rs_rbac_reconciled clusterrolebinding $r autoupdate"
+done
+can="$(k auth can-i watch endpointslices.discovery.k8s.io --as system:k3rs-dns 2>&1)" || true
+expect 16 yes "$can" "k3rs_rbac_reconciled system:k3rs-dns can watch endpointslices"
+
+# 17. a legacy service-account token Secret authenticates
+k -n $NS delete secret acc-legacy-token --ignore-not-found >/dev/null 2>&1 || true
+k -n $NS delete sa acc-legacy --ignore-not-found >/dev/null 2>&1 || true
+k -n $NS create sa acc-legacy >/dev/null
+k -n $NS apply -f - >/dev/null <<'SECRET'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: acc-legacy-token
+  annotations:
+    kubernetes.io/service-account.name: acc-legacy
+type: kubernetes.io/service-account-token
+SECRET
+tok=""
+for _ in $(seq 1 30); do
+  tok="$(k -n $NS get secret acc-legacy-token -o jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  [ -n "$tok" ] && break
+  sleep 1
+done
+if [ -z "$tok" ]; then
+  sfail 17 "legacy_sa_token_authenticates: acc-legacy-token got no token in 30s"
+else
+  hdr="$(cut -d. -f1 <<<"$tok" | tr '_-' '/+' | base64 -d 2>/dev/null || true)"
+  out="$(nssh node2 "curl -sk -m 10 -X POST -H 'Authorization: Bearer $tok' -H 'Content-Type: application/json' -d '{\"apiVersion\":\"authentication.k8s.io/v1\",\"kind\":\"SelfSubjectReview\"}' https://$CP:6443/apis/authentication.k8s.io/v1/selfsubjectreviews" 2>&1)" || true
+  grep -q '"username": *"system:serviceaccount:default:acc-legacy"' <<<"$out" \
+    && pass 17 "legacy_sa_token_authenticates as system:serviceaccount:default:acc-legacy (header $hdr)" \
+    || sfail 17 "legacy_sa_token_authenticates SelfSubjectReview with the Secret's token (header $hdr)" "$out"
+fi
+
+# 18. 401s are negotiated Status objects (bad bearer token)
+out="$(nssh node2 "curl -sk -m 10 -i -H 'Authorization: Bearer not-a-token' https://$CP:6443/api" 2>&1)" || true
+if grep -q '^HTTP/[0-9.]* 401' <<<"$out" && grep -qi '^content-type: application/json' <<<"$out" \
+   && grep -q '"kind": *"Status"' <<<"$out" && grep -q '"reason": *"Unauthorized"' <<<"$out"; then
+  pass 18 "unauthorized_is_status bad bearer -> 401 Status (reason Unauthorized)"
+else
+  sfail 18 "unauthorized_is_status bad bearer token" "$out"
+fi
+
 # 14. no 403 flood from the embedded identities in steady state
 STEADY_WINDOW="${STEADY_WINDOW:-60}"
 # Deferred (documented in README): the Service and APIServiceAvailability
@@ -285,4 +408,4 @@ if [ ${#FAILED[@]} -gt 0 ]; then
   echo "FAILED security checks: ${FAILED[*]}" >&2
   exit 1
 fi
-echo "ALL 14 CHECKS PASSED"
+echo "ALL 18 CHECKS PASSED"

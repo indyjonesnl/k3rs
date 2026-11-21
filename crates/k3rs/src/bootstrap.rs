@@ -28,7 +28,12 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use k3rs_client::http::ApiClient;
+use k3rs_api_server::registry::rbac::reconciliation::{
+    compute_reconciled_role, compute_reconciled_role_binding, ReconcileOperation,
+    AUTOUPDATE_ANNOTATION,
+};
+use k3rs_client::api_status;
+use k3rs_client::http::{ApiClient, GetError};
 use serde_json::{json, Value};
 
 /// ClusterIP of `kube-dns` (bootstrap-cluster.yaml; `--cluster-dns`).
@@ -54,10 +59,11 @@ pub const DNS_USER: &str = "system:k3rs-dns";
 /// does not cover pods or endpointslices, so it is not reused.
 fn dns_rbac() -> Vec<BootstrapObject> {
     let labels = json!({"kubernetes.io/bootstrapping": "rbac-defaults"});
+    let annotations = autoupdate();
     let role = json!({
         "apiVersion": "rbac.authorization.k8s.io/v1",
         "kind": "ClusterRole",
-        "metadata": {"name": DNS_CLUSTER_ROLE, "labels": labels},
+        "metadata": {"name": DNS_CLUSTER_ROLE, "labels": labels, "annotations": annotations},
         "rules": [
             {"apiGroups": [""], "resources": ["services", "pods"], "verbs": ["list", "watch"]},
             {"apiGroups": ["discovery.k8s.io"], "resources": ["endpointslices"], "verbs": ["list", "watch"]}
@@ -66,7 +72,7 @@ fn dns_rbac() -> Vec<BootstrapObject> {
     let binding = json!({
         "apiVersion": "rbac.authorization.k8s.io/v1",
         "kind": "ClusterRoleBinding",
-        "metadata": {"name": DNS_CLUSTER_ROLE, "labels": labels},
+        "metadata": {"name": DNS_CLUSTER_ROLE, "labels": labels, "annotations": annotations},
         "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": DNS_CLUSTER_ROLE},
         "subjects": [{"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": DNS_USER}]
     });
@@ -82,6 +88,15 @@ fn dns_rbac() -> Vec<BootstrapObject> {
             body: binding,
         },
     ]
+}
+
+/// The annotations every bootstrap RBAC object carries
+/// (`addClusterRoleLabel` / `addClusterRoleBindingLabel`,
+/// plugin/pkg/auth/authorizer/rbac/bootstrappolicy/policy.go:157-175):
+/// `rbac.authorization.kubernetes.io/autoupdate: "true"`. An admin opts an
+/// object out of reconciliation by setting it to `"false"`.
+fn autoupdate() -> Value {
+    json!({AUTOUPDATE_ANNOTATION: "true"})
 }
 
 /// ClusterRole (and binding) for the controller-manager's k3rs-only Events
@@ -103,11 +118,12 @@ pub const EVENT_GC_CLUSTER_ROLE: &str = "system:k3rs-event-gc";
 /// Pod listing goes through the controller-manager's root informer client.
 fn event_gc_rbac() -> Vec<BootstrapObject> {
     let labels = json!({"kubernetes.io/bootstrapping": "rbac-defaults"});
+    let annotations = autoupdate();
     let sa = k3rs_controller_manager::identities::EVENT_GC_SERVICE_ACCOUNT;
     let role = json!({
         "apiVersion": "rbac.authorization.k8s.io/v1",
         "kind": "ClusterRole",
-        "metadata": {"name": EVENT_GC_CLUSTER_ROLE, "labels": labels},
+        "metadata": {"name": EVENT_GC_CLUSTER_ROLE, "labels": labels, "annotations": annotations},
         "rules": [
             {"apiGroups": [""], "resources": ["events"],
              "verbs": ["create", "delete", "get", "list", "update", "watch"]}
@@ -116,7 +132,7 @@ fn event_gc_rbac() -> Vec<BootstrapObject> {
     let binding = json!({
         "apiVersion": "rbac.authorization.k8s.io/v1",
         "kind": "ClusterRoleBinding",
-        "metadata": {"name": EVENT_GC_CLUSTER_ROLE, "labels": labels},
+        "metadata": {"name": EVENT_GC_CLUSTER_ROLE, "labels": labels, "annotations": annotations},
         "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": EVENT_GC_CLUSTER_ROLE},
         "subjects": [{"kind": "ServiceAccount", "name": sa, "namespace": "kube-system"}]
     });
@@ -211,6 +227,13 @@ pub fn objects(node_ip: &str) -> Vec<BootstrapObject> {
 }
 
 async fn apply_one(client: &ApiClient, o: &BootstrapObject) -> Result<()> {
+    match o.body["kind"].as_str() {
+        Some("ClusterRole" | "Role") => return reconcile_rbac(client, o, RbacKind::Role, 0).await,
+        Some("ClusterRoleBinding" | "RoleBinding") => {
+            return reconcile_rbac(client, o, RbacKind::Binding, 0).await
+        }
+        _ => {}
+    }
     if client
         .resource_exists(&format!("{}/{}", o.path, o.name))
         .await?
@@ -220,14 +243,124 @@ async fn apply_one(client: &ApiClient, o: &BootstrapObject) -> Result<()> {
     match client.post::<_, Value>(&o.path, &o.body).await {
         Ok(_) => Ok(()),
         // Lost a race with another creator: the object exists, never overwrite.
-        Err(e) if k3rs_client::api_status::is_already_exists(&e) => Ok(()),
+        Err(e) if api_status::is_already_exists(&e) => Ok(()),
         Err(e) => Err(e),
     }
 }
 
-/// Create each object that is absent; never overwrites. Retries with
-/// backoff (250ms doubling to 5s) until the api-server answers, for at most
-/// two minutes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RbacKind {
+    Role,
+    Binding,
+}
+
+/// `ReconcileRoleOptions.run` / `ReconcileRoleBindingOptions.run`
+/// (staging/src/k8s.io/component-helpers/auth/rbac/reconciliation/
+/// reconcile_role.go:101-176, reconcile_rolebindings.go:89-177) with
+/// `Confirm: true` and no `RemoveExtra*`, as `ensureRBACPolicy` runs them for
+/// the bootstrap policy (pkg/registry/rbac/rest/storage_rbac.go:207-260),
+/// through the API like upstream's loopback clientset. The diff is the
+/// api-server's own port (`registry::rbac::reconciliation`), shared with its
+/// bootstrap-policy seeding:
+///
+/// - absent: create; AlreadyExists re-runs.
+/// - present: add the missing rules / aggregation selectors / subjects and
+///   the expected labels and annotations; rules or subjects an admin added
+///   are kept (`computeReconciledRole`, `removeExtraPermissions == false`).
+/// - `autoupdate: "false"`: left alone, with upstream's warning when it
+///   lacks something (`result.Protected`, storage_rbac.go:221-222).
+/// - binding with a different roleRef: delete (UID precondition) and
+///   recreate; a precondition conflict re-runs.
+/// - update hitting NotFound or Conflict re-runs from a fresh GET (upstream
+///   re-runs on NotFound and wraps the whole run in `RetryOnConflict`).
+///
+/// Attempts are bounded like upstream (`attempts > 2` roles, `> 3` bindings).
+fn reconcile_rbac<'a>(
+    client: &'a ApiClient,
+    o: &'a BootstrapObject,
+    kind: RbacKind,
+    attempts: u32,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+    Box::pin(async move {
+        let max = if kind == RbacKind::Role { 2 } else { 3 };
+        if attempts > max {
+            return Err(anyhow!("exceeded maximum attempts"));
+        }
+        let item = format!("{}/{}", o.path, o.name);
+        let existing: Value = match client.get(&item).await {
+            Ok(v) => v,
+            Err(GetError::NotFound(_)) => {
+                return match client.post::<_, Value>(&o.path, &o.body).await {
+                    Ok(_) => {
+                        tracing::info!("created {item}");
+                        Ok(())
+                    }
+                    Err(e) if api_status::is_already_exists(&e) => {
+                        reconcile_rbac(client, o, kind, attempts + 1).await
+                    }
+                    Err(e) => Err(e),
+                };
+            }
+            Err(GetError::Other(e)) => return Err(e),
+        };
+        let result = match kind {
+            RbacKind::Role => compute_reconciled_role(&existing, &o.body),
+            RbacKind::Binding => compute_reconciled_role_binding(&existing, &o.body),
+        };
+        if result.protected {
+            if result.operation != ReconcileOperation::None {
+                tracing::warn!("skipped reconcile-protected {item} with missing permissions");
+            }
+            return Ok(());
+        }
+        match result.operation {
+            ReconcileOperation::None => Ok(()),
+            ReconcileOperation::Update => {
+                match client.put::<_, Value>(&item, &result.object).await {
+                    Ok(_) => {
+                        tracing::info!("reconciled {item} with additional permissions");
+                        Ok(())
+                    }
+                    Err(e) if api_status::is_not_found(&e) || api_status::is_conflict(&e) => {
+                        reconcile_rbac(client, o, kind, attempts + 1).await
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            ReconcileOperation::Recreate => {
+                let uid = existing["metadata"]["uid"].as_str().unwrap_or_default();
+                let opts = json!({"apiVersion": "v1", "kind": "DeleteOptions",
+                                  "preconditions": {"uid": uid}});
+                // `case err == nil, errors.IsNotFound(err)`: gone is what we
+                // want (reconcile_rolebindings.go:128-131). `delete_with_options`
+                // already maps a 404 to Ok; the arm keeps that explicit.
+                match client.delete_with_options(&item, &[], Some(&opts)).await {
+                    Ok(_) => {}
+                    Err(e) if api_status::is_not_found(&e) => {}
+                    Err(e) if api_status::is_conflict(&e) => {
+                        return reconcile_rbac(client, o, kind, attempts + 1).await;
+                    }
+                    Err(e) => return Err(e),
+                }
+                match client.post::<_, Value>(&o.path, &result.object).await {
+                    Ok(_) => {
+                        tracing::info!("recreated {item} with a new roleRef");
+                        Ok(())
+                    }
+                    Err(e) if api_status::is_already_exists(&e) => {
+                        reconcile_rbac(client, o, kind, attempts + 1).await
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        }
+    })
+}
+
+/// Create each object that is absent; RBAC objects that exist are reconciled
+/// (see [`reconcile_rbac`]), everything else is never overwritten. Retries
+/// with backoff (250ms doubling to 5s) until the api-server answers, for at
+/// most two minutes.
 pub async fn apply_all(client: &ApiClient, objs: &[BootstrapObject]) -> Result<()> {
     apply_all_within(client, objs, APPLY_DEADLINE).await
 }
@@ -433,5 +566,68 @@ mod tests {
         let client = ApiClient::new("http://127.0.0.1:1", false, None).unwrap();
         let r = apply_all_within(&client, &objects("192.0.2.10"), Duration::from_millis(600)).await;
         assert!(r.is_err());
+    }
+
+    /// The binding was deleted by someone else between our GET and DELETE:
+    /// a NotFound from the delete counts as success and the binding is
+    /// recreated (`case err == nil, errors.IsNotFound(err)`,
+    /// component-helpers/auth/rbac/reconciliation/reconcile_rolebindings.go:128-131).
+    #[tokio::test]
+    async fn recreate_treats_delete_not_found_as_deleted() {
+        let calls: Posts = Arc::default();
+        async fn h(
+            State(calls): State<Posts>,
+            method: axum::http::Method,
+            uri: Uri,
+        ) -> (StatusCode, Json<Value>) {
+            calls
+                .lock()
+                .unwrap()
+                .push(format!("{method} {}", uri.path()));
+            match method.as_str() {
+                "GET" => (
+                    StatusCode::OK,
+                    Json(json!({
+                        "apiVersion": "rbac.authorization.k8s.io/v1",
+                        "kind": "ClusterRoleBinding",
+                        "metadata": {"name": DNS_CLUSTER_ROLE, "uid": "old-uid",
+                                     "resourceVersion": "5"},
+                        "roleRef": {"apiGroup": "rbac.authorization.k8s.io",
+                                    "kind": "ClusterRole", "name": "view"},
+                        "subjects": []
+                    })),
+                ),
+                "DELETE" => (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        json!({"apiVersion": "v1", "kind": "Status", "status": "Failure",
+                                "reason": "NotFound", "code": 404}),
+                    ),
+                ),
+                _ => (StatusCode::CREATED, Json(json!({}))),
+            }
+        }
+        let app = Router::new().fallback(any(h)).with_state(calls.clone());
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", l.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        let client = ApiClient::new(&url, false, None).unwrap();
+
+        let binding = objects("192.0.2.10")
+            .into_iter()
+            .find(|o| o.path.ends_with("/clusterrolebindings") && o.name == DNS_CLUSTER_ROLE)
+            .unwrap();
+        reconcile_rbac(&client, &binding, RbacKind::Binding, 0)
+            .await
+            .unwrap();
+        let path = "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings";
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                format!("GET {path}/{DNS_CLUSTER_ROLE}"),
+                format!("DELETE {path}/{DNS_CLUSTER_ROLE}"),
+                format!("POST {path}"),
+            ]
+        );
     }
 }
