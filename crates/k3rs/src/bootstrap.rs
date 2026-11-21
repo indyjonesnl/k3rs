@@ -331,8 +331,12 @@ fn reconcile_rbac<'a>(
                 let uid = existing["metadata"]["uid"].as_str().unwrap_or_default();
                 let opts = json!({"apiVersion": "v1", "kind": "DeleteOptions",
                                   "preconditions": {"uid": uid}});
+                // `case err == nil, errors.IsNotFound(err)`: gone is what we
+                // want (reconcile_rolebindings.go:128-131). `delete_with_options`
+                // already maps a 404 to Ok; the arm keeps that explicit.
                 match client.delete_with_options(&item, &[], Some(&opts)).await {
                     Ok(_) => {}
+                    Err(e) if api_status::is_not_found(&e) => {}
                     Err(e) if api_status::is_conflict(&e) => {
                         return reconcile_rbac(client, o, kind, attempts + 1).await;
                     }
@@ -562,5 +566,68 @@ mod tests {
         let client = ApiClient::new("http://127.0.0.1:1", false, None).unwrap();
         let r = apply_all_within(&client, &objects("192.0.2.10"), Duration::from_millis(600)).await;
         assert!(r.is_err());
+    }
+
+    /// The binding was deleted by someone else between our GET and DELETE:
+    /// a NotFound from the delete counts as success and the binding is
+    /// recreated (`case err == nil, errors.IsNotFound(err)`,
+    /// component-helpers/auth/rbac/reconciliation/reconcile_rolebindings.go:128-131).
+    #[tokio::test]
+    async fn recreate_treats_delete_not_found_as_deleted() {
+        let calls: Posts = Arc::default();
+        async fn h(
+            State(calls): State<Posts>,
+            method: axum::http::Method,
+            uri: Uri,
+        ) -> (StatusCode, Json<Value>) {
+            calls
+                .lock()
+                .unwrap()
+                .push(format!("{method} {}", uri.path()));
+            match method.as_str() {
+                "GET" => (
+                    StatusCode::OK,
+                    Json(json!({
+                        "apiVersion": "rbac.authorization.k8s.io/v1",
+                        "kind": "ClusterRoleBinding",
+                        "metadata": {"name": DNS_CLUSTER_ROLE, "uid": "old-uid",
+                                     "resourceVersion": "5"},
+                        "roleRef": {"apiGroup": "rbac.authorization.k8s.io",
+                                    "kind": "ClusterRole", "name": "view"},
+                        "subjects": []
+                    })),
+                ),
+                "DELETE" => (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        json!({"apiVersion": "v1", "kind": "Status", "status": "Failure",
+                                "reason": "NotFound", "code": 404}),
+                    ),
+                ),
+                _ => (StatusCode::CREATED, Json(json!({}))),
+            }
+        }
+        let app = Router::new().fallback(any(h)).with_state(calls.clone());
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", l.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        let client = ApiClient::new(&url, false, None).unwrap();
+
+        let binding = objects("192.0.2.10")
+            .into_iter()
+            .find(|o| o.path.ends_with("/clusterrolebindings") && o.name == DNS_CLUSTER_ROLE)
+            .unwrap();
+        reconcile_rbac(&client, &binding, RbacKind::Binding, 0)
+            .await
+            .unwrap();
+        let path = "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings";
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                format!("GET {path}/{DNS_CLUSTER_ROLE}"),
+                format!("DELETE {path}/{DNS_CLUSTER_ROLE}"),
+                format!("POST {path}"),
+            ]
+        );
     }
 }
