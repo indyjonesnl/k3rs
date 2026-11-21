@@ -366,7 +366,7 @@ pub fn default_node_name() -> Result<String> {
 /// all-in-one `main.rs` kubelet block; flag values follow k3s
 /// `pkg/daemons/agent/agent.go` `startKubelet` (`cluster-dns`, `node-ip`,
 /// `hostname-override`).
-fn kubelet_config(
+pub fn kubelet_config(
     a: &crate::cli::AgentArgs,
     c: &ClusterInfo,
 ) -> Result<k3rs_kubelet::KubeletConfig> {
@@ -423,8 +423,41 @@ pub fn kubelet_api_auth(
     }
 }
 
-pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
-    ensure_crypto_provider();
+/// The node IPs an agent joins with: the IP half of k3s
+/// `util.GetHostnameAndIPs` (pkg/util/net.go:138-160). Given `--node-ip`,
+/// that value. Otherwise `ChooseHostInterface()`, plus — when that is IPv4 —
+/// `ResolveBindAddress(::1)` if it yields a different (IPv6) address, joined
+/// with `,` as `util.JoinIPs` does for the `k3s-Node-IP` header.
+pub fn resolve_node_ips(flag: Option<&str>) -> Result<String> {
+    use k3rs_kubelet::node_ip::net_interface::{choose_host_interface, resolve_bind_address};
+    if let Some(ip) = flag.filter(|s| !s.is_empty()) {
+        return Ok(ip.to_string());
+    }
+    let host = choose_host_interface()
+        .map_err(|e| anyhow!("{e}"))
+        .context("choose the node IP; pass --node-ip")?;
+    let mut ips = vec![host];
+    if host.is_ipv4() {
+        if let Ok(v6) = resolve_bind_address(Some(std::net::Ipv6Addr::LOCALHOST.into())) {
+            if v6 != host {
+                ips.push(v6);
+            }
+        }
+    }
+    Ok(ips
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(","))
+}
+
+/// Resolve the agent's identity once, as k3s `get` does before it requests
+/// certs (pkg/agent/config/config.go:456 `util.GetHostnameAndIPs`): token,
+/// node name and node IPs. The resolved name and IPs are written back into
+/// `a`, so the `k3rs-Node-IP` the serving cert is issued for and the kubelet's
+/// `--node-ip` (`kubelet_config`) are the same value (k3s passes `nodeIPs` to
+/// both: config.go:157 and pkg/daemons/agent `node-ip`).
+pub fn join_params(a: &mut crate::cli::AgentArgs) -> Result<JoinParams> {
     let token = match (&a.token, &a.token_file) {
         (Some(t), _) => t.clone(),
         (None, Some(f)) => std::fs::read_to_string(f)
@@ -438,19 +471,22 @@ pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
         None => default_node_name()?,
     };
     a.node_name = Some(node_name.clone());
+    a.node_ip = Some(resolve_node_ips(a.node_ip.as_deref())?);
+    Ok(JoinParams {
+        server: a.server.clone(),
+        token,
+        node_name,
+        node_ip: a.node_ip.clone(),
+        data_dir: PathBuf::from(&a.data_dir),
+    })
+}
+
+pub async fn run_agent(mut a: crate::cli::AgentArgs) -> anyhow::Result<()> {
+    ensure_crypto_provider();
+    let params = join_params(&mut a)?;
+    let node_name = params.node_name.clone();
     let shutdown = k3rs_common::signal::setup_signal_context();
-    let Some(creds) = join_with_retry(
-        &JoinParams {
-            server: a.server.clone(),
-            token,
-            node_name: node_name.clone(),
-            node_ip: a.node_ip.clone(),
-            data_dir: PathBuf::from(&a.data_dir),
-        },
-        &shutdown,
-    )
-    .await?
-    else {
+    let Some(creds) = join_with_retry(&params, &shutdown).await? else {
         tracing::info!("received shutdown signal before joining");
         return Ok(());
     };

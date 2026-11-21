@@ -122,9 +122,9 @@ node's `journalctl -u k3rs` (except `FORBIDDEN_ALLOW`, a regex; counts are
 printed); it fails if a journal cannot be read or is empty, and unless the
 deliberate denials of checks 9, 10 (node1) and 12 (node3's kubelet) are in
 the journals (positive control). Run it on a rig older than 1 h too: Events
-then age out and the Events controller's cleanup is exercised. (15) node3's kubelet serving
-cert verifies against the server CA for node3's IP (`openssl s_client` on
-node1), and a rogue kubelet (self-signed cert with node3's SANs, `openssl
+then age out and the Events controller's cleanup is exercised. (15) node2's and node3's kubelet
+serving certs verify against the server CA for each node's registered
+InternalIP (`openssl s_client` on node1), and a rogue kubelet (self-signed cert with node3's SANs, `openssl
 s_server` on node3 behind a short-lived iptables REDIRECT of node1's
 connections to :10250) is refused by `kubectl logs`, reached only with
 `--insecure-skip-tls-verify-backend`; logs work again afterwards. (16)

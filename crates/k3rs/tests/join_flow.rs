@@ -273,3 +273,72 @@ async fn bare_host_port_defaults_to_https() {
     p.server = s.url.trim_start_matches("https://").to_string();
     join(&p).await.unwrap();
 }
+
+/// An agent started WITHOUT `--node-ip` resolves the node IP the way k3s
+/// `util.GetHostnameAndIPs` does (pkg/util/net.go:138-160) before it asks
+/// for its serving cert (`k3s-Node-IP`, pkg/agent/config/config.go:157,
+/// :456), and hands the SAME value to the kubelet's `--node-ip`. So the
+/// InternalIP the kubelet registers is a SAN of its serving cert, and the
+/// api-server's verified dial to it succeeds.
+#[tokio::test]
+async fn join_without_node_ip_serving_cert_verifies_for_registered_ip() {
+    use clap::Parser;
+    use rustls::client::danger::ServerCertVerifier;
+    use rustls::pki_types::{pem::PemObject, CertificateDer, ServerName, UnixTime};
+
+    let s = boot("pw1").await;
+    let d = tempfile::tempdir().unwrap();
+    let tok = format_token(&s.pki.ca_hash(), "pw1");
+    let mut a = k3rs::cli::AgentArgs::try_parse_from([
+        "k3rs",
+        "--server",
+        &s.url,
+        "--token",
+        &tok,
+        "--node-name",
+        "node-auto",
+        "--data-dir",
+        d.path().to_str().unwrap(),
+    ])
+    .unwrap();
+    assert!(a.node_ip.is_none());
+    let p = k3rs::agent::join_params(&mut a).unwrap();
+    let ip = p.node_ip.clone().expect("node IP resolved");
+    // ChooseHostInterface: the kubelet's own choice when --node-ip is unset.
+    let host = k3rs_kubelet::node_ip::net_interface::choose_host_interface().unwrap();
+    assert_eq!(ip.split(',').next().unwrap(), host.to_string());
+    let kcfg = k3rs::agent::kubelet_config(&a, &s_cluster()).unwrap();
+    assert_eq!(kcfg.node_ip, ip, "kubelet registers the IP the cert names");
+
+    join(&p).await.unwrap();
+    let ca = s.pki.server_ca_pem();
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add_parsable_certificates(
+        CertificateDer::pem_slice_iter(ca.as_bytes()).map(Result::unwrap),
+    );
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let verifier =
+        rustls::client::WebPkiServerVerifier::builder_with_provider(roots.into(), provider)
+            .build()
+            .unwrap();
+    let leaf = CertificateDer::from_pem_file(d.path().join("agent/serving-kubelet.crt")).unwrap();
+    for one in ip.split(',') {
+        verifier
+            .verify_server_cert(
+                &leaf,
+                &[],
+                &ServerName::try_from(one.to_string()).unwrap(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_or_else(|e| panic!("serving cert does not verify for {one}: {e}"));
+    }
+}
+
+fn s_cluster() -> ClusterInfo {
+    ClusterInfo {
+        cluster_cidr: "10.42.0.0/16".into(),
+        service_cidr: "10.43.0.0/16".into(),
+        cluster_dns: "10.43.0.10".into(),
+    }
+}

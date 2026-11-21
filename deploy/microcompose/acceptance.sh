@@ -36,8 +36,9 @@
 #      denials at debug (`Forbidden user=...`); sync.sh turns both on. The
 #      check fails when a journal cannot be read or is empty, and unless the
 #      deliberate denials of checks 9, 10 and 12 are found (positive control).
-#  15. kubelet_serving_cert_verified: node3's kubelet serving cert verifies
-#      against the server CA for node3's IP (k3s kubelet-certificate-authority
+#  15. kubelet_serving_cert_verified: node2's and node3's kubelet serving
+#      certs verify against the server CA for each node's registered
+#      InternalIP (k3s kubelet-certificate-authority
 #      = server CA, pkg/daemons/control/server.go:248); a rogue "kubelet"
 #      (self-signed cert for node3's IP, `openssl s_server` behind a brief
 #      iptables REDIRECT of node1 -> node3:10250) is refused by the
@@ -236,10 +237,15 @@ grep -q 'GET / HTTP' <<<"$out" && pass 13 "exec_via_apiserver_works kubectl logs
 # 15. api-server -> kubelet serving-cert verification
 CP_IP="$(node_ip "$CP")"
 N3_IP="$(node_ip node3)"
-out="$(nssh "$CP" "sudo openssl s_client -connect $N3_IP:10250 -CAfile /var/lib/k3rs/tls/server-ca.crt -verify_ip $N3_IP -verify_return_error </dev/null 2>&1 | grep 'Verify return code'" || true)"
-grep -q 'Verify return code: 0 (ok)' <<<"$out" \
-  && pass 15 "kubelet_serving_cert_verified node3:10250 cert chains to the server CA for $N3_IP" \
-  || sfail 15 "kubelet_serving_cert_verified node3:10250 against server-ca.crt" "$out"
+# Each agent's serving cert names the InternalIP its kubelet registered (the
+# IP the api-server dials), so the verified dial succeeds on every agent.
+for n in node2 node3; do
+  nip="$(k get node "$n" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}' 2>&1)" || true
+  out="$(nssh "$CP" "sudo openssl s_client -connect $nip:10250 -CAfile /var/lib/k3rs/tls/server-ca.crt -verify_ip $nip -verify_return_error </dev/null 2>&1 | grep 'Verify return code'" || true)"
+  grep -q 'Verify return code: 0 (ok)' <<<"$out" \
+    && pass 15 "kubelet_serving_cert_verified $n:10250 cert chains to the server CA for its InternalIP $nip" \
+    || sfail 15 "kubelet_serving_cert_verified $n:10250 (InternalIP '$nip') against server-ca.crt" "$out"
+done
 # Rogue kubelet on node3: self-signed cert with node3's SANs on :10251, and
 # node1's connections to :10250 redirected to it for the duration.
 rogue_off() {
