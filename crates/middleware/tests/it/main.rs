@@ -7,6 +7,7 @@
 //! Add a new test file as `tests/it/<name>.rs` plus a `mod <name>;` line
 //! below. A stray `tests/<name>.rs` still compiles -- it just silently
 //! reintroduces a separate binary, which is what this layout avoids.
+mod auth_unauthorized_status;
 mod controllerrevision_request_decode;
 mod legacy_token_observations;
 mod mw_unit;
