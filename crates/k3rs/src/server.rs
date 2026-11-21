@@ -215,10 +215,25 @@ pub(crate) fn link_cluster_ca(tls_dir: &Path) -> Result<()> {
         .with_context(|| format!("symlink {}", link.display()))
 }
 
-/// Point the api-server's kubelet client at the minted `system:apiserver` pair.
-fn configure_kubelet_client(creds: &k3rs::pki::ComponentCreds) -> Result<()> {
+/// Point the api-server's kubelet client at the minted `system:apiserver` pair,
+/// and verify kubelet serving certs against the server CA, which signs them
+/// (supervisor `/v1-k3rs/serving-kubelet.crt`, `Pki::ensure_component_creds`):
+/// k3s `apiServer` sets `kubelet-certificate-authority=runtime.ServerCA`
+/// (pkg/daemons/control/server.go:248). An unreadable CA fails startup, as
+/// upstream's `NewNodeConnectionInfoGetter` does.
+fn configure_kubelet_client(creds: &k3rs::pki::ComponentCreds, tls_dir: &Path) -> Result<()> {
     k3rs_streamproxy::set_kubelet_client_paths(creds.cert("apiserver"), creds.key("apiserver"))
-        .map_err(|e| anyhow!(e))
+        .map_err(|e| anyhow!(e))?;
+    k3rs_streamproxy::set_kubelet_certificate_authority(server_ca_path(tls_dir))
+        .map_err(|e| anyhow!(e))?;
+    k3rs_streamproxy::kubelet_ca_roots()
+        .map_err(|e| anyhow!("kubelet certificate authority: {e}"))?;
+    Ok(())
+}
+
+/// `runtime.ServerCA` (k3s pkg/daemons/control/deps/deps.go:105).
+pub(crate) fn server_ca_path(tls_dir: &Path) -> PathBuf {
+    tls_dir.join("server-ca.crt")
 }
 
 pub async fn run_server(a: ServerArgs) -> Result<()> {
@@ -280,7 +295,7 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
     // `--kubelet-client-certificate/--kubelet-client-key`; k3s
     // pkg/daemons/control/server.go). Configured in-process through a
     // OnceLock (no set_var: worker threads already exist at this point).
-    configure_kubelet_client(&component_creds)?;
+    configure_kubelet_client(&component_creds, &pki.dir)?;
 
     let args = parse_args_from(server_argv(&a, &node_name, &node_ip))?;
     let info = cluster_info(&a);
@@ -487,6 +502,41 @@ mod tests {
         )
         .unwrap();
         assert_eq!(signing.key_id, pubs[0].key_id);
+    }
+
+    /// `--kubelet-certificate-authority` is the server CA, and the kubelet
+    /// serving cert minted for a node verifies against it for the node IP the
+    /// api-server dials (InternalIP) and fails for any other address.
+    #[test]
+    fn kubelet_serving_cert_verifies_against_kubelet_certificate_authority() {
+        use rustls::client::danger::ServerCertVerifier;
+        use rustls::pki_types::{pem::PemObject, CertificateDer, ServerName, UnixTime};
+        let dir = tempfile::tempdir().unwrap();
+        let pki = k3rs::pki::Pki::load_or_create(dir.path(), &[]).unwrap();
+        let creds = pki.ensure_component_creds("node-a", "192.0.2.10").unwrap();
+        let ca = std::fs::read(server_ca_path(&pki.dir)).unwrap();
+        assert_eq!(ca, pki.server_ca_pem().as_bytes());
+
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add_parsable_certificates(CertificateDer::pem_slice_iter(&ca).map(Result::unwrap));
+        let provider = std::sync::Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let verifier =
+            rustls::client::WebPkiServerVerifier::builder_with_provider(roots.into(), provider)
+                .build()
+                .unwrap();
+        let leaf = CertificateDer::from_pem_file(creds.serving_cert()).unwrap();
+        let verify = |name: &str| {
+            verifier.verify_server_cert(
+                &leaf,
+                &[],
+                &ServerName::try_from(name.to_string()).unwrap(),
+                &[],
+                UnixTime::now(),
+            )
+        };
+        assert!(verify("192.0.2.10").is_ok());
+        assert!(verify("node-a").is_ok());
+        assert!(verify("192.0.2.11").is_err());
     }
 
     /// kube-root-ca.crt / SA token CA come from `ca.crt` next to the serving

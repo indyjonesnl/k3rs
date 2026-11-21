@@ -355,6 +355,10 @@ pub async fn get_logs(
     let node: k3rs_common::resources::Node = state.storage.get(&node_key).await?;
     let conn = node_conn(&node, None)?;
 
+    // `LogLocation` picks `InsecureSkipTLSVerifyTransport` for
+    // `insecureSkipTLSVerifyBackend=true` (strategy.go:667-670).
+    let insecure_backend = insecure_skip_tls_verify_backend(&raw_query);
+
     // Build the upstream-faithful kubelet containerLogs URL.
     let target_url = build_kubelet_stream_url(
         &conn,
@@ -391,12 +395,15 @@ pub async fn get_logs(
         // Fetch the kubelet log stream over plain HTTP (same target URL the
         // non-upgrade path proxies). We build a fresh GET so the websocket
         // upgrade headers are not forwarded to the kubelet.
-        let stream = match fetch_kubelet_log_stream(&target_url, &name, kubelet_dialer()).await? {
-            Ok(stream) => stream,
-            // The kubelet refused: answer the HTTP request with a Status
-            // instead of upgrading and framing the error text as log output.
-            Err(resp) => return Ok(resp),
-        };
+        let stream =
+            match fetch_kubelet_log_stream(&target_url, &name, kubelet_dialer(), insecure_backend)
+                .await?
+            {
+                Ok(stream) => stream,
+                // The kubelet refused: answer the HTTP request with a Status
+                // instead of upgrading and framing the error text as log output.
+                Err(resp) => return Ok(resp),
+            };
 
         // The 101 returns at once and the stream runs in a detached task:
         // carry the instrumentation hold (`longrunning_requests` gauge and the
@@ -418,7 +425,7 @@ pub async fn get_logs(
     // the kubelet log endpoint is plain HTTP (no WebSocket / SPDY upgrade).
     // A kubelet error is converted to a Status before anything is streamed,
     // exactly as upstream's ResponseChecker does (#1920).
-    let proxied = proxy_kubelet_stream(target_url, req, kubelet_dialer()).await;
+    let proxied = proxy_kubelet_stream(target_url, req, kubelet_dialer(), insecure_backend).await;
     Ok(check_kubelet_log_response(proxied, &name).await)
 }
 
@@ -436,32 +443,6 @@ type LogByteStream = std::pin::Pin<
     >,
 >;
 
-/// Load the api-server's kubelet client identity as a reqwest [`Identity`], if
-/// present. Paths come from the single resolver in `k3rs_streamproxy`
-/// (`K3RS_KUBELET_CLIENT_CERT`/`_KEY`, else the kubeadm default). `Ok(None)`
-/// when the default files are absent; `Err` for a misconfigured explicit
-/// identity (never silently anonymous).
-fn load_kubelet_client_identity() -> Result<Option<reqwest::Identity>> {
-    let Some(pem) = k3rs_streamproxy::kubelet_client_identity_pem()
-        .map_err(|e| Error::Internal(format!("kubelet client identity: {e}")))?
-    else {
-        return Ok(None);
-    };
-    match reqwest::Identity::from_pem(&pem) {
-        Ok(id) => Ok(Some(id)),
-        // An explicitly configured identity must not degrade to anonymous;
-        // an invalid file at the kubeadm default path keeps the old
-        // warn-and-anonymous behaviour.
-        Err(e) if k3rs_streamproxy::kubelet_client_paths().is_ok_and(|p| !p.explicit) => {
-            tracing::warn!("failed to build kubelet client identity: {e}");
-            Ok(None)
-        }
-        Err(e) => Err(Error::Internal(format!(
-            "failed to build kubelet client identity: {e}"
-        ))),
-    }
-}
-
 /// `kubelet_client.go:96-104` `makeTransport`: with an egress selector the
 /// kubelet client's `DialHolder` is `Lookup(Cluster)` (set from
 /// `cmd/kube-apiserver/app/server.go:251`). No selector, or none for
@@ -471,18 +452,45 @@ pub fn kubelet_dialer() -> Option<crate::egress_selector::Dialer> {
         .and_then(|s| s.lookup(crate::egress_selector::EgressType::Cluster))
 }
 
-/// The kubelet client transport over `dialer`: the same trust model as the
-/// default connector (serving certificate not verified, the kubeadm
-/// `apiserver-kubelet-client` identity when present, `transportConfig` in
-/// kubelet_client.go:109-125) with the dial through the egress selector.
+/// The kubelet client transport over `dialer`: the same TLS config as the
+/// default connector (`k3rs_streamproxy::kubelet_tls_config`: serving cert
+/// verified against `--kubelet-certificate-authority` when set, the
+/// api-server's kubelet client identity when present; `transportConfig` in
+/// kubelet_client.go:114-128) with the dial through the egress selector.
+/// `insecure_skip_tls_verify` selects `InsecureSkipTLSVerifyTransport`.
 fn kubelet_egress_connector(
     dialer: crate::egress_selector::Dialer,
+    insecure_skip_tls_verify: bool,
 ) -> Result<crate::egress_http::EgressConnector> {
-    let identity = k3rs_streamproxy::kubelet_client_identity_pem()
-        .map_err(|e| Error::Internal(format!("kubelet client identity: {e}")))?;
-    let tls = crate::egress_http::tls_client_config(None, true, identity.as_deref())
+    let tls = k3rs_streamproxy::kubelet_tls_config(insecure_skip_tls_verify)
         .map_err(|e| Error::Internal(format!("failed to build kubelet client: {e}")))?;
     Ok(crate::egress_http::EgressConnector::new(dialer, tls, None))
+}
+
+/// The default-dial kubelet connector: `ConnectionInfo.Transport`, or
+/// `InsecureSkipTLSVerifyTransport` when `insecure_skip_tls_verify`.
+fn kubelet_connector(
+    insecure_skip_tls_verify: bool,
+) -> Result<k3rs_streamproxy::KubeletProxyConnector> {
+    let c = if insecure_skip_tls_verify {
+        k3rs_streamproxy::kubelet_proxy_connector_insecure()
+    } else {
+        k3rs_streamproxy::kubelet_proxy_connector()
+    };
+    c.map_err(|e| Error::Internal(format!("failed to build kubelet client: {e}")))
+}
+
+/// `PodLogOptions.InsecureSkipTLSVerifyBackend` from the raw query:
+/// `Convert_Slice_string_To_bool` on the parameter's values, which reads the
+/// first one (apimachinery/pkg/runtime/conversion.go:79-95).
+pub fn insecure_skip_tls_verify_backend(raw_query: &str) -> bool {
+    raw_query
+        .split('&')
+        .find_map(|pair| {
+            let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+            (k == "insecureSkipTLSVerifyBackend").then(|| k3rs_common::query::k8s_query_bool(v))
+        })
+        .unwrap_or(false)
 }
 
 fn bad_gateway() -> Response {
@@ -490,6 +498,9 @@ fn bad_gateway() -> Response {
 }
 
 /// `proxy_upgrade` to the kubelet, dialing through `dialer` when set.
+/// exec/attach/portforward always use the verifying transport
+/// (`streamLocation`/`portForwardLocation` return `nodeInfo.Transport`,
+/// pkg/registry/core/pod/strategy.go:794, :829).
 pub async fn proxy_kubelet_upgrade(
     target: Uri,
     req: Request,
@@ -497,7 +508,7 @@ pub async fn proxy_kubelet_upgrade(
 ) -> Response {
     match dialer {
         None => k3rs_streamproxy::proxy_upgrade(target, req).await,
-        Some(d) => match kubelet_egress_connector(d) {
+        Some(d) => match kubelet_egress_connector(d, false) {
             Ok(c) => k3rs_streamproxy::proxy_upgrade_with(target, req, c).await,
             Err(e) => {
                 tracing::warn!("kubelet upgrade proxy: {e}");
@@ -508,14 +519,24 @@ pub async fn proxy_kubelet_upgrade(
 }
 
 /// `proxy_stream` from the kubelet, dialing through `dialer` when set.
+/// `insecure_skip_tls_verify` is the log request's
+/// `insecureSkipTLSVerifyBackend` (`LogLocation`, strategy.go:667-670).
 pub async fn proxy_kubelet_stream(
     target: Uri,
     req: Request,
     dialer: Option<crate::egress_selector::Dialer>,
+    insecure_skip_tls_verify: bool,
 ) -> Response {
     match dialer {
-        None => k3rs_streamproxy::proxy_stream(target, req).await,
-        Some(d) => match kubelet_egress_connector(d) {
+        None if !insecure_skip_tls_verify => k3rs_streamproxy::proxy_stream(target, req).await,
+        None => match kubelet_connector(true) {
+            Ok(c) => k3rs_streamproxy::proxy_stream_with(target, req, c).await,
+            Err(e) => {
+                tracing::warn!("kubelet stream proxy: {e}");
+                bad_gateway()
+            }
+        },
+        Some(d) => match kubelet_egress_connector(d, insecure_skip_tls_verify) {
             Ok(c) => k3rs_streamproxy::proxy_stream_with(target, req, c).await,
             Err(e) => {
                 tracing::warn!("kubelet stream proxy: {e}");
@@ -525,15 +546,17 @@ pub async fn proxy_kubelet_stream(
     }
 }
 
-/// [`fetch_kubelet_log_stream`] over the egress dialer: a hyper client whose
-/// connector is the dialer, streaming the body.
-async fn fetch_kubelet_log_stream_via_dialer(
+/// [`fetch_kubelet_log_stream`] over `connector`: a hyper client streaming
+/// the body.
+async fn fetch_kubelet_log_stream_with<C>(
     target_url: &Uri,
     pod_name: &str,
-    dialer: crate::egress_selector::Dialer,
-) -> Result<std::result::Result<LogByteStream, Response>> {
+    connector: C,
+) -> Result<std::result::Result<LogByteStream, Response>>
+where
+    C: hyper_util::client::legacy::connect::Connect + Clone + Send + Sync + 'static,
+{
     use http_body_util::BodyExt;
-    let connector = kubelet_egress_connector(dialer)?;
     let client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
         .build::<_, axum::body::Body>(connector);
     let req = hyper::Request::builder()
@@ -544,11 +567,12 @@ async fn fetch_kubelet_log_stream_via_dialer(
     let resp = client
         .request(req)
         .await
-        .map_err(|e| Error::Internal(format!("kubelet log request failed: {e}")))?;
+        .map_err(|e| Error::Internal(format!("kubelet log request failed: {e:?}")))?;
     let (parts, body) = resp.into_parts();
     let code = parts.status;
     if !(StatusCode::OK..=StatusCode::PARTIAL_CONTENT).contains(&code) {
-        // `io.ReadAll(io.LimitReader(resp.Body, maxReadLength))`.
+        // `io.ReadAll(io.LimitReader(resp.Body, maxReadLength))`, chunk by
+        // chunk so an oversized body is truncated rather than rejected.
         let mut body = body;
         let mut buf: Vec<u8> = Vec::new();
         while buf.len() < KUBELET_ERROR_MAX_READ {
@@ -577,55 +601,26 @@ async fn fetch_kubelet_log_stream_via_dialer(
 /// kubelet's error text is framed into the websocket as if it were log output,
 /// which is worse than the plain path's bad content type — the client cannot
 /// tell an error from a log line at all.
+///
+/// Uses the same kubelet transport as the plain proxy (CA verification, client
+/// identity, egress dial); `insecure_skip_tls_verify` is the request's
+/// `insecureSkipTLSVerifyBackend`.
 pub async fn fetch_kubelet_log_stream(
     target_url: &Uri,
     pod_name: &str,
     dialer: Option<crate::egress_selector::Dialer>,
+    insecure_skip_tls_verify: bool,
 ) -> Result<std::result::Result<LogByteStream, Response>> {
-    if let Some(dialer) = dialer {
-        return fetch_kubelet_log_stream_via_dialer(target_url, pod_name, dialer).await;
-    }
-    // `danger_accept_invalid_certs` mirrors the api-server->kubelet trust model
-    // used by the streaming proxy (the kubelet serves a self-signed cert).
-    let mut builder = reqwest::Client::builder().danger_accept_invalid_certs(true);
-    // Present the kubeadm `apiserver-kubelet-client` cert when it exists, so a
-    // vanilla kubelet (`--anonymous-auth=false`) authenticates the api-server's
-    // websocket log fetch instead of returning 401 (#1670). Absent on
-    // k3rs' own cluster, whose kubelet needs no client cert.
-    if let Some(identity) = load_kubelet_client_identity()? {
-        builder = builder.identity(identity);
-    }
-    let client = builder
-        .build()
-        .map_err(|e| Error::Internal(format!("failed to build kubelet log client: {e}")))?;
-
-    let mut resp = client
-        .get(target_url.to_string())
-        .send()
-        .await
-        .map_err(|e| Error::Internal(format!("kubelet log request failed: {e}")))?;
-
-    let code = resp.status();
-    if !(StatusCode::OK..=StatusCode::PARTIAL_CONTENT).contains(&code) {
-        // `io.ReadAll(io.LimitReader(resp.Body, maxReadLength))`, chunk by
-        // chunk so an oversized body is truncated rather than rejected.
-        let mut buf: Vec<u8> = Vec::new();
-        while buf.len() < KUBELET_ERROR_MAX_READ {
-            match resp.chunk().await {
-                Ok(Some(data)) => {
-                    let take = (KUBELET_ERROR_MAX_READ - buf.len()).min(data.len());
-                    buf.extend_from_slice(&data[..take]);
-                }
-                Ok(None) | Err(_) => break,
-            }
+    match dialer {
+        Some(d) => {
+            let c = kubelet_egress_connector(d, insecure_skip_tls_verify)?;
+            fetch_kubelet_log_stream_with(target_url, pod_name, c).await
         }
-        let text = String::from_utf8_lossy(&buf).into_owned();
-        return Ok(Err(kubelet_error_response(code, text, pod_name)));
+        None => {
+            let c = kubelet_connector(insecure_skip_tls_verify)?;
+            fetch_kubelet_log_stream_with(target_url, pod_name, c).await
+        }
     }
-
-    Ok(Ok(Box::pin(
-        resp.bytes_stream().map_err(std::io::Error::other),
-    )))
 }
 
 /// Build the kubelet stream URL for an exec or attach subresource.

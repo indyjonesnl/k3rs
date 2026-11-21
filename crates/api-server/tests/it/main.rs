@@ -213,6 +213,7 @@ mod job_status_monotonic_counters_test;
 mod json_watch_event_objects_carry_gvk_test;
 mod json_watch_selectors_test;
 mod kubelet_egress_dial_test;
+mod kubelet_serving_ca_test;
 mod lease_handler_test;
 mod lease_store_test;
 mod legacy_sa_token_test;

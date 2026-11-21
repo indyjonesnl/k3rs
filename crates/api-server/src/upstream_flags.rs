@@ -66,7 +66,9 @@ pub struct UpstreamCompatArgs {
     #[arg(long)]
     pub kubelet_client_key: Option<String>,
 
-    /// `--kubelet-certificate-authority` (options.go). Accepted, ignored.
+    /// `--kubelet-certificate-authority` (cmd/kube-apiserver/app/options/options.go:149):
+    /// the CA the kubelet serving certificate is verified against
+    /// (`k3rs_streamproxy::set_kubelet_certificate_authority`). Unset: not verified.
     #[arg(long)]
     pub kubelet_certificate_authority: Option<String>,
 
@@ -198,10 +200,6 @@ impl UpstreamCompatArgs {
                 "--kubelet-client-certificate",
             ),
             (self.kubelet_client_key.is_some(), "--kubelet-client-key"),
-            (
-                self.kubelet_certificate_authority.is_some(),
-                "--kubelet-certificate-authority",
-            ),
             (
                 !self.kubelet_preferred_address_types.is_empty(),
                 "--kubelet-preferred-address-types",
