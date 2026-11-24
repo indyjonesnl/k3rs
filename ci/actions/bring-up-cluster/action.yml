@@ -207,7 +207,7 @@ runs:
             # public). No cross-daemon retag needed.
             echo "GHCR_OVERLAY=-f compose.ghcr.yml" >> "$GITHUB_ENV"
             echo "K3RS_IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
-            echo "CONTROL_PLANE_IMAGE_REGISTRY=ghcr.io/indyjonesnl/rusternetes" >> "$GITHUB_ENV"
+            echo "CONTROL_PLANE_IMAGE_REGISTRY=ghcr.io/indyjonesnl/k3rs" >> "$GITHUB_ENV"
             echo "using prebuilt images: tag=$IMAGE_TAG"
             exit 0
           fi
@@ -216,12 +216,12 @@ runs:
           # packages are still private — hard-fail instead of silently
           # compiling locally forever (#1108).
           if [ "${REQUIRE_PREBUILT:-false}" = "true" ]; then
-            echo "::error::prebuilt images tag=$IMAGE_TAG not pullable on a require-prebuilt path — the 7 ghcr.io/indyjonesnl/rusternetes/* packages are likely still private (flip them to public, see PR #1106 checklist) or the publish did not push this tag. Refusing to fall back to a local build."
+            echo "::error::prebuilt images tag=$IMAGE_TAG not pullable on a require-prebuilt path — the 7 ghcr.io/indyjonesnl/k3rs/* packages are likely still private (flip them to public, see PR #1106 checklist) or the publish did not push this tag. Refusing to fall back to a local build."
             {
               echo "### ❌ Prebuilt-image pull failed (hard error)"
               echo
               echo "Tag \`$IMAGE_TAG\` was not pullable and \`require-prebuilt\` is set."
-              echo "Most likely the \`ghcr.io/indyjonesnl/rusternetes/*\` packages are still **private** — flip them to public (one-time, PR #1106 post-merge checklist)."
+              echo "Most likely the \`ghcr.io/indyjonesnl/k3rs/*\` packages are still **private** — flip them to public (one-time, PR #1106 post-merge checklist)."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
@@ -233,7 +233,7 @@ runs:
             echo "### ⚠️ Prebuilt-image fallback: built locally"
             echo
             echo "Tag \`$IMAGE_TAG\` was not pullable, so images were **compiled locally**."
-            echo "If this persists, the \`ghcr.io/indyjonesnl/rusternetes/*\` packages may still be private (PR #1106 post-merge checklist)."
+            echo "If this persists, the \`ghcr.io/indyjonesnl/k3rs/*\` packages may still be private (PR #1106 post-merge checklist)."
           } >> "$GITHUB_STEP_SUMMARY"
         fi
         docker compose -f "$COMPOSE_STACK" --profile build build --parallel

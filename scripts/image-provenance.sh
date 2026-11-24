@@ -15,7 +15,7 @@ set -uo pipefail
 
 TAG="${1:?usage: image-provenance.sh <image-tag> <expected-main-sha>}"
 EXPECTED_SHA="${2:?usage: image-provenance.sh <image-tag> <expected-main-sha>}"
-IMAGE="${PROVENANCE_IMAGE:-ghcr.io/indyjonesnl/rusternetes/api-server}"
+IMAGE="${PROVENANCE_IMAGE:-ghcr.io/indyjonesnl/k3rs/api-server}"
 # Overridable so the test can stub the registry round-trip.
 # (default assigned separately: the literal `}}` would close ${...:-} early)
 if [ -z "${IMAGETOOLS:-}" ]; then

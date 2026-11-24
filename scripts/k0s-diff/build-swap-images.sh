@@ -28,7 +28,7 @@ target="x86_64-unknown-linux-musl"
 
 # Pre-built musl artifacts live in the shared cargo target dir by default (the
 # repo's CARGO_TARGET_DIR convention). Override for a non-standard layout.
-rn_musl_dir="${RN_MUSL_DIR:-${CARGO_TARGET_DIR:-$HOME/.cache/rusternetes-target}/$target/release}"
+rn_musl_dir="${RN_MUSL_DIR:-${CARGO_TARGET_DIR:-$HOME/.cache/k3rs-target}/$target/release}"
 
 component="${1:-}"
 case "$component" in

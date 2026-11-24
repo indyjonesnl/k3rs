@@ -396,7 +396,7 @@ KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/k3rs-config}"
 CONFORMANCE_IMAGE="registry.k8s.io/conformance:v1.35.0"
 CONFORMANCE_IMAGE_EXPLICIT=0
 IMAGE_SOURCE="${IMAGE_SOURCE:-auto}"
-MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/rusternetes/mirror}"
+MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/k3rs/mirror}"
 OUTPUT_DIR=""; HYDROPHONE_BIN=""; PARALLEL=2
 SKIP_PREFLIGHT="${SKIP_PREFLIGHT:-0}"
 # Extra flags handed to conformance-preflight.sh. The gate's defaults describe

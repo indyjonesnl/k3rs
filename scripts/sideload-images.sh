@@ -21,7 +21,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || exit 0
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 RT="${CONTAINER_RT:-docker}"
-MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/rusternetes/mirror}"
+MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/k3rs/mirror}"
 PULL_RETRIES="${PULL_RETRIES:-3}"
 LIST="${SIDELOAD_LIST:-$REPO_ROOT/ci/mirror/sideload.txt}"
 SOURCE=upstream; CONF_IMAGE=""; SANDBOX=""

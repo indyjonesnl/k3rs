@@ -119,7 +119,7 @@ RUN mkdir -p crates/common/benches \
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-k3rs,sharing=locked \
     cargo build --profile release-fast --bin k3rs-dns \
  && cargo clean --profile release-fast \
         -p k3rs-api-server \
@@ -148,7 +148,7 @@ COPY crates/dns/src      crates/dns/src
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-k3rs,sharing=locked \
     cargo build --profile release-fast --bin k3rs-dns \
  && sccache --show-stats \
  && mkdir -p /out \

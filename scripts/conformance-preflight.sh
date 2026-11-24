@@ -302,7 +302,7 @@ else
     # Conformance runs pull their test images from the ghcr.io mirror when it is
     # complete (scripts/resolve-image-source.sh, ci/mirror/images.txt), so try the
     # mirror copy before the upstream one; either proves a real pull works.
-    MIRROR_SANDBOX_IMAGE="ghcr.io/indyjonesnl/rusternetes/mirror/${SANDBOX_IMAGE#registry.k8s.io/}"
+    MIRROR_SANDBOX_IMAGE="ghcr.io/indyjonesnl/k3rs/mirror/${SANDBOX_IMAGE#registry.k8s.io/}"
     if timeout "$pull_budget" "$CONTAINER_RT" pull -q "$MIRROR_SANDBOX_IMAGE" >/dev/null 2>&1; then
         pass "pulled $MIRROR_SANDBOX_IMAGE (ghcr.io mirror of $SANDBOX_IMAGE)"
     elif timeout "$pull_budget" "$CONTAINER_RT" pull -q "$SANDBOX_IMAGE" >/dev/null 2>&1; then

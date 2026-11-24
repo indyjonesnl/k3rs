@@ -12,7 +12,7 @@ metadata:
 spec:
   containers:
   - name: scheduler
-    image: ghcr.io/indyjonesnl/rusternetes-scheduler:latest
+    image: ghcr.io/indyjonesnl/k3rs-scheduler:latest
 "#;
 
 #[test]

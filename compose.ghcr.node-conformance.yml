@@ -7,15 +7,15 @@
 
 services:
   rhino:
-    image: "ghcr.io/indyjonesnl/rusternetes/rhino:${K3RS_IMAGE_TAG:-main}"
+    image: "ghcr.io/indyjonesnl/k3rs/rhino:${K3RS_IMAGE_TAG:-main}"
   api-server:
-    image: "ghcr.io/indyjonesnl/rusternetes/api-server:${K3RS_IMAGE_TAG:-main}"
+    image: "ghcr.io/indyjonesnl/k3rs/api-server:${K3RS_IMAGE_TAG:-main}"
   kubelet:
-    image: "ghcr.io/indyjonesnl/rusternetes/kubelet:${K3RS_IMAGE_TAG:-main}"
+    image: "ghcr.io/indyjonesnl/k3rs/kubelet:${K3RS_IMAGE_TAG:-main}"
   scheduler:
-    image: "ghcr.io/indyjonesnl/rusternetes/scheduler:${K3RS_IMAGE_TAG:-main}"
+    image: "ghcr.io/indyjonesnl/k3rs/scheduler:${K3RS_IMAGE_TAG:-main}"
   controller-manager:
-    image: "ghcr.io/indyjonesnl/rusternetes/controller-manager:${K3RS_IMAGE_TAG:-main}"
+    image: "ghcr.io/indyjonesnl/k3rs/controller-manager:${K3RS_IMAGE_TAG:-main}"
   # CRI runtime image (containerd + crun + CNI) the kubelet talks to.
   containerd:
-    image: "ghcr.io/indyjonesnl/rusternetes/containerd:${K3RS_IMAGE_TAG:-main}"
+    image: "ghcr.io/indyjonesnl/k3rs/containerd:${K3RS_IMAGE_TAG:-main}"

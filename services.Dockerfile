@@ -250,7 +250,7 @@ ARG CARGO_FEATURES=""
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-k3rs,sharing=locked \
     if [ "$USE_SCCACHE" = "1" ]; then \
         export RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0; \
     else \
@@ -352,7 +352,7 @@ ENV K3RS_GIT_SHA=${K3RS_GIT_SHA}
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-k3rs,sharing=locked \
     if [ "$USE_SCCACHE" = "1" ]; then \
         export RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0; \
     else \

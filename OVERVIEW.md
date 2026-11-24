@@ -376,7 +376,7 @@ binary).
 > Compose stacks build these images locally via `docker compose build` /
 > `podman compose build`. CI builds them the same way; the only image published
 > to a registry today is the self-hosted Actions runner image
-> (`ghcr.io/indyjonesnl/rusternetes-arc-runner`), which is infrastructure, not a
+> (`ghcr.io/indyjonesnl/k3rs-arc-runner`), which is infrastructure, not a
 > k3rs component.
 
 ## Deployment

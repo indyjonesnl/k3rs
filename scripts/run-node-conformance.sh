@@ -71,13 +71,13 @@ if [ -n "${K3RS_IMAGE_TAG:-}" ]; then
         UP_BUILD_FLAG="--no-build"
         echo "Using prebuilt images: tag=${K3RS_IMAGE_TAG}"
     elif [ "${REQUIRE_PREBUILT:-false}" = "true" ]; then
-        echo "ERROR: prebuilt images tag=${K3RS_IMAGE_TAG} not pullable on a require-prebuilt run — the ghcr.io/indyjonesnl/rusternetes/* packages are likely still private (flip them to public, see PR #1106 checklist). Refusing to fall back to a local build." >&2
+        echo "ERROR: prebuilt images tag=${K3RS_IMAGE_TAG} not pullable on a require-prebuilt run — the ghcr.io/indyjonesnl/k3rs/* packages are likely still private (flip them to public, see PR #1106 checklist). Refusing to fall back to a local build." >&2
         if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
             {
                 echo "### ❌ Prebuilt-image pull failed (hard error)"
                 echo
                 echo "Tag \`${K3RS_IMAGE_TAG}\` was not pullable and \`REQUIRE_PREBUILT\` is set."
-                echo "Most likely the \`ghcr.io/indyjonesnl/rusternetes/*\` packages are still **private** (PR #1106 post-merge checklist)."
+                echo "Most likely the \`ghcr.io/indyjonesnl/k3rs/*\` packages are still **private** (PR #1106 post-merge checklist)."
             } >> "${GITHUB_STEP_SUMMARY}"
         fi
         exit 1
@@ -88,7 +88,7 @@ if [ -n "${K3RS_IMAGE_TAG:-}" ]; then
                 echo "### ⚠️ Prebuilt-image fallback: built locally"
                 echo
                 echo "Tag \`${K3RS_IMAGE_TAG}\` was not pullable, so images were **compiled locally**."
-                echo "If this persists, the \`ghcr.io/indyjonesnl/rusternetes/*\` packages may still be private (PR #1106 post-merge checklist)."
+                echo "If this persists, the \`ghcr.io/indyjonesnl/k3rs/*\` packages may still be private (PR #1106 post-merge checklist)."
             } >> "${GITHUB_STEP_SUMMARY}"
         fi
     fi

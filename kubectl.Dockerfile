@@ -24,7 +24,7 @@
 FROM rust:1.100 AS builder
 
 # sccache wraps rustc so identical (crate, source, flags) compilations
-# hit the BuildKit cache mount below. Shares cache id `sccache-rusternetes`
+# hit the BuildKit cache mount below. Shares cache id `sccache-k3rs`
 # with services.Dockerfile and all-in-one.Dockerfile so a build of any of
 # them warms the cache for the others.
 ARG SCCACHE_VERSION=v0.8.2
@@ -128,7 +128,7 @@ ENV CARGO_BUILD_JOBS=2
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-k3rs,sharing=locked \
     cargo build --profile release-fast --bin kubectl \
  && cargo clean --profile release-fast \
         -p k3rs-api-server \
@@ -176,7 +176,7 @@ COPY crates/storage/src              crates/storage/src
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-k3rs,sharing=locked \
     cargo build --profile release-fast --bin kubectl && \
     sccache --show-stats && \
     mkdir -p /out && cp target/release-fast/kubectl /out/kubectl

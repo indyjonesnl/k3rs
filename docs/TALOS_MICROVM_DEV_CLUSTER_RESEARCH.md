@@ -179,11 +179,11 @@ the Talos↔K8s compatibility window — the repository name is **not** constrai
 ```yaml
 # config patch
 cluster:
-  apiServer:         { image: ghcr.io/indyjonesnl/rusternetes/api-server:v1.35.0 }
-  controllerManager: { image: ghcr.io/indyjonesnl/rusternetes/controller-manager:v1.35.0 }
-  scheduler:         { image: ghcr.io/indyjonesnl/rusternetes/scheduler:v1.35.0 }
+  apiServer:         { image: ghcr.io/indyjonesnl/k3rs/api-server:v1.35.0 }
+  controllerManager: { image: ghcr.io/indyjonesnl/k3rs/controller-manager:v1.35.0 }
+  scheduler:         { image: ghcr.io/indyjonesnl/k3rs/scheduler:v1.35.0 }
 machine:
-  kubelet:           { image: ghcr.io/indyjonesnl/rusternetes/kubelet:v1.35.0 }
+  kubelet:           { image: ghcr.io/indyjonesnl/k3rs/kubelet:v1.35.0 }
 ```
 
 ```bash

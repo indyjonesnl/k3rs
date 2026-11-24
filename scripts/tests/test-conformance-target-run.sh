@@ -512,9 +512,9 @@ chmod +x "$REC"
 args_of() { rm -f "$TMP/hydro-args"; run_cli --target sig-node --kubeconfig "$KC" --hydrophone "$REC" --output-dir "$TMP/$1" "${@:2}" >/dev/null 2>&1 || true; cat "$TMP/hydro-args" 2>/dev/null; }
 
 a="$(args_of im1 --image-source mirror)"
-echo "$a" | grep -q -- '--conformance-image ghcr.io/indyjonesnl/rusternetes/mirror/conformance:v1.35.0' \
+echo "$a" | grep -q -- '--conformance-image ghcr.io/indyjonesnl/k3rs/mirror/conformance:v1.35.0' \
   && echo "$a" | grep -q -- "--test-repo-list $REPO_ROOT/ci/mirror/e2e-repo-list.yaml" \
-  && echo "$a" | grep -q -- '--busybox-image ghcr.io/indyjonesnl/rusternetes/mirror/e2e-test-images/busybox:1.36.1-1' \
+  && echo "$a" | grep -q -- '--busybox-image ghcr.io/indyjonesnl/k3rs/mirror/e2e-test-images/busybox:1.36.1-1' \
   && ok "--image-source mirror => ghcr conformance image + --test-repo-list + --busybox-image" || bad "mirror args: $a"
 
 a="$(args_of im2 --image-source upstream)"
@@ -548,13 +548,13 @@ esac
 exit 0
 EOF2
 chmod +x "$STUBBIN/fakert"
-SLC="ghcr.io/indyjonesnl/rusternetes/mirror/conformance:v1.35.0"
+SLC="ghcr.io/indyjonesnl/k3rs/mirror/conformance:v1.35.0"
 export PULL_BACKOFF=0
 export STUB_LOG="$TMP/stub.log"; : > "$STUB_LOG"
 CONTAINER_RT="$STUBBIN/fakert" bash "$SL" --image-source mirror --conformance-image "$SLC" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && grep -q "^pull --quiet $SLC\$" "$STUB_LOG" \
-  && grep -q "^pull --quiet ghcr.io/indyjonesnl/rusternetes/mirror/e2e-test-images/agnhost:2.59\$" "$STUB_LOG" \
-  && grep -q "^pull --quiet ghcr.io/indyjonesnl/rusternetes/mirror/e2e-test-images/busybox:1.36.1-1\$" "$STUB_LOG" \
+  && grep -q "^pull --quiet ghcr.io/indyjonesnl/k3rs/mirror/e2e-test-images/agnhost:2.59\$" "$STUB_LOG" \
+  && grep -q "^pull --quiet ghcr.io/indyjonesnl/k3rs/mirror/e2e-test-images/busybox:1.36.1-1\$" "$STUB_LOG" \
   && grep -qE "^exec -i k3rs-containerd ctr -n k8s.io images import -" "$STUB_LOG" \
   && grep -qE "^exec -i k3rs-containerd2 ctr -n k8s.io images import -" "$STUB_LOG" \
   && ok "sideload: mirror pulls + imports into every containerd" || bad "sideload mirror log: $(tr '\n' '|' < "$STUB_LOG")"
@@ -563,7 +563,7 @@ grep -qE "^save .*registry.k8s.io/pause:3.10.1" "$STUB_LOG" \
 
 # mirror pull failing falls back to registry.k8s.io and tags the mirror name; never fails
 : > "$STUB_LOG"
-STUB_FAIL="rusternetes/mirror" CONTAINER_RT="$STUBBIN/fakert" bash "$SL" --image-source mirror --conformance-image "$SLC" >/dev/null 2>&1; rc=$?
+STUB_FAIL="k3rs/mirror" CONTAINER_RT="$STUBBIN/fakert" bash "$SL" --image-source mirror --conformance-image "$SLC" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && grep -q "^pull --quiet registry.k8s.io/conformance:v1.35.0\$" "$STUB_LOG" \
   && grep -q "^tag registry.k8s.io/conformance:v1.35.0 $SLC\$" "$STUB_LOG" \
   && ok "sideload: mirror failure falls back to upstream, retagged as requested" || bad "sideload fallback: $(tr '\n' '|' < "$STUB_LOG" | head -c 400)"

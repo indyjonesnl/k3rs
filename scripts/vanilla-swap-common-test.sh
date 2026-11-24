@@ -39,11 +39,11 @@ AWK_ONLY_BIN="$TMP/awk-only-bin"
 mkdir -p "$AWK_ONLY_BIN"
 ln -s "$(command -v awk)" "$AWK_ONLY_BIN/awk"
 
-VS_IMAGE="ghcr.io/indyjonesnl/rusternetes/kube-proxy:test"
+VS_IMAGE="ghcr.io/indyjonesnl/k3rs/kube-proxy:test"
 VS_APISERVER_URL="https://172.18.0.3:6443"
 VS_CLUSTER_CIDR="10.96.0.0/16"
 VS_NODEPORT_RANGE="30000-32767"
-EXPECTED_RENDER='image: ghcr.io/indyjonesnl/rusternetes/kube-proxy:test
+EXPECTED_RENDER='image: ghcr.io/indyjonesnl/k3rs/kube-proxy:test
 server: https://172.18.0.3:6443
 cidr: 10.96.0.0/16
 nodePorts: 30000-32767

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copy the images listed in ci/mirror/images.txt from registry.k8s.io to
-# ghcr.io/indyjonesnl/rusternetes/mirror/<path> as multi-arch manifests.
+# ghcr.io/indyjonesnl/k3rs/mirror/<path> as multi-arch manifests.
 #
 # `docker buildx imagetools create` copies the manifest list registry-to-registry
 # (no local pull), so the destination digest equals the source digest. Idempotent:
@@ -9,14 +9,14 @@
 #
 # Requires: docker buildx, jq, and a prior `docker login ghcr.io` with push access.
 # Usage: scripts/mirror-images.sh [images-file]
-#   MIRROR_PREFIX  destination prefix (default ghcr.io/indyjonesnl/rusternetes/mirror)
+#   MIRROR_PREFIX  destination prefix (default ghcr.io/indyjonesnl/k3rs/mirror)
 #   SOURCE_REGISTRY source registry   (default registry.k8s.io)
 #   RETRIES        attempts per call  (default 5)
 set -euo pipefail
 
 export BUILDKIT_PROGRESS=plain
 LIST="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)/ci/mirror/images.txt}"
-MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/rusternetes/mirror}"
+MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/k3rs/mirror}"
 SOURCE_REGISTRY="${SOURCE_REGISTRY:-registry.k8s.io}"
 RETRIES="${RETRIES:-5}"
 

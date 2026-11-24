@@ -117,12 +117,12 @@ CC_x86_64_unknown_linux_musl=musl-gcc \
 >
 > `.github/workflows/publish-musl-image.yml` does exactly this on a native
 > runner per arch and publishes the two as one multi-arch manifest
-> (`ghcr.io/indyjonesnl/rusternetes/all-in-one-musl:musl`), so an arm64 static
+> (`ghcr.io/indyjonesnl/k3rs/all-in-one-musl:musl`), so an arm64 static
 > binary is a `docker pull` away:
 >
 > ```bash
 > docker create --platform linux/arm64 \
->   ghcr.io/indyjonesnl/rusternetes/all-in-one-musl:musl   # then `docker cp <id>:/k3rs .`
+>   ghcr.io/indyjonesnl/k3rs/all-in-one-musl:musl   # then `docker cp <id>:/k3rs .`
 > ```
 
 ## Results

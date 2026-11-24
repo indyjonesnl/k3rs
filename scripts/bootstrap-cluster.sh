@@ -66,7 +66,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # images must be put there one of two ways:
 #
 #   * CI prebuilt path — CONTROL_PLANE_IMAGE_REGISTRY is set (the
-#     bring-up-cluster action exports ghcr.io/indyjonesnl/rusternetes when the
+#     bring-up-cluster action exports ghcr.io/indyjonesnl/k3rs when the
 #     GHCR pull succeeds). We template that registry ref + tag into the static
 #     pod manifests / dns Deployment. The docker daemon already holds those
 #     images (`compose pull`, which retries), so they are imported into the
@@ -284,7 +284,7 @@ import_image_into_containerd() {
 # upstream registry; the mirror copy is re-tagged to the upstream name first.
 # Best effort: on failure the pod's own pull is the fallback.
 import_addon_image() {
-    local image="$1" mirror_prefix="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/rusternetes/mirror}"
+    local image="$1" mirror_prefix="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/k3rs/mirror}"
     local path="${image#docker.io/}" src attempt
     if [ -z "$(containerd_service_containers)" ]; then
         return 0   # all-in-one / no separate containerd service

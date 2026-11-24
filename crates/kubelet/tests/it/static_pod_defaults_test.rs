@@ -30,7 +30,7 @@ spec:
         memory: 64Mi
   containers:
   - name: apiserver
-    image: ghcr.io/indyjonesnl/rusternetes-api-server:latest
+    image: ghcr.io/indyjonesnl/k3rs-api-server:latest
     resources:
       limits:
         cpu: 500m

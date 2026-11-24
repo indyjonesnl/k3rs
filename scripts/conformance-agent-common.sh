@@ -31,7 +31,7 @@ if [[ ! -f "${AGENT_WORKDIR}/compose.yml" ]]; then
 fi
 
 # Shared image tarball lives outside any worktree so all agents reuse it.
-AGENT_CACHE_DIR="${AGENT_CACHE_DIR:-${HOME}/.cache/rusternetes-conformance-agents}"
+AGENT_CACHE_DIR="${AGENT_CACHE_DIR:-${HOME}/.cache/k3rs-conformance-agents}"
 AGENT_IMAGES_TAR="${AGENT_CACHE_DIR}/images.tar"
 
 # dind keeps its dockerd state (/var/lib/docker) and runtime sockets

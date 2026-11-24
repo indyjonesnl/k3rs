@@ -50,7 +50,7 @@ RUN npm run build
 FROM rust:1.100 AS builder
 
 # sccache wraps rustc so identical (crate, source, flags) compilations
-# hit the BuildKit cache mount below. Shares cache id `sccache-rusternetes`
+# hit the BuildKit cache mount below. Shares cache id `sccache-k3rs`
 # with services.Dockerfile and kubectl.Dockerfile so a build of any of
 # them warms the cache for the others.
 ARG SCCACHE_VERSION=v0.8.2
@@ -172,7 +172,7 @@ WORKDIR /build/k3rs
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/k3rs/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-k3rs,sharing=locked \
     cargo build --profile release-fast --features ${CARGO_FEATURES} -p k3rs \
  && cargo clean --profile release-fast \
         -p k3rs-admission-webhook \
@@ -241,7 +241,7 @@ ENV K3RS_GIT_SHA=${K3RS_GIT_SHA}
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/k3rs/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-k3rs,sharing=locked \
     cargo build --profile release-fast --features ${CARGO_FEATURES} -p k3rs && \
     sccache --show-stats && \
     mkdir -p /out && cp target/release-fast/k3rs /out/k3rs

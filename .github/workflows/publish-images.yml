@@ -49,7 +49,7 @@ env:
   KUBELET_VOLUMES_PATH: ${{ github.workspace }}/.k3rs/volumes
   # scheduler / controller-manager sit behind the `build` compose profile.
   COMPOSE_PROFILES: build
-  IMAGE_PREFIX: ghcr.io/indyjonesnl/rusternetes
+  IMAGE_PREFIX: ghcr.io/indyjonesnl/k3rs
   # Disable BuildKit's default provenance + SBOM attestations. They turn each
   # push into a manifest LIST (image + attestation), which push-by-digest can't
   # emit — the per-arch merge job attaches nothing extra, so we don't need them.

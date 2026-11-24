@@ -20,12 +20,12 @@ count() { printf '%s\n' "$1" | vs_count_k3rs_images; }
 
 n="$(printf '%s\n' \
   'registry.k8s.io/kube-apiserver:v1.35.0' \
-  'ghcr.io/indyjonesnl/rusternetes/kubelet:main' \
+  'ghcr.io/indyjonesnl/k3rs/kubelet:main' \
   'registry.k8s.io/pause:3.10' | vs_count_k3rs_images)"
 [ "$n" = "1" ] && ok "counts exactly one k3rs image" || bad "expected 1 k3rs image, got '$n'"
 
 n="$(printf '%s\n' \
-  'ghcr.io/indyjonesnl/rusternetes/kubelet:main' \
+  'ghcr.io/indyjonesnl/k3rs/kubelet:main' \
   'k3rs-scheduler:latest' | vs_count_k3rs_images)"
 [ "$n" = "2" ] && ok "counts two k3rs images (guard would reject)" || bad "expected 2, got '$n'"
 

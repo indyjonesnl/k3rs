@@ -3,7 +3,7 @@
 # save` them to a tarball that every parallel-conformance agent dind
 # loads at start-up. Eliminates the ~5–30 min per-dind cold build.
 #
-# Output: ${HOME}/.cache/rusternetes-conformance-agents/images.tar
+# Output: ${HOME}/.cache/k3rs-conformance-agents/images.tar
 # (override via AGENT_CACHE_DIR=…)
 #
 # Re-run after touching any crate or Dockerfile.services. Agents only
@@ -15,7 +15,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-AGENT_CACHE_DIR="${AGENT_CACHE_DIR:-${HOME}/.cache/rusternetes-conformance-agents}"
+AGENT_CACHE_DIR="${AGENT_CACHE_DIR:-${HOME}/.cache/k3rs-conformance-agents}"
 AGENT_IMAGES_TAR="${AGENT_CACHE_DIR}/images.tar"
 mkdir -p "$AGENT_CACHE_DIR"
 
@@ -52,7 +52,7 @@ echo "==> Verifying images exist before save"
 for img in "${IMAGES[@]}"; do
   if ! docker image inspect "$img" >/dev/null 2>&1; then
     echo "image $img missing after build — compose tag scheme drifted?" >&2
-    docker image ls | grep -E "k3rs|rusternetes" || true
+    docker image ls | grep -E "k3rs|k3rs" || true
     exit 1
   fi
 done

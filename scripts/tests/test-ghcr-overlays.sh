@@ -53,7 +53,7 @@ check_pair() {
         image=$(echo "$cfg" | jq -r --arg s "$svc" '.services[$s].image // ""')
         if [ "$has_build" = "true" ]; then
             case "$image" in
-                ghcr.io/indyjonesnl/rusternetes/*:sha-deadbeef) ;;
+                ghcr.io/indyjonesnl/k3rs/*:sha-deadbeef) ;;
                 *)
                     echo "FAIL: buildable service '$svc' in $base lacks a ghcr image with the requested tag (got '$image')" >&2
                     fail=1
@@ -70,7 +70,7 @@ check_pair() {
         KUBELET_VOLUMES_PATH=/tmp/kv DOCKER_GATEWAY=10.0.0.1 \
         docker compose -f "$base" -f "$overlay" config --format json \
         | jq -r '.services["api-server"].image')
-    if [ "$default_img" != "ghcr.io/indyjonesnl/rusternetes/api-server:main" ]; then
+    if [ "$default_img" != "ghcr.io/indyjonesnl/k3rs/api-server:main" ]; then
         echo "FAIL: default tag for api-server should be :main, got '$default_img'" >&2
         fail=1
     fi

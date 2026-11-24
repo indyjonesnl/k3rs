@@ -276,7 +276,7 @@ if [[ "$DO_BOOTSTRAP" == 1 ]]; then
     # pods never start (#1777). Only set it when we did NOT build locally — the
     # local-build path relies on bootstrap's `docker save | ctr images import`.
     if [[ "$DO_BUILD" == 0 && -z "${CONTROL_PLANE_IMAGE_REGISTRY:-}" ]]; then
-        export CONTROL_PLANE_IMAGE_REGISTRY="ghcr.io/indyjonesnl/rusternetes"
+        export CONTROL_PLANE_IMAGE_REGISTRY="ghcr.io/indyjonesnl/k3rs"
         step "Using prebuilt control-plane images from $CONTROL_PLANE_IMAGE_REGISTRY (tag ${K3RS_IMAGE_TAG:-main})"
     fi
     KUBECTL="$KUBECTL_BIN" KUBECONFIG="$KUBECONFIG_PATH" \
