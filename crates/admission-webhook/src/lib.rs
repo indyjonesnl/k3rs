@@ -2035,6 +2035,75 @@ impl<S: Storage> AdmissionWebhookManager<S> {
     }
 
     /// Check if a webhook matches the given request
+    /// The `namespaceSelector` and `objectSelector` halves of
+    /// `matching.Matcher.Matches` (admission/plugin/policy/matching/matching.go:76-110,
+    /// `MatchNamespaceSelector` :96-130 via namespace/matcher.go:62-130,
+    /// `MatchObjectSelector` object/matcher.go:46-59), applied to each of the
+    /// policy's `matchConstraints` and the binding's `matchResources`.
+    ///
+    /// An absent selector is `{}` (apiserver defaulting), which selects
+    /// everything. A cluster-scoped resource other than a Namespace is never
+    /// excluded by the namespace selector; a Namespace create/update reads the
+    /// labels from the object (the stored namespace does not have them yet).
+    async fn vap_selectors_match(
+        &self,
+        constraints: Option<&Value>,
+        match_resources: Option<&Value>,
+        operation: &Operation,
+        resource: &str,
+        namespace: Option<&str>,
+        object: Option<&Value>,
+    ) -> bool {
+        use k3rs_common::types::LabelSelector;
+        let selector_of = |c: Option<&Value>, key: &str| -> Option<LabelSelector> {
+            c.and_then(|c| c.get(key))
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+        };
+        let labels_of = |v: Option<&Value>| -> std::collections::HashMap<String, String> {
+            v.and_then(|o| o.pointer("/metadata/labels"))
+                .and_then(|l| l.as_object())
+                .map(|l| {
+                    l.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let ns_name = namespace.unwrap_or("");
+        let is_namespace = resource == "namespaces";
+        let mut ns_labels: Option<std::collections::HashMap<String, String>> = None;
+        for c in [constraints, match_resources] {
+            if let Some(sel) = selector_of(c, "namespaceSelector") {
+                let everything = k3rs_common::types::label_selector_as_selector(Some(&sel))
+                    .is_ok_and(|s| s.is_everything());
+                if (!ns_name.is_empty() || is_namespace) && !everything {
+                    if ns_labels.is_none() {
+                        let labels = if is_namespace
+                            && matches!(operation, Operation::Create | Operation::Update)
+                        {
+                            labels_of(object)
+                        } else {
+                            let key = k3rs_storage::build_key("namespaces", None, ns_name);
+                            labels_of(self.storage.get::<Value>(&key).await.ok().as_ref())
+                        };
+                        ns_labels = Some(labels);
+                    }
+                    if let Some(labels) = &ns_labels {
+                        if !sel.matches_labels(labels) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            if let Some(sel) = selector_of(c, "objectSelector") {
+                if !sel.matches_labels(&labels_of(object)) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     fn webhook_matches(
         &self,
         rules: &[k3rs_common::resources::RuleWithOperations],
@@ -2317,6 +2386,24 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                         continue;
                     }
                 }
+            }
+
+            // `matching.Matcher.Matches` (matching.go:76-110) selects on the
+            // namespace and object labels for the policy's `matchConstraints`
+            // (`DefinitionMatches`, policy_matcher.go:57-72) and for the
+            // binding's `matchResources` (`BindingMatches`, :74-88).
+            if !self
+                .vap_selectors_match(
+                    policy.pointer("/spec/matchConstraints"),
+                    binding.pointer("/spec/matchResources"),
+                    operation,
+                    &derived_resource,
+                    namespace,
+                    object,
+                )
+                .await
+            {
+                continue;
             }
 
             // Check matchConditions from the policy spec.
@@ -3594,6 +3681,107 @@ mod tests {
         assert!(
             result.is_ok(),
             "Should allow configmap with name 'allowed-cm'"
+        );
+    }
+
+    /// `matching.Matcher.Matches` (admission/plugin/policy/matching/matching.go:76-110)
+    /// applies the namespaceSelector of both the policy's `matchConstraints`
+    /// and the binding's `matchResources`. Conformance runs specs in parallel
+    /// namespaces: a policy scoped to one namespace must not deny a Deployment
+    /// created in another (the `AdmissionWebhook` BeforeEach was denied by the
+    /// ValidatingAdmissionPolicy of a concurrent spec).
+    #[tokio::test]
+    async fn test_vap_namespace_selector_scopes_policy_and_binding() {
+        let storage = Arc::new(MemoryStorage::new());
+        let manager = AdmissionWebhookManager::new(storage.clone());
+        let old_time = (chrono::Utc::now() - chrono::Duration::seconds(10)).to_rfc3339();
+        let selector = json!({"matchLabels": {"scoped-ns": "true"}});
+        for (name, in_policy, in_binding) in [
+            ("sel-in-binding", false, true),
+            ("sel-in-policy", true, false),
+        ] {
+            let mut constraints = json!({
+                "resourceRules": [{
+                    "apiGroups": ["apps"], "apiVersions": ["v1"],
+                    "resources": ["deployments"], "operations": ["CREATE"],
+                }]
+            });
+            if in_policy {
+                constraints["namespaceSelector"] = selector.clone();
+            }
+            let policy = json!({
+                "metadata": {"name": name, "creationTimestamp": old_time},
+                "spec": {
+                    "matchConstraints": constraints,
+                    "validations": [{"expression": "object.spec.replicas > 1"}],
+                }
+            });
+            let mut match_resources = json!({});
+            if in_binding {
+                match_resources["namespaceSelector"] = selector.clone();
+            }
+            let binding = json!({
+                "metadata": {"name": format!("{name}-b"), "creationTimestamp": old_time},
+                "spec": {
+                    "policyName": name,
+                    "validationActions": ["Deny"],
+                    "matchResources": match_resources,
+                }
+            });
+            storage
+                .create::<serde_json::Value>(
+                    &format!("/registry/validatingadmissionpolicies/{name}"),
+                    &policy,
+                )
+                .await
+                .unwrap();
+            storage
+                .create::<serde_json::Value>(
+                    &format!("/registry/validatingadmissionpolicybindings/{name}-b"),
+                    &binding,
+                )
+                .await
+                .unwrap();
+        }
+        for (ns, labels) in [
+            ("scoped", json!({"scoped-ns": "true"})),
+            ("other", json!({"kubernetes.io/metadata.name": "other"})),
+        ] {
+            storage
+                .create::<serde_json::Value>(
+                    &format!("/registry/namespaces/{ns}"),
+                    &json!({"metadata": {"name": ns, "labels": labels}}),
+                )
+                .await
+                .unwrap();
+        }
+        let gvk = GroupVersionKind {
+            group: "apps".into(),
+            version: "v1".into(),
+            kind: "Deployment".into(),
+        };
+        let deployment = json!({"metadata": {"name": "d"}, "spec": {"replicas": 1}});
+        let run = |ns: &'static str| {
+            let manager = &manager;
+            let gvk = &gvk;
+            let deployment = &deployment;
+            async move {
+                manager
+                    .run_validating_admission_policies_ext(
+                        &Operation::Create,
+                        gvk,
+                        Some(deployment),
+                        None,
+                        Some("deployments"),
+                        Some(ns),
+                    )
+                    .await
+            }
+        };
+        assert!(run("scoped").await.is_err(), "selected namespace is denied");
+        assert!(
+            run("other").await.is_ok(),
+            "a namespace the selectors do not select must not be denied"
         );
     }
 

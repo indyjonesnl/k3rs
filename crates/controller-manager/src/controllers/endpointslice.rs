@@ -1,4 +1,5 @@
 use super::endpointslice_tracker::EndpointSliceTracker;
+use super::replicationcontroller::is_namespace_terminating_rejection;
 use super::trigger_time_tracker::{format_rfc3339_nano, TriggerTimeTracker};
 use anyhow::Result;
 use futures::StreamExt;
@@ -388,6 +389,10 @@ pub struct PodQueueItem {
 /// `maxRetries` (`endpointslice_controller.go`): how often `handlePodErr`
 /// requeues a failing pod key before dropping it.
 const POD_QUEUE_MAX_RETRIES: u32 = 15;
+
+/// `maxRetries` of the EndpointSlice mirroring controller
+/// (pkg/controller/endpointslicemirroring/endpointslicemirroring_controller.go:59).
+const MIRRORING_MAX_RETRIES: u32 = 15;
 
 impl<S: Storage + 'static> EndpointSliceController<S> {
     pub fn new(storage: Arc<S>) -> Self {
@@ -793,11 +798,28 @@ impl<S: Storage + 'static> EndpointSliceController<S> {
                     continue;
                 }
             };
+            // `handleErr` (endpointslicemirroring_controller.go:271-286):
+            // forget on success, `AddRateLimited` while under `maxRetries`,
+            // otherwise drop the key.
             match self.mirror_endpoint(ns, name).await {
                 Ok(()) => queue.forget(&key).await,
-                Err(e) => {
-                    tracing::error!("Failed to mirror endpoint {}/{}: {}", ns, name, e);
+                Err(e) if queue.num_requeues(&key).await < MIRRORING_MAX_RETRIES => {
+                    tracing::info!(
+                        "Error mirroring EndpointSlices for Endpoints {}/{}, retrying: {}",
+                        ns,
+                        name,
+                        e
+                    );
                     queue.requeue_rate_limited(key.clone()).await;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Retry budget exceeded, dropping Endpoints {}/{} out of the queue: {}",
+                        ns,
+                        name,
+                        e
+                    );
+                    queue.forget(&key).await;
                 }
             }
             queue.done(&key).await;
@@ -807,48 +829,58 @@ impl<S: Storage + 'static> EndpointSliceController<S> {
     /// Mirror a single Endpoints resource into an EndpointSlice.
     /// Only mirrors Endpoints for services without selectors or standalone Endpoints.
     /// K8s ref: pkg/controller/endpointslicemirroring/reconciler.go
-    async fn mirror_endpoint(&self, ns: &str, name: &str) -> Result<()> {
-        // Check if the Endpoints resource still exists. Read through the
-        // listing, as upstream's endpoints lister does
-        // (pkg/controller/endpointslicemirroring/endpointslicemirroring_controller.go
-        // :303 `c.endpointsLister.Endpoints(namespace).Get(name)`): the
+    pub async fn mirror_endpoint(&self, ns: &str, name: &str) -> Result<()> {
+        // `endpointsLister.Get`: only "not found" means the Endpoints are gone
+        // (syncEndpoints, endpointslicemirroring_controller.go:303-311). Read
+        // through the listing, as upstream's lister does: the
         // endpointslice-controller ServiceAccount has no `get` on endpoints,
         // and a failed read must never count as "deleted" (it would delete
-        // every mirrored slice). Only a successful listing without it does.
+        // every mirrored slice). A failed read returns the error so the key
+        // is retried; only a successful listing without the object is a
+        // deletion.
         let ep: Endpoints =
             match super::lister::get_via_list(self.storage.as_ref(), "endpoints", Some(ns), name)
                 .await?
             {
                 Some(ep) => ep,
                 None => {
-                    // Endpoints deleted — clean up mirrored EndpointSlices
+                    // `deleteMirroredSlices` -> `reconciler.deleteEndpoints`
+                    // (reconciler.go:288-301): list errors propagate and every
+                    // delete is attempted, reporting the first failure.
                     let es_prefix = build_prefix("endpointslices", Some(ns));
-                    let existing_slices: Vec<EndpointSlice> =
-                        self.storage.list(&es_prefix).await.unwrap_or_default();
+                    let existing_slices: Vec<EndpointSlice> = self.storage.list(&es_prefix).await?;
+                    let mut failures: Vec<String> = Vec::new();
+                    let mut total = 0usize;
                     for slice in &existing_slices {
-                        let managed = slice
-                            .metadata
-                            .labels
-                            .as_ref()
-                            .and_then(|l| l.get("endpointslice.kubernetes.io/managed-by"))
+                        let label = |k: &str| slice.metadata.labels.as_ref().and_then(|l| l.get(k));
+                        let managed = label("endpointslice.kubernetes.io/managed-by")
                             .map(|m| m == "endpointslice-mirroring-controller.k8s.io")
                             .unwrap_or(false);
-                        let owned = slice
-                            .metadata
-                            .labels
-                            .as_ref()
-                            .and_then(|l| l.get("kubernetes.io/service-name"))
+                        let owned = label("kubernetes.io/service-name")
                             .map(|n| n == name)
                             .unwrap_or(false);
                         if managed && owned {
+                            total += 1;
                             let slice_key =
                                 build_key("endpointslices", Some(ns), &slice.metadata.name);
-                            let _ = self.storage.delete(&slice_key).await;
-                            debug!(
+                            match self.storage.delete(&slice_key).await {
+                                Ok(()) | Err(k3rs_common::Error::NotFound(_)) => debug!(
                                 "Deleted mirrored EndpointSlice {}/{} (source Endpoints deleted)",
                                 ns, slice.metadata.name
-                            );
+                            ),
+                                Err(e) => failures.push(e.to_string()),
+                            }
                         }
+                    }
+                    if let Some(first) = failures.first() {
+                        return Err(anyhow::anyhow!(
+                        "error(s) deleting {}/{} EndpointSlices for {}/{} Endpoints, including: {}",
+                        failures.len(),
+                        total,
+                        ns,
+                        name,
+                        first
+                    ));
                     }
                     return Ok(());
                 }
@@ -925,15 +957,19 @@ impl<S: Storage + 'static> EndpointSliceController<S> {
                         continue;
                     }
                     adopt_existing_identity(&mut slice, &existing);
+                    // reconciler.go:265-272: an update error fails the sync.
                     match self.storage.update(&slice_key, &slice).await {
                         Ok(_) => {
                             debug!("Updated mirrored EndpointSlice {}/{}", ns, slice_name);
                         }
                         Err(e) => {
-                            debug!(
-                                "Failed to update mirrored EndpointSlice {}/{}: {}",
-                                ns, slice_name, e
-                            );
+                            return Err(anyhow::anyhow!(
+                                "failed to update {} EndpointSlice for Endpoints {}/{}: {}",
+                                slice_name,
+                                ns,
+                                name,
+                                e
+                            ));
                         }
                     }
                 }
@@ -944,11 +980,17 @@ impl<S: Storage + 'static> EndpointSliceController<S> {
                         Ok(_) => {
                             info!("Created mirrored EndpointSlice {}/{}", ns, slice_name);
                         }
+                        // reconciler.go:251-259: a terminating namespace
+                        // drops the item; any other create error fails the
+                        // sync so the key is retried.
+                        Err(e) if is_namespace_terminating_rejection(&e) => return Ok(()),
                         Err(e) => {
-                            debug!(
-                                "Failed to create mirrored EndpointSlice {}/{}: {}",
-                                ns, slice_name, e
-                            );
+                            return Err(anyhow::anyhow!(
+                                "failed to create EndpointSlice for Endpoints {}/{}: {}",
+                                ns,
+                                name,
+                                e
+                            ));
                         }
                     }
                 }
