@@ -115,8 +115,9 @@ pub struct AgentCreds {
 
 use crate::util::write_file_mode as write_file;
 
-/// `ensureNodePassword` (config.go:205).
-fn ensure_node_password(file: &Path) -> Result<String> {
+/// `ensureNodePassword` (config.go:205). Also used by `k3rs server` for its
+/// own node, as k3s' embedded agent does (supervisor `LocalNode`).
+pub fn ensure_node_password(file: &Path) -> Result<String> {
     if file.exists() {
         return Ok(std::fs::read_to_string(file)?.trim().to_string());
     }

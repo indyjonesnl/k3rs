@@ -4,7 +4,8 @@
 //! `handlers.go` (`CACerts`, `Ping`, `ServingKubeletCert`, `ClientKubeletCert`,
 //! `ClientKubeProxyCert`, `File`, `Config`, `Readyz`, `signAndSend`, `getCSR`)
 //! plus node-password enforcement from `pkg/nodepassword`
-//! (`GetNodeAuthValidator`, `getNodeInfo`, `ensure`, `getSecretName`).
+//! (`GetNodeAuthValidator`, `getNodeInfo`, `verifyLocalPassword`,
+//! `ensureSecret`, `ensure`, `getSecretName`).
 //!
 //! Wire format (what the agent client must send):
 //! - `Authorization: Basic base64("server:<token password>")` on `/v1-k3rs/*`.
@@ -62,6 +63,35 @@ pub struct SupervisorState {
     pub token_password: String,
     pub storage: Arc<StorageBackend>,
     pub cluster_info: ClusterInfo,
+    /// This server's own node: k3s compares the requested name with
+    /// `os.Getenv("NODE_NAME")` (pkg/nodepassword/validate.go:62, set by the
+    /// embedded agent at pkg/agent/config/config.go:516) and verifies such
+    /// requests against the agent's node-password file (validate.go:134-154).
+    /// `None` only for a supervisor that has no local node.
+    pub local_node: Option<LocalNode>,
+}
+
+/// The server's own node name and the node-password file its node uses
+/// (same location an agent uses: `<data-dir>/agent/node-password`, see
+/// `agent::ensure_node_password`; k3s validate.go:134 "use same password file
+/// location that the agent creates").
+#[derive(Clone, Debug)]
+pub struct LocalNode {
+    pub name: String,
+    pub password_file: std::path::PathBuf,
+    /// k3s `deferredNodes` (validate.go:45,159-163): the node-password Secret
+    /// for this node is ensured at most once per process.
+    secret_ensured: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl LocalNode {
+    pub fn new(name: impl Into<String>, password_file: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            name: name.into(),
+            password_file: password_file.into(),
+            secret_ensured: Arc::default(),
+        }
+    }
 }
 
 /// Plain-text error like k3s `util.SendError`.
@@ -307,6 +337,18 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// match it. Mismatch => 403, missing header => 400. Deviation: when secret
 /// storage itself fails k3s fails open (`verifyRemotePassword`, issue 7654);
 /// here it is a 500 since there is no webhook-outage scenario to serve.
+///
+/// The server's own node name (k3s `node.Name == os.Getenv("NODE_NAME")`,
+/// validate.go:62-64) is never trust-on-first-use: it is verified against the
+/// local node-password file (`verifyLocalPassword`, validate.go:127-166).
+/// Deviation: k3s takes that branch only while its node-password controller
+/// is not yet registered (`controller == nil`, validate.go:61), because its
+/// embedded agent then joins through the supervisor and its request creates
+/// the Secret. The k3rs server mints its kubelet identity locally
+/// (`Pki::ensure_component_creds`) and never joins through the supervisor,
+/// so the local file stays the authority for that name for the process
+/// lifetime. k3s' `DisableAgent` short-circuit (validate.go:130-132) has no
+/// equivalent: `k3rs server` always runs its own node.
 #[allow(clippy::result_large_err)]
 async fn node_auth(st: &SupervisorState, headers: &HeaderMap) -> Result<String, Response> {
     let hv = |name: &str| {
@@ -333,54 +375,153 @@ async fn node_auth(st: &SupervisorState, headers: &HeaderMap) -> Result<String, 
     if pass.is_empty() {
         return Err(err(StatusCode::BAD_REQUEST, "node password not set"));
     }
-    let want = password_hash(&pass);
-    let key = format!("/registry/secrets/kube-system/{}", secret_name(&name));
-    let rejected = || {
-        err(
+    // validate.go:62: "If we're verifying our own password, verify it locally
+    // and ensure a secret later." Compared lowercased (the header name is
+    // lowercased by `getNodeInfo`, validate.go:119) so a mixed-case
+    // `--node-name` cannot fall through to trust-on-first-use.
+    if let Some(local) = st
+        .local_node
+        .as_ref()
+        .filter(|l| l.name.to_lowercase() == name)
+    {
+        return verify_local_password(st, local, name, pass).await;
+    }
+    match ensure(&st.storage, &name, &pass).await {
+        Ok(()) => Ok(name),
+        Err(EnsureError::VerifyFailed) => Err(err(
             StatusCode::FORBIDDEN,
             format!(
                 "node password rejected for node \"{name}\": duplicate hostname or the agent's node-password file does not match the server entry"
             ),
-        )
+        )),
+        Err(EnsureError::Storage(e)) => Err(err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("unable to verify password for node {name}: {e}"),
+        )),
+    }
+}
+
+/// `verifyLocalPassword` (validate.go:127-166): read the node-password file
+/// (unreadable => 500, :142-145), compare its trimmed contents with the
+/// request's password (mismatch => 403, :152-154), then ensure the Secret
+/// once per process (`deferredNodes` + `go ensureSecret`, :156-163).
+#[allow(clippy::result_large_err)]
+async fn verify_local_password(
+    st: &SupervisorState,
+    local: &LocalNode,
+    name: String,
+    pass: String,
+) -> Result<String, Response> {
+    let file = tokio::fs::read_to_string(&local.password_file)
+        .await
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("unable to read node password file: {e}"),
+            )
+        })?;
+    let local_hash = password_hash(file.trim());
+    if !constant_time_eq(local_hash.as_bytes(), password_hash(&pass).as_bytes()) {
+        return Err(err(
+            StatusCode::FORBIDDEN,
+            format!("unable to verify local node password for node \"{name}\""),
+        ));
+    }
+    spawn_ensure_secret(st, local, pass);
+    tracing::info!("Password verified locally for node {name}");
+    Ok(name)
+}
+
+/// Ensure the server's own node-password Secret from its local password file,
+/// as k3s' embedded agent's first supervisor request does (validate.go:161
+/// `go ensureSecret`). Called by `k3rs server` before it serves, since its
+/// kubelet does not join through the supervisor. A no-op once done.
+pub fn ensure_local_node_secret(st: &SupervisorState) -> anyhow::Result<()> {
+    let Some(local) = st.local_node.as_ref() else {
+        return Ok(());
     };
+    let pass = std::fs::read_to_string(&local.password_file)
+        .map_err(|e| anyhow::anyhow!("unable to read node password file: {e}"))?;
+    spawn_ensure_secret(st, local, pass.trim().to_string());
+    Ok(())
+}
+
+/// `ensureSecret` (validate.go:185-206): retry every 5s until the Secret is
+/// verified or created; stop on a verification failure (purely informational,
+/// the node already joined). Deviation: k3s records `NodePasswordValidation*`
+/// Events on the Node; the k3rs supervisor has no event recorder, so it logs.
+fn spawn_ensure_secret(st: &SupervisorState, local: &LocalNode, pass: String) {
+    use std::sync::atomic::Ordering;
+    if local.secret_ensured.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let storage = st.storage.clone();
+    let name = local.name.to_lowercase();
+    tokio::spawn(async move {
+        loop {
+            match ensure(&storage, &name, &pass).await {
+                Ok(()) => {
+                    tracing::info!(
+                        "Deferred node password secret validation complete for node {name}"
+                    );
+                    return;
+                }
+                Err(EnsureError::VerifyFailed) => {
+                    tracing::warn!("Deferred node password secret validation failed for node {name}: password does not match the stored secret");
+                    return;
+                }
+                Err(EnsureError::Storage(e)) => {
+                    tracing::warn!("Failed to ensure node-password secret for node {name}: {e}");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+            }
+        }
+    });
+}
+
+enum EnsureError {
+    /// `ErrVerifyFailed` (nodepassword.go:21): stored hash does not match.
+    VerifyFailed,
+    Storage(CommonError),
+}
+
+/// `nodePasswordController.ensure` (nodepassword.go:64-87): verify the
+/// node-password Secret if it exists, otherwise create it (immutable, type
+/// `k3rs.cattle.io/node-password`); on a creation race verify again.
+async fn ensure(storage: &StorageBackend, name: &str, pass: &str) -> Result<(), EnsureError> {
+    let want = password_hash(pass);
+    let key = format!("/registry/secrets/kube-system/{}", secret_name(name));
     let verify = |sec: &Secret| {
-        sec.data
+        if sec
+            .data
             .as_ref()
             .and_then(|d| d.get("hash"))
             .is_some_and(|h| constant_time_eq(h, want.as_bytes()))
-    };
-    let internal = |e: CommonError| {
-        err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("unable to verify password for node {name}: {e}"),
-        )
-    };
-    match st.storage.get::<Secret>(&key).await {
-        Ok(sec) => {
-            return if verify(&sec) {
-                Ok(name)
-            } else {
-                Err(rejected())
-            }
+        {
+            Ok(())
+        } else {
+            Err(EnsureError::VerifyFailed)
         }
+    };
+    match storage.get::<Secret>(&key).await {
+        Ok(sec) => return verify(&sec),
         Err(CommonError::NotFound(_)) => {}
-        Err(e) => return Err(internal(e)),
+        Err(e) => return Err(EnsureError::Storage(e)),
     }
     let mut data = std::collections::HashMap::new();
     data.insert("hash".to_string(), want.clone().into_bytes());
-    let sec = Secret::new(secret_name(&name), "kube-system")
+    let sec = Secret::new(secret_name(name), "kube-system")
         .with_type("k3rs.cattle.io/node-password")
         .with_immutable(true)
         .with_data(data);
-    match st.storage.create(&key, &sec).await {
-        Ok(_) => Ok(name),
+    match storage.create(&key, &sec).await {
+        Ok(_) => Ok(()),
         // Lost a creation race: verify again against the stored entry.
-        Err(CommonError::AlreadyExists(_)) => match st.storage.get::<Secret>(&key).await {
-            Ok(sec) if verify(&sec) => Ok(name),
-            Ok(_) => Err(rejected()),
-            Err(e) => Err(internal(e)),
+        Err(CommonError::AlreadyExists(_)) => match storage.get::<Secret>(&key).await {
+            Ok(sec) => verify(&sec),
+            Err(e) => Err(EnsureError::Storage(e)),
         },
-        Err(e) => Err(internal(e)),
+        Err(e) => Err(EnsureError::Storage(e)),
     }
 }
 
@@ -404,6 +545,7 @@ mod tests {
                 service_cidr: "10.43.0.0/16".into(),
                 cluster_dns: "10.43.0.10".into(),
             },
+            local_node: None,
         };
         (d, st)
     }
@@ -452,6 +594,76 @@ mod tests {
     }
 
     const NODE: Option<(&str, &str)> = Some(("n1", "pw1"));
+
+    /// `verifyLocalPassword` (validate.go:142-145): an unreadable local
+    /// node-password file is a 500, not a pass and not trust-on-first-use.
+    #[tokio::test]
+    async fn local_node_unreadable_password_file_500() {
+        let (d, mut st) = state();
+        st.local_node = Some(LocalNode::new("n1", d.path().join("missing")));
+        let a = basic("s3cret");
+        let (code, body) = call(
+            &router(st),
+            post_req("/v1-k3rs/client-kubelet.crt", Some(&a), NODE, csr()),
+        )
+        .await;
+        assert_eq!(code, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(body.contains("unable to read node password file"), "{body}");
+    }
+
+    /// The server ensures its own node-password Secret from the local file
+    /// (k3s: the embedded agent's first join, validate.go:156-163), and a
+    /// pre-existing Secret planted with another password does not let that
+    /// password in (local verification wins for the server's name).
+    #[tokio::test]
+    async fn local_node_secret_ensured_and_planted_secret_ignored() {
+        let (d, mut st) = state();
+        let f = d.path().join("node-password");
+        std::fs::write(&f, "localpw\n").unwrap();
+        st.local_node = Some(LocalNode::new("n1", &f));
+        // Planted before the fix by a token holder: hash of "pw1" for n1.
+        assert!(ensure(&st.storage, "n1", "pw1").await.is_ok());
+        let a = basic("s3cret");
+        let app = router(st.clone());
+        let (code, _) = call(
+            &app,
+            post_req("/v1-k3rs/client-kubelet.crt", Some(&a), NODE, csr()),
+        )
+        .await;
+        assert_eq!(code, StatusCode::FORBIDDEN);
+        let (code, body) = call(
+            &app,
+            post_req(
+                "/v1-k3rs/client-kubelet.crt",
+                Some(&a),
+                Some(("n1", "localpw")),
+                csr(),
+            ),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+
+        // Fresh storage: the startup hook creates the Secret from the file.
+        let (d2, mut st2) = state();
+        let f2 = d2.path().join("node-password");
+        std::fs::write(&f2, "localpw\n").unwrap();
+        st2.local_node = Some(LocalNode::new("n1", &f2));
+        ensure_local_node_secret(&st2).unwrap();
+        let key = format!("/registry/secrets/kube-system/{}", secret_name("n1"));
+        let mut sec = None;
+        for _ in 0..50 {
+            if let Ok(s) = st2.storage.get::<Secret>(&key).await {
+                sec = Some(s);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let sec = sec.expect("secret ensured");
+        assert_eq!(
+            sec.data.unwrap().get("hash").unwrap(),
+            password_hash("localpw").as_bytes()
+        );
+    }
 
     #[tokio::test]
     async fn cacerts_unauthenticated_200() {

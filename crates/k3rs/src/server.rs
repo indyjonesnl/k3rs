@@ -49,7 +49,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use k3rs::cli::ServerArgs;
-use k3rs::supervisor::{ClusterInfo, SupervisorState};
+use k3rs::supervisor::{ClusterInfo, LocalNode, SupervisorState};
 use k3rs_controller_manager::controllers::node_ipam::{NodeCidrMaskSizes, NodeIpamConfig};
 
 use crate::{api_port, run_all_in_one, Args, Overrides};
@@ -221,6 +221,17 @@ fn configure_kubelet_client(creds: &k3rs::pki::ComponentCreds) -> Result<()> {
         .map_err(|e| anyhow!(e))
 }
 
+/// `<data-dir>/agent/node-password` for this server's node, created like an
+/// agent's (`ensureNodePassword`, k3s pkg/agent/config/config.go:205).
+pub(crate) fn local_node(data_dir: &Path, node_name: &str) -> Result<LocalNode> {
+    let agent_dir = data_dir.join("agent");
+    std::fs::create_dir_all(&agent_dir)
+        .with_context(|| format!("create {}", agent_dir.display()))?;
+    let password_file = agent_dir.join("node-password");
+    k3rs::agent::ensure_node_password(&password_file).context("node password")?;
+    Ok(LocalNode::new(node_name, password_file))
+}
+
 pub async fn run_server(a: ServerArgs) -> Result<()> {
     // Node name and IP defaults: `util.GetHostnameAndIPs`
     // (k3s pkg/cli/server/server.go:293, pkg/util/net.go:138-168).
@@ -282,18 +293,33 @@ pub async fn run_server(a: ServerArgs) -> Result<()> {
     // OnceLock (no set_var: worker threads already exist at this point).
     configure_kubelet_client(&component_creds)?;
 
+    // The server's own node password, created and persisted before the
+    // supervisor serves. k3s' embedded agent does this in
+    // pkg/agent/config/config.go `get` (:482-493 path, `ensureNodePassword`
+    // :205) and sets `NODE_NAME` (:516); the supervisor then verifies requests
+    // for that name against this file (pkg/nodepassword/validate.go:62,
+    // `verifyLocalPassword` :127). Same location an agent uses.
+    let local_node = local_node(&data_dir, &node_name)?;
+
     let args = parse_args_from(server_argv(&a, &node_name, &node_ip))?;
     let info = cluster_info(&a);
     let pki = Arc::new(pki);
     let sup_info = info.clone();
     let ov = Overrides {
         extra_router: Some(Box::new(move |storage| {
-            k3rs::supervisor::router(SupervisorState {
+            let st = SupervisorState {
                 pki,
                 token_password,
                 storage,
                 cluster_info: sup_info,
-            })
+                local_node: Some(local_node),
+            };
+            // The node-password Secret k3s' embedded agent creates on its
+            // first (locally verified) join, validate.go:156-163.
+            if let Err(e) = k3rs::supervisor::ensure_local_node_secret(&st) {
+                tracing::warn!("server node-password secret: {e:#}");
+            }
+            k3rs::supervisor::router(st)
         })),
         node_ipam: Some(node_ipam(&info)?),
         node_net: Some(k3rs::util::node_net_config(&node_name, &info)),
@@ -320,6 +346,28 @@ mod tests {
 
     fn server_args(dir: &str) -> k3rs::cli::ServerArgs {
         k3rs::cli::ServerArgs::try_parse_from(["server", "--data-dir", dir]).unwrap()
+    }
+
+    /// The server's own node password is created before serving, at the
+    /// agent's location, 0600, 16 random bytes hex (`ensureNodePassword`,
+    /// k3s pkg/agent/config/config.go:205-226), and kept across restarts.
+    #[test]
+    fn local_node_password_created_once() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let ln = local_node(d.path(), "node-a").unwrap();
+        assert_eq!(ln.name, "node-a");
+        assert_eq!(ln.password_file, d.path().join("agent/node-password"));
+        let pw = std::fs::read_to_string(&ln.password_file).unwrap();
+        assert_eq!(pw.trim().len(), 32);
+        assert!(pw.trim().chars().all(|c| c.is_ascii_hexdigit()));
+        let mode = std::fs::metadata(&ln.password_file)
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+        local_node(d.path(), "node-a").unwrap();
+        assert_eq!(std::fs::read_to_string(&ln.password_file).unwrap(), pw);
     }
 
     #[test]
