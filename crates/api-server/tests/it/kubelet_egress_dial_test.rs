@@ -90,7 +90,7 @@ async fn kubelet_stream_proxy_dials_through_cluster_dialer() {
         .uri("/x")
         .body(Body::empty())
         .unwrap();
-    let resp = proxy_kubelet_stream(target, req, Some(dialer)).await;
+    let resp = proxy_kubelet_stream(target, req, Some(dialer), false).await;
     assert_eq!(resp.status(), 200);
     let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
     assert_eq!(&body[..], b"logs");
@@ -151,7 +151,7 @@ async fn kubelet_log_fetch_dials_through_cluster_dialer() {
     let target: axum::http::Uri = format!("http://{KUBELET}/containerLogs/ns/p/c")
         .parse()
         .unwrap();
-    let Ok(mut stream) = fetch_kubelet_log_stream(&target, "p", Some(dialer))
+    let Ok(mut stream) = fetch_kubelet_log_stream(&target, "p", Some(dialer), false)
         .await
         .unwrap()
     else {
@@ -168,7 +168,7 @@ async fn kubelet_log_fetch_dials_through_cluster_dialer() {
     let be =
         backend(b"HTTP/1.1 404 Not Found\r\nContent-Length: 18\r\n\r\ncontainer not here").await;
     let (dialer, _) = tunnel_to(be);
-    match fetch_kubelet_log_stream(&target, "p", Some(dialer))
+    match fetch_kubelet_log_stream(&target, "p", Some(dialer), false)
         .await
         .unwrap()
     {
