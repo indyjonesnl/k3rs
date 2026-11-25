@@ -7,9 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use k3rs_common::resources::{EventSource, EventType, ObjectReference, Service};
-use k3rs_common::{Error, Result};
-use k3rs_storage::{EventRecorder, Storage};
+use kubernetes_rs_common::resources::{EventSource, EventType, ObjectReference, Service};
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::{EventRecorder, Storage};
 use tracing::{error, warn};
 
 use super::{PortAllocator, PortError, PortRange};

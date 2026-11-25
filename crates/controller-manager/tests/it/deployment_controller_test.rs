@@ -1,12 +1,12 @@
 // Integration tests for Deployment Controller
 // Tests verify that Deployment creates and manages ReplicaSets (Deployment -> ReplicaSet -> Pods)
 
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::*;
-use k3rs_common::types::{LabelSelector, ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::deployment::DeploymentController;
-use k3rs_controller_manager::controllers::replicaset::ReplicaSetController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::*;
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::deployment::DeploymentController;
+use kubernetes_rs_controller_manager::controllers::replicaset::ReplicaSetController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};

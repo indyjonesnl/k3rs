@@ -41,8 +41,8 @@
 //! response body AND the stored object (read back through the same router).
 
 use axum::http::Method;
-use k3rs_storage::memory::MemoryStorage;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_storage::memory::MemoryStorage;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 

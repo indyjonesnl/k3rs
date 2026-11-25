@@ -27,12 +27,14 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use k3rs_common::event_correlator::{
+use kubernetes_rs_common::event_correlator::{
     CorrelatorEvent, CorrelatorEventSource, CorrelatorEventType, CorrelatorObjectReference,
     EventCorrelator, RealClock,
 };
-use k3rs_common::resources::{Event, EventSeries, EventSource, EventType, ObjectReference};
-use k3rs_common::Result;
+use kubernetes_rs_common::resources::{
+    Event, EventSeries, EventSource, EventType, ObjectReference,
+};
+use kubernetes_rs_common::Result;
 
 use crate::Storage;
 

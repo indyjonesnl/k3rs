@@ -3,15 +3,15 @@
 
 mod __parent {
     pub use chrono::{DateTime, Utc};
-    pub use k3rs_common::resources::autoscaling::CrossVersionObjectReference;
-    pub use k3rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_common::resources::autoscaling::CrossVersionObjectReference;
+    pub use kubernetes_rs_common::types::ObjectMeta;
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{json, Map, Value};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::autoscaling_v1::*;
+    use kubernetes_rs_common::resources::autoscaling_v1::*;
 
     /// conversion_test.go:32-: the CPU utilization metric is the percentage.
     #[test]

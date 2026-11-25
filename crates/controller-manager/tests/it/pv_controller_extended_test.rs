@@ -15,12 +15,12 @@
 //! Tests that exercise functionality the controllers do not yet implement
 //! are marked `#[ignore = "RED-state: ..."]` per the test-driven workflow.
 
-use k3rs_common::resources::service_account::ObjectReference;
-use k3rs_common::resources::volume::*;
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::dynamic_provisioner::DynamicProvisionerController;
-use k3rs_controller_manager::controllers::pv_binder::PVBinderController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::service_account::ObjectReference;
+use kubernetes_rs_common::resources::volume::*;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::dynamic_provisioner::DynamicProvisionerController;
+use kubernetes_rs_controller_manager::controllers::pv_binder::PVBinderController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
@@ -179,7 +179,7 @@ async fn test_dynamic_provisioning_then_bind_end_to_end() {
     create_storage_class(
         &storage,
         "dyn",
-        "k3rs.io/hostpath",
+        "kubernetes-rs.io/hostpath",
         PersistentVolumeReclaimPolicy::Delete,
         None,
     )
@@ -688,7 +688,7 @@ async fn test_mount_options_propagated_from_storage_class() {
     create_storage_class(
         &storage,
         "with-opts",
-        "k3rs.io/hostpath",
+        "kubernetes-rs.io/hostpath",
         PersistentVolumeReclaimPolicy::Delete,
         Some(vec!["ro".to_string(), "soft".to_string()]),
     )

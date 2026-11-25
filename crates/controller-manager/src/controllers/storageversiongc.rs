@@ -27,13 +27,13 @@
 
 use anyhow::Result;
 use futures::StreamExt;
-use k3rs_common::feature_gates::{enabled, Feature};
-use k3rs_common::resources::storageversion::{
+use kubernetes_rs_common::feature_gates::{enabled, Feature};
+use kubernetes_rs_common::resources::storageversion::{
     set_common_encoding_version, ServerStorageVersion, StorageVersion,
 };
-use k3rs_common::resources::Lease;
-use k3rs_common::Error;
-use k3rs_storage::{build_key, build_prefix, Storage, WatchEvent, WorkQueue};
+use kubernetes_rs_common::resources::Lease;
+use kubernetes_rs_common::Error;
+use kubernetes_rs_storage::{build_key, build_prefix, Storage, WatchEvent, WorkQueue};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};

@@ -43,14 +43,14 @@ use proptest::collection::vec;
 use proptest::option;
 use proptest::prelude::*;
 
-use k3rs_common::protobuf::{decode_protobuf, encode_protobuf};
-use k3rs_common::resources::deployment::{DeploymentStrategy, RollingUpdateDeployment};
-use k3rs_common::resources::{
+use kubernetes_rs_common::protobuf::{decode_protobuf, encode_protobuf};
+use kubernetes_rs_common::resources::deployment::{DeploymentStrategy, RollingUpdateDeployment};
+use kubernetes_rs_common::resources::{
     ConfigMap, Container, Deployment, DeploymentSpec, EnvVar, Event, EventSource, EventType,
     ObjectReference, Pod, PodSpec, PodTemplateSpec, Secret, Service, ServiceExternalTrafficPolicy,
     ServiceInternalTrafficPolicy, ServicePort, ServiceSpec, ServiceType,
 };
-use k3rs_common::types::{
+use kubernetes_rs_common::types::{
     LabelSelector, LabelSelectorRequirement, ObjectMeta, ResourceRequirements, TypeMeta,
 };
 
@@ -562,7 +562,7 @@ fn event_strategy() -> impl Strategy<Value = Event> {
                 reason,
                 message,
                 source: EventSource {
-                    component: "k3rs".into(),
+                    component: "kubernetes-rs".into(),
                     host: None,
                 },
                 event_type,

@@ -1,9 +1,11 @@
 use chrono::Utc;
-use k3rs_common::{
+use kubernetes_rs_common::{
     resources::{EventSource, EventType, Node, ObjectReference, Pod, PriorityClass},
     types::Phase,
 };
-use k3rs_storage::{build_key, build_prefix, EventRecorder, Storage, StorageBackend, WatchEvent};
+use kubernetes_rs_storage::{
+    build_key, build_prefix, EventRecorder, Storage, StorageBackend, WatchEvent,
+};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tracing::{debug, error, info, warn};
 
@@ -44,7 +46,7 @@ impl std::fmt::Debug for AssumedPod {
 /// Why a binding cycle failed, for `handleBindingCycleError`.
 #[derive(Debug)]
 pub struct BindingFailure {
-    pub error: k3rs_common::Error,
+    pub error: kubernetes_rs_common::Error,
     /// `status.IsRejected()`: decides whether the AssignedPodDelete move
     /// happens before or after the failure handler (schedule_one.go:356-368).
     pub rejected: bool,
@@ -57,7 +59,7 @@ pub struct BindingFailure {
 impl BindingFailure {
     fn error(msg: String) -> Self {
         Self {
-            error: k3rs_common::Error::Internal(msg),
+            error: kubernetes_rs_common::Error::Internal(msg),
             rejected: false,
             unschedulable_plugins: Default::default(),
         }
@@ -110,7 +112,7 @@ fn opportunistic_batching_enabled() -> bool {
 /// `utilfeature.DefaultFeatureGate.Enabled(name)` for a gate no [`Feature`]
 /// variant models.
 fn gate_enabled(name: &str) -> bool {
-    k3rs_common::feature_gates::gate_enabled(name).unwrap_or(false)
+    kubernetes_rs_common::feature_gates::gate_enabled(name).unwrap_or(false)
 }
 
 /// `assignedPod` (eventhandlers.go:470-472).
@@ -443,7 +445,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         for attempt in 0..2 {
             let mut pod: Pod = match self.data.get_pod(ns, name).await {
                 Ok(p) => p,
-                Err(k3rs_common::Error::NotFound(_)) => return,
+                Err(kubernetes_rs_common::Error::NotFound(_)) => return,
                 Err(e) => {
                     error!(error = %e, pod = pod_key, "scheduler: failed to read pod");
                     return;
@@ -452,7 +454,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             mutate(&mut pod);
             match self.data.update_pod_status(ns, name, &pod).await {
                 Ok(_) => return,
-                Err(k3rs_common::Error::Conflict(_)) if attempt == 0 => continue,
+                Err(kubernetes_rs_common::Error::Conflict(_)) if attempt == 0 => continue,
                 Err(e) => {
                     error!(error = %e, pod = pod_key, "scheduler: failed to update pod status");
                     return;
@@ -461,7 +463,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         }
     }
 
-    pub async fn run(self: Arc<Self>) -> k3rs_common::Result<()> {
+    pub async fn run(self: Arc<Self>) -> kubernetes_rs_common::Result<()> {
         use futures::StreamExt;
 
         let _ = self.weak_self.set(Arc::downgrade(&self));
@@ -544,7 +546,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             let mut resync = tokio::time::interval(self.interval);
             resync.tick().await; // consume the immediate first tick
             loop {
-                use k3rs_client::reflector::StoreEvent;
+                use kubernetes_rs_client::reflector::StoreEvent;
                 tokio::select! {
                     ev = pod_sub.recv() => {
                         match ev {
@@ -1099,7 +1101,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         &self,
         queue: &Arc<PriorityQueue>,
         key: &str,
-    ) -> k3rs_common::Result<ScheduleOutcome> {
+    ) -> kubernetes_rs_common::Result<ScheduleOutcome> {
         let parts: Vec<&str> = key.splitn(3, '/').collect();
         let (ns, name) = match parts.len() {
             3 => (parts[1], parts[2]),
@@ -1111,7 +1113,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             Ok(p) => p,
             // Gone → nothing to do; a transient read error is an error
             // outcome (backoff + retry), not a deletion.
-            Err(k3rs_common::Error::NotFound(_)) => return Ok(ScheduleOutcome::Done),
+            Err(kubernetes_rs_common::Error::NotFound(_)) => return Ok(ScheduleOutcome::Done),
             Err(e) => return Err(e),
         };
 
@@ -1247,7 +1249,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                 .await;
             // `clearNominatedNode` (schedule_one.go:160-163).
             self.clear_nominated_node(queue, &pod, &pod_key).await;
-            return Err(k3rs_common::Error::Internal(msg));
+            return Err(kubernetes_rs_common::Error::Internal(msg));
         } else {
             // A rejected PreFilter leaves no usable state; the dry run then
             // runs PreFilter itself, as before.
@@ -1343,7 +1345,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
     ///
     /// Public for testing. The production bin path uses `run()` →
     /// `worker()` (watch + work-queue driven), not this direct method.
-    pub async fn schedule_pending_pods(&self) -> k3rs_common::Result<()> {
+    pub async fn schedule_pending_pods(&self) -> kubernetes_rs_common::Result<()> {
         debug!("Looking for pending pods to schedule");
 
         // Get all pods
@@ -1517,7 +1519,8 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
 
                     // Re-read the pod for fresh state
                     let pod_ns = pod.metadata.namespace.as_deref().unwrap_or("default");
-                    let pod_key = k3rs_storage::build_key("pods", Some(pod_ns), &pod.metadata.name);
+                    let pod_key =
+                        kubernetes_rs_storage::build_key("pods", Some(pod_ns), &pod.metadata.name);
                     let fresh_pod = self.data.get_pod(pod_ns, &pod.metadata.name).await.ok();
 
                     if let Some(fresh_pod) = fresh_pod {
@@ -1591,10 +1594,11 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                     } else {
                         fit_error_message(nodes.len(), &diagnosis)
                     };
-                    let pod_key = k3rs_storage::build_key("pods", Some(pod_ns), &pod.metadata.name);
+                    let pod_key =
+                        kubernetes_rs_storage::build_key("pods", Some(pod_ns), &pod.metadata.name);
                     let msg = sched_message.clone();
                     self.update_pod_status_with_retry(&pod_key, |p| {
-                        let condition = k3rs_common::resources::PodCondition {
+                        let condition = kubernetes_rs_common::resources::PodCondition {
                             condition_type: "PodScheduled".to_string(),
                             status: "False".to_string(),
                             reason: Some("Unschedulable".to_string()),
@@ -1689,10 +1693,10 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         node_name: &str,
         cycle_state: CycleState,
         strict_assume: bool,
-    ) -> k3rs_common::Result<ReserveOutcome> {
+    ) -> kubernetes_rs_common::Result<ReserveOutcome> {
         let profile = self
             .profile_for(&pod)
-            .map_err(k3rs_common::Error::Internal)?;
+            .map_err(kubernetes_rs_common::Error::Internal)?;
         let fw = &profile.framework;
         let handle = CycleHandle {
             data: &self.data,
@@ -1713,7 +1717,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             Err(e) => {
                 error!(error = %e, "Scheduler cache AssumePod failed");
                 if strict_assume {
-                    return Err(k3rs_common::Error::Internal(e));
+                    return Err(kubernetes_rs_common::Error::Internal(e));
                 }
                 false
             }
@@ -1735,7 +1739,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                     error!(error = %e, "Scheduler cache ForgetPod failed");
                 }
             }
-            return Err(k3rs_common::Error::Internal(status.message()));
+            return Err(kubernetes_rs_common::Error::Internal(status.message()));
         }
 
         // Run "permit" plugins (schedule_one.go:234-256). A Wait is not a
@@ -1759,7 +1763,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                 diag.add_plugin_status(&permit);
                 return Ok(ReserveOutcome::Rejected(Box::new(diag)));
             }
-            return Err(k3rs_common::Error::Internal(permit.message()));
+            return Err(kubernetes_rs_common::Error::Internal(permit.message()));
         }
         Ok(ReserveOutcome::Assumed(Box::new(AssumedPod {
             pod,
@@ -1828,7 +1832,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         if !status.is_success() {
             let rejected = status.is_rejected();
             return Err(BindingFailure {
-                error: k3rs_common::Error::Internal(status.message()),
+                error: kubernetes_rs_common::Error::Internal(status.message()),
                 rejected,
                 unschedulable_plugins: if rejected {
                     std::iter::once(status.plugin().to_string()).collect()
@@ -1849,7 +1853,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             .await;
         if !status.is_success() {
             return Err(BindingFailure {
-                error: k3rs_common::Error::Internal(status.message()),
+                error: kubernetes_rs_common::Error::Internal(status.message()),
                 rejected: status.is_rejected(),
                 unschedulable_plugins: Default::default(),
             });
@@ -1873,7 +1877,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                 status.message()
             };
             return Err(BindingFailure {
-                error: k3rs_common::Error::Internal(msg),
+                error: kubernetes_rs_common::Error::Internal(msg),
                 rejected: status.is_rejected(),
                 unschedulable_plugins: Default::default(),
             });
@@ -2112,7 +2116,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             return None;
         }
         // schedule_one.go:634-636: without scoring (and without extender
-        // filters, which k3rs has none of) one feasible node is enough.
+        // filters, which kubernetes-rs has none of) one feasible node is enough.
         let num_nodes_to_find = if fw.has_score_plugins() {
             num_feasible_nodes_to_find(
                 fw.percentage_of_nodes_to_score,
@@ -2387,7 +2391,11 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         .await;
     }
 
-    async fn bind_pod_to_node(&self, pod: Pod, node_name: &str) -> k3rs_common::Result<()> {
+    async fn bind_pod_to_node(
+        &self,
+        pod: Pod,
+        node_name: &str,
+    ) -> kubernetes_rs_common::Result<()> {
         let bound_pod = bind_pod(&self.data, pod, node_name).await?;
         self.finish_binding(&bound_pod, node_name).await;
         Ok(())
@@ -2419,7 +2427,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         nodes: &[Node],
         all_pods: &[Pod],
         priority_classes: &HashMap<String, PriorityClass>,
-        pdbs: &[k3rs_common::resources::PodDisruptionBudget],
+        pdbs: &[kubernetes_rs_common::resources::PodDisruptionBudget],
         diagnosis: &Diagnosis,
     ) -> Option<(String, Vec<Pod>)> {
         match self
@@ -2440,7 +2448,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         nodes: &[Node],
         all_pods: &[Pod],
         priority_classes: &HashMap<String, PriorityClass>,
-        pdbs: &[k3rs_common::resources::PodDisruptionBudget],
+        pdbs: &[kubernetes_rs_common::resources::PodDisruptionBudget],
         diagnosis: &Diagnosis,
     ) -> PostFilterOutcome {
         self.post_filter_with_state(
@@ -2469,7 +2477,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         nodes: &[Node],
         all_pods: &[Pod],
         priority_classes: &HashMap<String, PriorityClass>,
-        pdbs: &[k3rs_common::resources::PodDisruptionBudget],
+        pdbs: &[kubernetes_rs_common::resources::PodDisruptionBudget],
         diagnosis: &Diagnosis,
     ) -> PostFilterOutcome {
         // `RunPostFilterPlugins` runs only the pod's profile's PostFilter
@@ -2694,13 +2702,13 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         preemptor: &Pod,
         node_name: &str,
         victims: &[Pod],
-    ) -> k3rs_common::Result<()> {
+    ) -> kubernetes_rs_common::Result<()> {
         use futures::TryStreamExt;
         futures::stream::iter(
             victims
                 .iter()
                 .filter(|v| v.metadata.deletion_timestamp.is_none())
-                .map(Ok::<&Pod, k3rs_common::Error>),
+                .map(Ok::<&Pod, kubernetes_rs_common::Error>),
         )
         .try_for_each_concurrent(PREEMPTION_PARALLELISM, |victim| {
             self.preempt_pod(preemptor, node_name, victim)
@@ -2820,7 +2828,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         preemptor: &Pod,
         node_name: &str,
         victim: &Pod,
-    ) -> k3rs_common::Result<()> {
+    ) -> kubernetes_rs_common::Result<()> {
         let observer = self.before_preempt_pod.lock().unwrap().clone();
         if let Some(observe) = observer {
             observe(victim);
@@ -2857,7 +2865,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         preemptor: &Pod,
         node_name: &str,
         victim: &Pod,
-    ) -> k3rs_common::Result<()> {
+    ) -> kubernetes_rs_common::Result<()> {
         // `PreemptPod` (preemption.go:178-185; `ev.Handler` is the
         // preemptor's framework): "If the victim is a
         // WaitingPod, send a reject message to the PermitPlugin. Otherwise we
@@ -2901,7 +2909,11 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
     /// `util.DeletePod` (`cs.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, ...)`,
     /// pkg/scheduler/util/utils.go:137-138). Matching on name alone evicted a
     /// same-named pod in every other namespace too (#2477).
-    pub async fn evict_pod(&self, preemptor: &Pod, victim: &Pod) -> k3rs_common::Result<bool> {
+    pub async fn evict_pod(
+        &self,
+        preemptor: &Pod,
+        victim: &Pod,
+    ) -> kubernetes_rs_common::Result<bool> {
         let pod_name = victim.metadata.name.as_str();
         let victim_ns = victim.metadata.namespace.as_deref().unwrap_or("default");
         let all_pods: Vec<Pod> = self.data.list_pods().await?;
@@ -2924,7 +2936,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                         .or(Some(30));
                     // Update the status phase to indicate termination
                     if let Some(ref mut status) = pod.status {
-                        status.phase = Some(k3rs_common::types::Phase::Failed);
+                        status.phase = Some(kubernetes_rs_common::types::Phase::Failed);
                         status.reason = Some("Preempted".to_string());
                         status.message =
                             Some("Pod was preempted by a higher-priority pod".to_string());
@@ -2966,7 +2978,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
     /// scheduling cycle outright.
     async fn load_pod_disruption_budgets(
         &self,
-    ) -> Vec<k3rs_common::resources::PodDisruptionBudget> {
+    ) -> Vec<kubernetes_rs_common::resources::PodDisruptionBudget> {
         match self.data.list_pod_disruption_budgets().await {
             Ok(pdbs) => pdbs,
             Err(e) => {
@@ -2979,7 +2991,9 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         }
     }
 
-    async fn load_priority_classes(&self) -> k3rs_common::Result<HashMap<String, PriorityClass>> {
+    async fn load_priority_classes(
+        &self,
+    ) -> kubernetes_rs_common::Result<HashMap<String, PriorityClass>> {
         let priority_classes: Vec<PriorityClass> = self.data.list_priority_classes().await?;
 
         let mut map = HashMap::new();
@@ -3213,12 +3227,12 @@ pub(crate) async fn bind_pod<S: Storage + Send + Sync + 'static>(
     data: &DataPlane<S>,
     mut pod: Pod,
     node_name: &str,
-) -> k3rs_common::Result<Pod> {
+) -> kubernetes_rs_common::Result<Pod> {
     // K8s scheduler validates node_name is non-empty before binding.
     // An empty node_name means select_node returned a node with no name,
     // which should never happen but would leave the pod stuck Pending.
     if node_name.is_empty() {
-        return Err(k3rs_common::Error::Internal(
+        return Err(kubernetes_rs_common::Error::Internal(
             "cannot bind pod to empty node name".to_string(),
         ));
     }
@@ -3248,7 +3262,7 @@ pub(crate) async fn bind_pod<S: Storage + Send + Sync + 'static>(
     }
 
     // Update pod status with PodScheduled condition
-    let scheduled_condition = k3rs_common::resources::PodCondition {
+    let scheduled_condition = kubernetes_rs_common::resources::PodCondition {
         condition_type: "PodScheduled".to_string(),
         status: "True".to_string(),
         last_probe_time: None,
@@ -3272,7 +3286,7 @@ pub(crate) async fn bind_pod<S: Storage + Send + Sync + 'static>(
             conditions.push(scheduled_condition);
         }
     } else {
-        pod.status = Some(k3rs_common::resources::PodStatus {
+        pod.status = Some(kubernetes_rs_common::resources::PodStatus {
             phase: Some(Phase::Pending),
             message: Some("Pod scheduled".to_string()),
             reason: None,
@@ -3344,15 +3358,15 @@ impl<S: Storage + Send + Sync + 'static> CycleHandle<'_, S> {
 impl<S: Storage + Send + Sync + 'static> crate::fwk::Handle for CycleHandle<'_, S> {
     async fn update_resource_claim_status(
         &self,
-        claim: &k3rs_common::resources::ResourceClaim,
-    ) -> Result<k3rs_common::resources::ResourceClaim, crate::fwk::ClaimWriteError> {
+        claim: &kubernetes_rs_common::resources::ResourceClaim,
+    ) -> Result<kubernetes_rs_common::resources::ResourceClaim, crate::fwk::ClaimWriteError> {
         use crate::fwk::ClaimWriteError;
         let ns = claim.metadata.namespace.as_deref().unwrap_or("default");
         self.data
             .update_resource_claim_status(ns, &claim.metadata.name, claim)
             .await
             .map_err(|e| match e {
-                k3rs_common::Error::Conflict(m) => ClaimWriteError::Conflict(m),
+                kubernetes_rs_common::Error::Conflict(m) => ClaimWriteError::Conflict(m),
                 e => ClaimWriteError::Other(e.to_string()),
             })
     }
@@ -3381,7 +3395,7 @@ impl<S: Storage + Send + Sync + 'static> crate::fwk::Handle for CycleHandle<'_, 
         &self,
         ns: &str,
         name: &str,
-    ) -> Result<k3rs_common::resources::ResourceClaim, String> {
+    ) -> Result<kubernetes_rs_common::resources::ResourceClaim, String> {
         self.data
             .get_resource_claim(ns, name)
             .await
@@ -3434,11 +3448,15 @@ impl<S: Storage + Send + Sync + 'static> crate::fwk::Handle for CycleHandle<'_, 
         crate::volume_bind::unreserve(&self.binder_env(pod), state, node_name);
     }
 
-    async fn list_namespaces(&self) -> Result<Vec<k3rs_common::resources::Namespace>, String> {
+    async fn list_namespaces(
+        &self,
+    ) -> Result<Vec<kubernetes_rs_common::resources::Namespace>, String> {
         self.data.list_namespaces().await.map_err(|e| e.to_string())
     }
 
-    async fn resource_slices(&self) -> Result<Vec<k3rs_common::resources::ResourceSlice>, String> {
+    async fn resource_slices(
+        &self,
+    ) -> Result<Vec<kubernetes_rs_common::resources::ResourceSlice>, String> {
         self.data
             .list_resource_slices()
             .await

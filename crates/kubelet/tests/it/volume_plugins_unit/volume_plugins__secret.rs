@@ -4,10 +4,12 @@
 mod __parent {
     pub use anyhow::{anyhow, Context, Result};
     pub use async_trait::async_trait;
-    pub use k3rs_common::resources::{KeyToPath, Pod, Secret, SecretVolumeSource};
-    pub use k3rs_kubelet::atomic_writer::FileProjection;
-    pub use k3rs_kubelet::volume_plugins::{Attributes, Mounter, Spec, VolumeHost, VolumePlugin};
-    pub use k3rs_storage::{build_key, Storage, StorageBackend};
+    pub use kubernetes_rs_common::resources::{KeyToPath, Pod, Secret, SecretVolumeSource};
+    pub use kubernetes_rs_kubelet::atomic_writer::FileProjection;
+    pub use kubernetes_rs_kubelet::volume_plugins::{
+        Attributes, Mounter, Spec, VolumeHost, VolumePlugin,
+    };
+    pub use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
     pub use std::collections::BTreeMap;
     pub use std::sync::Arc;
     pub use tracing::info;
@@ -15,16 +17,16 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::{Pod, Volume};
-    use k3rs_kubelet::volume_plugins::secret::*;
+    use kubernetes_rs_common::resources::{Pod, Volume};
+    use kubernetes_rs_kubelet::volume_plugins::secret::*;
     use serde_json::json;
 
     fn plugin() -> SecretPlugin {
         SecretPlugin::new(std::sync::Arc::new(
-            k3rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
-                "/var/lib/k3rs".to_string(),
+            kubernetes_rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
+                "/var/lib/kubernetes-rs".to_string(),
                 None,
-                k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+                kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
                 std::collections::HashMap::new(),
             ),
         ))
@@ -74,7 +76,10 @@ mod tests {
 
     #[test]
     fn plugin_name_is_the_upstream_name() {
-        assert_eq!(plugin().name(), k3rs_kubelet::pod_dirs::plugin::SECRET);
+        assert_eq!(
+            plugin().name(),
+            kubernetes_rs_kubelet::pod_dirs::plugin::SECRET
+        );
     }
 
     /// The mounter's path comes from the pod-directory layout the host
@@ -94,7 +99,7 @@ mod tests {
         let m = plugin().new_mounter(&spec, &pod).await.unwrap();
         assert_eq!(
             m.get_path(),
-            "/var/lib/k3rs/pods/uid-1/volumes/kubernetes.io~secret/sec"
+            "/var/lib/kubernetes-rs/pods/uid-1/volumes/kubernetes.io~secret/sec"
         );
     }
 
@@ -109,10 +114,10 @@ mod tests {
             storage.create(&key, &s).await.unwrap();
         }
         SecretPlugin::new(Arc::new(
-            k3rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
+            kubernetes_rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
                 base.to_string(),
                 Some(storage),
-                k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+                kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
                 std::collections::HashMap::new(),
             ),
         ))

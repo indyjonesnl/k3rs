@@ -8,7 +8,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::manifest::*;
+    use kubernetes_rs_kubectl::manifest::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
 

@@ -18,7 +18,7 @@
 //! controllers' reconcile loops are pinned by `controller-manager`'s tests.
 //! Random `utilrand` suffixes are fixed.
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const NS: &str = "default";

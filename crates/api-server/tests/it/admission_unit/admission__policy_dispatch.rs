@@ -3,14 +3,16 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_api_server::admission::policy_matching::{selector_of, Attributes, Matcher};
-    pub use k3rs_api_server::admission::policy_mutating::VersionedAttributes;
-    pub use k3rs_common::admission::{GroupVersionKind, GroupVersionResource};
-    pub use k3rs_common::resources::validating_admission_policy::{
+    pub use kubernetes_rs_api_server::admission::policy_matching::{
+        selector_of, Attributes, Matcher,
+    };
+    pub use kubernetes_rs_api_server::admission::policy_mutating::VersionedAttributes;
+    pub use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource};
+    pub use kubernetes_rs_common::resources::validating_admission_policy::{
         FailurePolicy, MatchResources, ParamKind, ParamRef, ParameterNotFoundAction,
     };
-    pub use k3rs_common::types::{Selector, Status, StatusCause, StatusDetails};
-    pub use k3rs_common::Error;
+    pub use kubernetes_rs_common::types::{Selector, Status, StatusCause, StatusDetails};
+    pub use kubernetes_rs_common::Error;
     pub use serde_json::Value;
     pub use std::collections::HashSet;
     pub use std::sync::Arc;
@@ -19,12 +21,12 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::policy_dispatch::*;
-    use k3rs_common::admission::Operation;
-    use k3rs_common::resources::validating_admission_policy::{
+    use kubernetes_rs_api_server::admission::policy_dispatch::*;
+    use kubernetes_rs_common::admission::Operation;
+    use kubernetes_rs_common::resources::validating_admission_policy::{
         MatchPolicyType, NamedRuleWithOperations, OperationType, RuleWithOperations,
     };
-    use k3rs_common::resources::LabelSelector;
+    use kubernetes_rs_common::resources::LabelSelector;
     use serde_json::json;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -379,7 +381,9 @@ mod tests {
 
     // ---- Dispatch -------------------------------------------------------
 
-    use k3rs_api_server::admission::policy_matching::{EquivalentResourceMapper, NamespaceLister};
+    use kubernetes_rs_api_server::admission::policy_matching::{
+        EquivalentResourceMapper, NamespaceLister,
+    };
 
     struct NoMapper;
     impl EquivalentResourceMapper for NoMapper {
@@ -400,7 +404,7 @@ mod tests {
         async fn namespace_labels(
             &self,
             name: &str,
-        ) -> k3rs_common::Result<HashMap<String, String>> {
+        ) -> kubernetes_rs_common::Result<HashMap<String, String>> {
             Err(Error::NotFound(format!("namespace {name} not found")))
         }
     }

@@ -8,7 +8,7 @@
 //! See docs/conformance/apps-statefulset-daemonset.md for the test-by-test
 //! status table.
 //!
-//! Owner crate: k3rs-controller-manager. Tests drive the StatefulSet
+//! Owner crate: kubernetes-rs-controller-manager. Tests drive the StatefulSet
 //! and DaemonSet controllers directly against an `Arc<MemoryStorage>` — no
 //! HTTP harness is needed because the controller-manager does not host the
 //! REST surface. Where the live cluster's kubelet would normally remove a pod
@@ -16,20 +16,20 @@
 //! `simulate_kubelet_cleanup` to keep the controller's view of storage
 //! consistent across reconcile cycles.
 
-use k3rs_common::resources::pod::PodCondition;
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::resources::pod::PodCondition;
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::volume::{
     PersistentVolumeClaim, PersistentVolumeClaimSpec, ResourceRequirements,
 };
-use k3rs_common::resources::workloads::{
+use kubernetes_rs_common::resources::workloads::{
     DaemonSetUpdateStrategy, RollingUpdateDaemonSet, RollingUpdateStatefulSetStrategy,
     StatefulSetPersistentVolumeClaimRetentionPolicy, StatefulSetUpdateStrategy,
 };
-use k3rs_common::resources::*;
-use k3rs_common::types::{LabelSelector, ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::daemonset::DaemonSetController;
-use k3rs_controller_manager::controllers::statefulset::StatefulSetController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::*;
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::daemonset::DaemonSetController;
+use kubernetes_rs_controller_manager::controllers::statefulset::StatefulSetController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -889,13 +889,13 @@ async fn statefulset_pods_should_bind_headless_service_via_subdomain() {
     // Create the headless service
     let mut selector = HashMap::new();
     selector.insert("app".to_string(), "binding".to_string());
-    let svc = k3rs_common::resources::Service {
+    let svc = kubernetes_rs_common::resources::Service {
         type_meta: TypeMeta {
             kind: "Service".to_string(),
             api_version: "v1".to_string(),
         },
         metadata: ObjectMeta::new("binding-headless").with_namespace(ns.to_string()),
-        spec: k3rs_common::resources::service::ServiceSpec {
+        spec: kubernetes_rs_common::resources::service::ServiceSpec {
             selector: Some(selector),
             cluster_ip: Some("None".to_string()),
             ..Default::default()
@@ -1108,7 +1108,7 @@ async fn daemonset_should_rolling_update_pods_when_spec_changes() {
     ds.spec.update_strategy = Some(DaemonSetUpdateStrategy {
         strategy_type: Some("RollingUpdate".to_string()),
         rolling_update: Some(RollingUpdateDaemonSet {
-            max_unavailable: Some(k3rs_common::resources::policy::IntOrString::Int(1)),
+            max_unavailable: Some(kubernetes_rs_common::resources::policy::IntOrString::Int(1)),
             max_surge: None,
         }),
     });
@@ -1174,7 +1174,7 @@ async fn daemonset_should_rollback_without_unnecessary_restarts() {
     ds.spec.update_strategy = Some(DaemonSetUpdateStrategy {
         strategy_type: Some("RollingUpdate".to_string()),
         rolling_update: Some(RollingUpdateDaemonSet {
-            max_unavailable: Some(k3rs_common::resources::policy::IntOrString::Int(1)),
+            max_unavailable: Some(kubernetes_rs_common::resources::policy::IntOrString::Int(1)),
             max_surge: None,
         }),
     });

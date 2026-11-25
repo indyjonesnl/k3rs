@@ -1,13 +1,13 @@
 // Integration tests for CertificateSigningRequest Controller
 // Tests validation and processing of certificate signing requests
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     CertificateSigningRequest, CertificateSigningRequestCondition, CertificateSigningRequestSpec,
     CertificateSigningRequestStatus, KeyUsage,
 };
-use k3rs_common::types::ObjectMeta;
-use k3rs_controller_manager::controllers::certificate_signing_request::CertificateSigningRequestController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::ObjectMeta;
+use kubernetes_rs_controller_manager::controllers::certificate_signing_request::CertificateSigningRequestController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::sync::Arc;
 
 async fn setup_test() -> Arc<MemoryStorage> {

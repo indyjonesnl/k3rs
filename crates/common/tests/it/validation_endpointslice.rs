@@ -3,9 +3,9 @@
 //! Mirrors the core of upstream `ValidateEndpointSlice`
 //! (`pkg/apis/discovery/validation/validation.go`, release-1.35).
 
-use k3rs_common::resources::endpointslice::EndpointSlice;
-use k3rs_common::validation::endpointslice::validate_endpoint_slice;
-use k3rs_common::validation::field::{Error, ErrorType};
+use kubernetes_rs_common::resources::endpointslice::EndpointSlice;
+use kubernetes_rs_common::validation::endpointslice::validate_endpoint_slice;
+use kubernetes_rs_common::validation::field::{Error, ErrorType};
 use serde_json::json;
 
 fn es(v: serde_json::Value) -> EndpointSlice {

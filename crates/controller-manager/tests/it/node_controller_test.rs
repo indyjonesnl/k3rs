@@ -14,11 +14,13 @@
 //! work to GREEN them.
 
 use chrono::{Duration, Timelike, Utc};
-use k3rs_common::resources::node::Taint;
-use k3rs_common::resources::{Lease, LeaseSpec, Node, NodeCondition, NodeSpec, NodeStatus};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::node::NodeController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::node::Taint;
+use kubernetes_rs_common::resources::{
+    Lease, LeaseSpec, Node, NodeCondition, NodeSpec, NodeStatus,
+};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::node::NodeController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -309,7 +311,7 @@ fn make_node(name: &str, conditions: Option<Vec<NodeCondition>>) -> Node {
 // configs use NoExecute) so the scheduler stops admitting new pods to the
 // shutting-down node.
 //
-// k3rs' `NodeController` currently only knows about the
+// kubernetes-rs' `NodeController` currently only knows about the
 // `node.kubernetes.io/not-ready` taint (see `add_not_ready_taint`). It does
 // not consult the Ready condition's `reason` to distinguish a shutdown from
 // a generic NotReady, and so it never produces the shutdown taint.
@@ -385,14 +387,14 @@ async fn test_node_shutdown_taint_removed_on_recovery() {
         }]),
     );
     node.spec
-        .get_or_insert(k3rs_common::resources::NodeSpec {
+        .get_or_insert(kubernetes_rs_common::resources::NodeSpec {
             pod_cidr: None,
             pod_cidrs: None,
             provider_id: None,
             unschedulable: None,
             taints: None,
         })
-        .taints = Some(vec![k3rs_common::resources::node::Taint {
+        .taints = Some(vec![kubernetes_rs_common::resources::node::Taint {
         key: "node.kubernetes.io/shutdown".to_string(),
         value: Some("".to_string()),
         effect: "NoSchedule".to_string(),
@@ -429,7 +431,7 @@ async fn test_node_shutdown_taint_removed_on_recovery() {
 // `NodeCondition.lastTransitionTime` is the API contract: it only updates when
 // `status` flips, not on every heartbeat. We exercise that for the Ready
 // condition (which the controller manages) and leave the pressure conditions
-// pinned `#[ignore]` because k3rs doesn't yet evaluate MemoryPressure /
+// pinned `#[ignore]` because kubernetes-rs doesn't yet evaluate MemoryPressure /
 // DiskPressure / PIDPressure / NetworkUnavailable.
 // ----------------------------------------------------------------------------
 
@@ -637,7 +639,7 @@ async fn test_node_pressure_condition_transitions_observed() {
 // `kube-node-lease` namespace every `nodeLeaseDurationSeconds / 4` seconds
 // (default 10s). The node lifecycle controller treats a fresh Lease as
 // equivalent to a fresh Ready-condition heartbeat (see
-// `is_node_ready_async` in the k3rs implementation, which mirrors
+// `is_node_ready_async` in the kubernetes-rs implementation, which mirrors
 // `pkg/controller/nodelifecycle/node_lifecycle_controller.go`).
 // ----------------------------------------------------------------------------
 
@@ -789,7 +791,7 @@ async fn test_node_lease_is_not_renewed_by_the_controller() {
 // Upstream contract (`pkg/kubelet/cm/node_container_manager_linux.go` ->
 // `setNodeStatusMachineInfo` & `getNodeAllocatableAbsolute`):
 //   allocatable = capacity − kube-reserved − system-reserved − eviction-hard
-// k3rs' NodeController does not yet compute this; the kubelet stub
+// kubernetes-rs' NodeController does not yet compute this; the kubelet stub
 // also doesn't write Allocatable. Pin the invariant for the future.
 // ----------------------------------------------------------------------------
 

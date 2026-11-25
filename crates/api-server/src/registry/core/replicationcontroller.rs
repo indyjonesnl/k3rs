@@ -4,18 +4,18 @@
 
 use std::sync::Arc;
 
-use k3rs_common::equality::semantic_equal;
-use k3rs_common::resources::{
+use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::resources::{
     ReplicationController, ReplicationControllerStatus, Scale, ScaleSpec, ScaleStatus,
 };
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_common::validation::field::{Error, ErrorList, Path};
-use k3rs_common::validation::metav1::is_dns1123_label;
-use k3rs_common::validation::replicationcontroller::{
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+use kubernetes_rs_common::validation::metav1::is_dns1123_label;
+use kubernetes_rs_common::validation::replicationcontroller::{
     validate_replication_controller, validate_replication_controller_status_update,
     validate_replication_controller_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{
@@ -50,7 +50,10 @@ impl RestCreateStrategy<ReplicationController> for Strategy {
     fn prepare_for_create(&self, _ctx: &RequestContext, obj: &mut ReplicationController) {
         obj.status = Some(ReplicationControllerStatus::default());
         obj.metadata.generation = Some(1);
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(&mut obj.spec.template, None);
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
+            &mut obj.spec.template,
+            None,
+        );
     }
 
     fn validate(&self, _ctx: &RequestContext, obj: &ReplicationController) -> ErrorList {
@@ -94,7 +97,7 @@ impl RestUpdateStrategy<ReplicationController> for Strategy {
         old: &ReplicationController,
     ) {
         obj.status = old.status.clone();
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
             &mut obj.spec.template,
             Some(&old.spec.template),
         );

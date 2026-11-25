@@ -2,7 +2,7 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::latency_trackers::{with_latency_trackers, LatencyTrackers};
+    pub use kubernetes_rs_common::latency_trackers::{with_latency_trackers, LatencyTrackers};
     pub use prometheus::{register, HistogramOpts, HistogramVec, IntCounterVec, IntGaugeVec, Opts};
     pub use std::sync::{Arc, LazyLock, Mutex, OnceLock};
     pub use std::time::Duration;
@@ -10,8 +10,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::apiserver_request_metrics::*;
-    use k3rs_api_server::flow_control::metric_test_util::sample;
+    use kubernetes_rs_api_server::apiserver_request_metrics::*;
+    use kubernetes_rs_api_server::flow_control::metric_test_util::sample;
 
     fn meta(resource: &str) -> RequestMeta {
         RequestMeta {
@@ -31,7 +31,7 @@ mod tests {
     // request is not a dry run.
     #[test]
     fn sli_duration_excludes_webhook_and_queue_wait() {
-        use k3rs_api_server::flow_control::metric_test_util::{sample, sample_sum};
+        use kubernetes_rs_api_server::flow_control::metric_test_util::{sample, sample_sum};
         let l = [("resource", "slithings"), ("component", "apiserver")];
         monitor_request(
             &meta("slithings"),
@@ -80,7 +80,9 @@ mod tests {
         use axum::{body::Body, http::Request, middleware, routing::get, Router};
         use tower::ServiceExt;
         async fn handler() -> &'static str {
-            k3rs_common::latency_trackers::track_apf_queue_wait_latency(Duration::from_secs(100));
+            kubernetes_rs_common::latency_trackers::track_apf_queue_wait_latency(
+                Duration::from_secs(100),
+            );
             "ok"
         }
         let app = Router::new()
@@ -95,7 +97,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
-        let sum = k3rs_api_server::flow_control::metric_test_util::sample_sum(
+        let sum = kubernetes_rs_api_server::flow_control::metric_test_util::sample_sum(
             "apiserver_request_sli_duration_seconds",
             &[("resource", "instrthings")],
         );
@@ -123,7 +125,7 @@ mod tests {
     // observing it (upstream never calls Observe).
     #[test]
     fn monitor_request_creates_unobserved_field_validation_series() {
-        use k3rs_api_server::flow_control::metric_test_util::{has_series, sample};
+        use kubernetes_rs_api_server::flow_control::metric_test_util::{has_series, sample};
         let mut m = meta("fvthings");
         m.query = "fieldValidation=Warn".into();
         monitor_request(&m, "apiserver", 200, Duration::from_millis(1), 0, None);
@@ -135,7 +137,7 @@ mod tests {
     // MonitorRequest (:604-607): apiSelfRequestCounter for system:apiserver.
     #[test]
     fn self_request_counted_only_for_apiserver_user() {
-        use k3rs_api_server::flow_control::metric_test_util::sample;
+        use kubernetes_rs_api_server::flow_control::metric_test_util::sample;
         let l = [("verb", "LIST"), ("resource", "selfthings")];
         let mut m = meta("selfthings");
         m.user_name = "system:apiserver".into();
@@ -150,7 +152,7 @@ mod tests {
     // labels use the reported verb, and non-resource requests the path.
     #[test]
     fn long_running_gauge_tracks_open_requests() {
-        use k3rs_api_server::flow_control::metric_test_util::sample;
+        use kubernetes_rs_api_server::flow_control::metric_test_util::sample;
         let mut m = meta("lrthings");
         m.verb = "watch".into();
         m.query = "watch=true".into();
@@ -183,7 +185,7 @@ mod tests {
     #[tokio::test]
     async fn instrument_request_holds_long_running_for_watch_body() {
         use axum::{body::Body, http::Request, middleware, routing::get, Router};
-        use k3rs_api_server::flow_control::metric_test_util::sample;
+        use kubernetes_rs_api_server::flow_control::metric_test_util::sample;
         use tower::ServiceExt;
         let app = Router::new()
             .route(
@@ -211,7 +213,7 @@ mod tests {
         assert_eq!(sample("apiserver_request_duration_seconds", &l), 1.0);
         assert_eq!(sample("apiserver_request_total", &l), 1.0);
         assert!(
-            k3rs_api_server::flow_control::metric_test_util::sample_sum(
+            kubernetes_rs_api_server::flow_control::metric_test_util::sample_sum(
                 "apiserver_request_duration_seconds",
                 &l
             ) >= 0.03
@@ -225,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn long_running_gauge_held_across_upgraded_connection() {
         use axum::middleware;
-        use k3rs_api_server::flow_control::metric_test_util::sample;
+        use kubernetes_rs_api_server::flow_control::metric_test_util::sample;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let backend = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let backend_addr = backend.local_addr().unwrap();
@@ -248,7 +250,7 @@ mod tests {
         let app = axum::Router::new()
             .fallback(move |req: axum::extract::Request| {
                 let t = target.clone();
-                async move { k3rs_streamproxy::proxy_upgrade(t, req).await }
+                async move { kubernetes_rs_streamproxy::proxy_upgrade(t, req).await }
             })
             .layer(middleware::from_fn(instrument_request));
         let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -334,10 +336,12 @@ mod tests {
             ..Default::default()
         };
         record_request_termination(&req, "apiserver", 429);
-        assert!(k3rs_api_server::flow_control::metric_test_util::has_series(
-            "apiserver_request_terminations_total",
-            &[("subresource", "/nonresourcepath"), ("scope", "")]
-        ));
+        assert!(
+            kubernetes_rs_api_server::flow_control::metric_test_util::has_series(
+                "apiserver_request_terminations_total",
+                &[("subresource", "/nonresourcepath"), ("scope", "")]
+            )
+        );
     }
 
     // requestWatermark (maxinflight.go:56-84, 93-103): records the maximum
@@ -369,7 +373,7 @@ mod tests {
             ("apiserver_current_inqueue_requests", "mutating"),
         ] {
             assert!(
-                k3rs_api_server::flow_control::metric_test_util::has_series(
+                kubernetes_rs_api_server::flow_control::metric_test_util::has_series(
                     name,
                     &[("request_kind", kind)]
                 ),
@@ -444,7 +448,7 @@ mod tests {
     // requestLatencies (metrics.go:104-118, :609): observed with the elapsed time.
     #[tokio::test]
     async fn instrument_layer_observes_request_duration() {
-        use k3rs_api_server::flow_control::metric_test_util::sample_sum;
+        use kubernetes_rs_api_server::flow_control::metric_test_util::sample_sum;
         let l = [("resource", "durationthings"), ("verb", "LIST")];
         let before = sample("apiserver_request_duration_seconds", &l);
         serve("GET", "/api/v1/namespaces/default/durationthings", "ok").await;
@@ -458,7 +462,7 @@ mod tests {
     // responseSizes (metrics.go:152-162, :625-628): read requests only.
     #[tokio::test]
     async fn instrument_layer_observes_response_size_for_reads_only() {
-        use k3rs_api_server::flow_control::metric_test_util::{has_series, sample_sum};
+        use kubernetes_rs_api_server::flow_control::metric_test_util::{has_series, sample_sum};
         serve("GET", "/api/v1/namespaces/default/sizedthings", "12345").await;
         assert_eq!(
             sample_sum(
@@ -499,7 +503,7 @@ mod tests {
     // version sets apiserver_requested_deprecated_apis{...removed_release}=1.
     #[test]
     fn deprecated_api_request_sets_gauge() {
-        use k3rs_api_server::flow_control::metric_test_util::{has_series, sample};
+        use kubernetes_rs_api_server::flow_control::metric_test_util::{has_series, sample};
         let l = [
             ("group", "admissionregistration.k8s.io"),
             ("version", "v1alpha1"),
@@ -536,10 +540,10 @@ mod tests {
         ));
     }
 
-    struct CaptureSink(tokio::sync::Mutex<Vec<k3rs_common::audit::AuditEvent>>);
+    struct CaptureSink(tokio::sync::Mutex<Vec<kubernetes_rs_common::audit::AuditEvent>>);
     #[async_trait::async_trait]
-    impl k3rs_common::audit::AuditBackend for CaptureSink {
-        async fn log(&self, e: k3rs_common::audit::AuditEvent) -> Result<(), String> {
+    impl kubernetes_rs_common::audit::AuditBackend for CaptureSink {
+        async fn log(&self, e: kubernetes_rs_common::audit::AuditEvent) -> Result<(), String> {
             self.0.lock().await.push(e);
             Ok(())
         }
@@ -555,8 +559,8 @@ mod tests {
         use axum::{body::Body, http::Request, middleware, routing::get, Router};
         use tower::ServiceExt;
         let sink = Arc::new(CaptureSink(Default::default()));
-        let cfg = Arc::new(k3rs_api_server::audit::AuditConfig {
-            policy: k3rs_api_server::audit::Policy::from_yaml(
+        let cfg = Arc::new(kubernetes_rs_api_server::audit::AuditConfig {
+            policy: kubernetes_rs_api_server::audit::Policy::from_yaml(
                 "apiVersion: audit.k8s.io/v1\nkind: Policy\nomitStages: [\"RequestReceived\"]\nrules:\n- level: Metadata\n",
             )
             .unwrap(),
@@ -570,7 +574,7 @@ mod tests {
             .layer(middleware::from_fn(instrument_request))
             .layer(middleware::from_fn(move |req, next| {
                 let cfg = cfg.clone();
-                async move { k3rs_api_server::audit::with_audit(cfg, req, next).await }
+                async move { kubernetes_rs_api_server::audit::with_audit(cfg, req, next).await }
             }));
         let resp = app
             .oneshot(

@@ -2,13 +2,13 @@
 //! framework (`nodevolumelimits/csi.go:219-229`, `:236-345`); the limit
 //! arithmetic itself is covered in `node_volume_limits.rs`.
 use async_trait::async_trait;
-use k3rs_common::resources::{Node, Pod};
-use k3rs_scheduler::fwk::{
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_scheduler::fwk::{
     Code, CycleState, FilterPlugin, Handle, NoHandle, NodeInfo, PreFilterPlugin,
 };
-use k3rs_scheduler::in_tree::NodeVolumeLimits;
-use k3rs_scheduler::node_volume_limits::NodeVolumeLimitsSnapshot;
-use k3rs_scheduler::profile::Profile;
+use kubernetes_rs_scheduler::in_tree::NodeVolumeLimits;
+use kubernetes_rs_scheduler::node_volume_limits::NodeVolumeLimitsSnapshot;
+use kubernetes_rs_scheduler::profile::Profile;
 use serde_json::json;
 
 struct Listers(Result<(), String>);

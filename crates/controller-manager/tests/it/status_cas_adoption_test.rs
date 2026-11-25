@@ -18,13 +18,13 @@
 //! on `update_status` never reaches the conditional path, so `raced` stays
 //! false and its stale status lands.
 
-use k3rs_controller_manager::controllers::{
+use kubernetes_rs_controller_manager::controllers::{
     cronjob::CronJobController, daemonset::DaemonSetController,
     hpa::HorizontalPodAutoscalerController, pod_disruption_budget::StalePodDisruptionController,
     replicaset::ReplicaSetController, replicationcontroller::ReplicationControllerController,
     resource_quota::ResourceQuotaController, statefulset::StatefulSetController,
 };
-use k3rs_storage::{memory::MemoryStorage, Storage, WatchStream};
+use kubernetes_rs_storage::{memory::MemoryStorage, Storage, WatchStream};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -52,21 +52,21 @@ impl RacingStatusStorage {
 
 #[async_trait::async_trait]
 impl Storage for RacingStatusStorage {
-    async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.create(key, value).await
     }
 
-    async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+    async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
     where
         T: serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.get(key).await
     }
 
-    async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
@@ -78,21 +78,21 @@ impl Storage for RacingStatusStorage {
         key: &str,
         subresource: &str,
         value: &T,
-    ) -> k3rs_common::Result<T>
+    ) -> kubernetes_rs_common::Result<T>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.update_subresource(key, subresource, value).await
     }
 
-    async fn update_status<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    async fn update_status<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.update_status(key, value).await
     }
 
-    async fn update_status_cas<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    async fn update_status_cas<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
@@ -105,26 +105,26 @@ impl Storage for RacingStatusStorage {
         self.inner.update_status_cas(key, value).await
     }
 
-    async fn update_raw(&self, key: &str, value: &Value) -> k3rs_common::Result<()> {
+    async fn update_raw(&self, key: &str, value: &Value) -> kubernetes_rs_common::Result<()> {
         self.inner.update_raw(key, value).await
     }
 
-    async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+    async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.list(prefix).await
     }
 
-    async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+    async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
         self.inner.delete(key).await
     }
 
-    async fn delete_gracefully(&self, key: &str) -> k3rs_common::Result<()> {
+    async fn delete_gracefully(&self, key: &str) -> kubernetes_rs_common::Result<()> {
         self.inner.delete_gracefully(key).await
     }
 
-    async fn watch(&self, prefix: &str) -> k3rs_common::Result<WatchStream> {
+    async fn watch(&self, prefix: &str) -> kubernetes_rs_common::Result<WatchStream> {
         self.inner.watch(prefix).await
     }
 
@@ -132,15 +132,15 @@ impl Storage for RacingStatusStorage {
         &self,
         prefix: &str,
         revision: i64,
-    ) -> k3rs_common::Result<WatchStream> {
+    ) -> kubernetes_rs_common::Result<WatchStream> {
         self.inner.watch_from_revision(prefix, revision).await
     }
 
-    async fn current_revision(&self) -> k3rs_common::Result<i64> {
+    async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
         self.inner.current_revision().await
     }
 
-    async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+    async fn is_revision_compacted(&self, revision: i64) -> kubernetes_rs_common::Result<bool> {
         self.inner.is_revision_compacted(revision).await
     }
 }
@@ -364,7 +364,7 @@ async fn stale_pod_disruption_cleanup_conflicts_on_stale_read() {
 /// computed from the stale read (#2160).
 #[tokio::test]
 async fn deployment_status_write_conflicts_on_stale_read() {
-    use k3rs_controller_manager::controllers::deployment::DeploymentController;
+    use kubernetes_rs_controller_manager::controllers::deployment::DeploymentController;
     let storage = RacingStatusStorage::new();
     let key = "/registry/deployments/default/dep";
     seed(
@@ -389,7 +389,7 @@ async fn deployment_status_write_conflicts_on_stale_read() {
 /// requeued by the workqueue, not retried from a re-read (#2160).
 #[tokio::test]
 async fn job_status_write_conflicts_on_stale_read() {
-    use k3rs_controller_manager::controllers::job::JobController;
+    use kubernetes_rs_controller_manager::controllers::job::JobController;
     let storage = RacingStatusStorage::new();
     let key = "/registry/jobs/default/job";
     seed(
@@ -418,7 +418,7 @@ async fn job_status_write_conflicts_on_stale_read() {
 /// AlreadyExists (treated as success) instead of spawning a second Job (#2159).
 #[tokio::test]
 async fn cronjob_status_write_conflicts_without_duplicating_the_job() {
-    use k3rs_common::resources::workloads::Job;
+    use kubernetes_rs_common::resources::workloads::Job;
     let storage = RacingStatusStorage::new();
     let key = "/registry/cronjobs/default/cj";
     // A pinned clock (`jm.now`, cronjob_controllerv2.go:79): with the wall
@@ -472,7 +472,7 @@ async fn cronjob_status_write_conflicts_without_duplicating_the_job() {
 /// (`bindClaimToVolume` -> `updateClaimStatus`) (#2160).
 #[tokio::test]
 async fn pv_binder_bind_status_writes_conflict_on_stale_read() {
-    use k3rs_controller_manager::controllers::pv_binder::PVBinderController;
+    use kubernetes_rs_controller_manager::controllers::pv_binder::PVBinderController;
     let storage = RacingStatusStorage::new();
     let pv_key = "/registry/persistentvolumes/pv-a";
     let pvc_key = "/registry/persistentvolumeclaims/default/pvc-a";

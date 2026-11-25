@@ -4,7 +4,7 @@
 //! `config.go` (`LoadConfiguration`), `apis/resourcequota/types.go`
 //! (`Configuration`, `LimitedResource`) and `apis/resourcequota/validation`.
 
-use k3rs_common::resources::ScopedResourceSelectorRequirement;
+use kubernetes_rs_common::resources::ScopedResourceSelectorRequirement;
 use serde::Deserialize;
 
 /// `resourcequotaapi.LimitedResource` (types.go:36-69): a resource whose

@@ -28,8 +28,8 @@
 //!    `rules` field on `PodFailurePolicy`/`SuccessPolicy`, decoding would
 //!    succeed (no error) but yield an empty JSON object — the silent drop.
 
-use k3rs_api_server::protobuf::ProtoRegistry;
-use k3rs_common::resources::{
+use kubernetes_rs_api_server::protobuf::ProtoRegistry;
+use kubernetes_rs_common::resources::{
     JobSpec, PodFailurePolicy, PodFailurePolicyOnExitCodesRequirement,
     PodFailurePolicyOnPodConditionsPattern, PodFailurePolicyRule, SuccessPolicy, SuccessPolicyRule,
 };

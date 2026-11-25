@@ -2,18 +2,18 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::quantity::Quantity;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::quantity::Quantity;
+    pub use kubernetes_rs_common::resources::{
         CSIDriver, CSINode, CSIStorageCapacity, PersistentVolumeClaim, Pod, StorageClass,
     };
-    pub use k3rs_scheduler::queue::events::*;
-    pub use k3rs_scheduler::volume_binding::{pod_volumes, volume_pvc_name};
+    pub use kubernetes_rs_scheduler::queue::events::*;
+    pub use kubernetes_rs_scheduler::volume_binding::{pod_volumes, volume_pvc_name};
     pub use tracing::debug;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_scheduler::queue::volume_binding_hints::*;
+    use kubernetes_rs_scheduler::queue::volume_binding_hints::*;
     use serde_json::{json, Value};
 
     type HintFn =

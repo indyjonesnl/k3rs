@@ -18,10 +18,10 @@
 
 use super::pvc_protection::{is_deletion_candidate, need_to_add_finalizer, update_or_reap};
 use anyhow::Result;
-use k3rs_common::resources::csi::VolumeAttributesClass;
-use k3rs_common::resources::volume::VAC_PROTECTION_FINALIZER;
-use k3rs_common::resources::{PersistentVolume, PersistentVolumeClaim};
-use k3rs_storage::{build_key, build_prefix, Storage, WorkQueue};
+use kubernetes_rs_common::resources::csi::VolumeAttributesClass;
+use kubernetes_rs_common::resources::volume::VAC_PROTECTION_FINALIZER;
+use kubernetes_rs_common::resources::{PersistentVolume, PersistentVolumeClaim};
+use kubernetes_rs_storage::{build_key, build_prefix, Storage, WorkQueue};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
@@ -91,7 +91,7 @@ impl<S: Storage + 'static> VacProtectionController<S> {
         let key = build_key("volumeattributesclasses", None, name);
         let mut vac: VolumeAttributesClass = match self.storage.get(&key).await {
             Ok(v) => v,
-            Err(k3rs_common::Error::NotFound(_)) => return Ok(()),
+            Err(kubernetes_rs_common::Error::NotFound(_)) => return Ok(()),
             Err(e) => return Err(e.into()),
         };
         // A used class is kept: falls through, where NeedToAddFinalizer is

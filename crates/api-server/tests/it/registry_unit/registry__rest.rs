@@ -4,24 +4,24 @@
 mod __parent {
     pub use async_trait::async_trait;
     pub use chrono::{Duration, Utc};
-    pub use k3rs_api_server::registry::metadata::HasMetadata;
-    pub use k3rs_common::auth::UserInfo;
-    pub use k3rs_common::deletion::{DeleteOptions, Preconditions};
-    pub use k3rs_common::types::ObjectMeta;
-    pub use k3rs_common::validation::field::{ErrorList, Path};
-    pub use k3rs_common::validation::objectmeta::{
+    pub use kubernetes_rs_api_server::registry::metadata::HasMetadata;
+    pub use kubernetes_rs_common::auth::UserInfo;
+    pub use kubernetes_rs_common::deletion::{DeleteOptions, Preconditions};
+    pub use kubernetes_rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_common::validation::field::{ErrorList, Path};
+    pub use kubernetes_rs_common::validation::objectmeta::{
         validate_object_meta, validate_object_meta_update, validate_path_segment_name,
     };
-    pub use k3rs_common::{Error, Result};
+    pub use kubernetes_rs_common::{Error, Result};
     pub use serde::{de::DeserializeOwned, Serialize};
     pub use std::sync::Mutex;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::rest::*;
-    use k3rs_common::resources::ConfigMap;
-    use k3rs_common::validation::field::Error as FieldError;
+    use kubernetes_rs_api_server::registry::rest::*;
+    use kubernetes_rs_common::resources::ConfigMap;
+    use kubernetes_rs_common::validation::field::Error as FieldError;
 
     /// A strategy with no opinions, to exercise the common rules alone.
     struct Plain {

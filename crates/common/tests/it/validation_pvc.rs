@@ -3,9 +3,9 @@
 //! Mirrors upstream `ValidatePersistentVolumeClaimSpec`
 //! (`pkg/apis/core/validation/validation.go`, release-1.35).
 
-use k3rs_common::resources::volume::PersistentVolumeClaim;
-use k3rs_common::validation::field::{Error, ErrorType};
-use k3rs_common::validation::pvc::validate_persistent_volume_claim;
+use kubernetes_rs_common::resources::volume::PersistentVolumeClaim;
+use kubernetes_rs_common::validation::field::{Error, ErrorType};
+use kubernetes_rs_common::validation::pvc::validate_persistent_volume_claim;
 use serde_json::json;
 
 fn pvc(spec: serde_json::Value) -> PersistentVolumeClaim {

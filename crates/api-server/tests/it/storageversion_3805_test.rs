@@ -9,8 +9,8 @@
 //! by default).
 
 use axum::http::StatusCode;
-use k3rs_common::feature_gates::{with_feature, Feature};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::feature_gates::{with_feature, Feature};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const SV: &str = "/apis/internal.apiserver.k8s.io/v1alpha1/storageversions";

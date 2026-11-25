@@ -2,15 +2,15 @@
 //!
 //! Tests all CRUD operations, edge cases, and error handling for persistent volume claims
 
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::resources::volume::{
     LabelSelector, PersistentVolumeClaimPhase, PersistentVolumeMode, ResourceRequirements,
 };
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     PersistentVolumeAccessMode, PersistentVolumeClaim, PersistentVolumeClaimSpec,
     PersistentVolumeClaimStatus,
 };
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

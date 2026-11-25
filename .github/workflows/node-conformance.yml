@@ -22,7 +22,7 @@ on:
 
 jobs:
   node-conformance:
-    runs-on: arc-runner-set-conformance
+    runs-on: [self-hosted, kubernetes-rs]
     # contents:write lets the "Update badge" step push the latest pass-rate
     # JSON to the orphan `badges` branch (best-effort; never fails the run).
     permissions:
@@ -48,8 +48,8 @@ jobs:
 
       - name: Install kubectl
         # bootstrap-cluster.sh (invoked from run-node-conformance.sh) shells
-        # out to kubectl for service / SA / CoreDNS setup. The ARC runner
-        # image (ci/arc-runner/Dockerfile) does not bake kubectl. Drop it
+        # out to kubectl for service / SA / CoreDNS setup. The local runner
+        # image (ci/local-runner/Dockerfile) does not bake kubectl. Drop it
         # into $HOME/.local/bin so no sudo is needed. Pin to v1.35 to match
         # the upstream conformance image we test against.
         run: |
@@ -69,10 +69,10 @@ jobs:
       - name: Run node conformance
         env:
           CONTAINER_RUNTIME: docker
-          KUBELET_VOLUMES_PATH: ${{ github.workspace }}/.k3rs/volumes
+          KUBELET_VOLUMES_PATH: ${{ github.workspace }}/.kubernetes-rs/volumes
           FOCUS: ${{ github.event.inputs.focus || '\[NodeConformance\]' }}
           K8S_VERSION: ${{ github.event.inputs.k8s_version || 'v1.35.0' }}
-          K3RS_IMAGE_TAG: ${{ github.event_name == 'schedule' && 'main' || github.event.inputs.image-tag }}
+          KUBERNETES_RS_IMAGE_TAG: ${{ github.event_name == 'schedule' && 'main' || github.event.inputs.image-tag }}
           # Nightly uses the `main` tag, which must be pullable once the GHCR
           # packages are public. A miss there means the visibility flip was
           # forgotten — hard-fail rather than silently compile locally forever

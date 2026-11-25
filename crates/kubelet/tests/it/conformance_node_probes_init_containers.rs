@@ -16,8 +16,8 @@
 //!
 //! No HTTP harness: the kubelet doesn't host the REST surface. These
 //! tests exercise the pure helpers
-//!   - `k3rs_kubelet::runtime::decide_next_init_action`
-//!   - `k3rs_common::resources::resolve_probe_port`
+//!   - `kubernetes_rs_kubelet::runtime::decide_next_init_action`
+//!   - `kubernetes_rs_common::resources::resolve_probe_port`
 //!
 //! directly, mirroring the prior-art pattern from
 //! `crates/kubelet/tests/runtime_prestop_exit_test.rs` and
@@ -30,11 +30,11 @@
 //! not fail when the kubelet regressed. They belong in a test that drives the
 //! real probe loop once it is extracted (upstream `pkg/kubelet/prober/worker.go`).
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     resolve_probe_port, Container, ContainerPort, IntOrString, Pod, PodSpec,
 };
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_kubelet::runtime::{decide_next_init_action, InitAction, InitContainerObserved};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_kubelet::runtime::{decide_next_init_action, InitAction, InitContainerObserved};
 
 // ---------------------------------------------------------------------------
 // Fixture builders

@@ -1,5 +1,5 @@
-use k3rs_common::resources::volume::*;
-use k3rs_common::resources::*;
+use kubernetes_rs_common::resources::volume::*;
+use kubernetes_rs_common::resources::*;
 
 /// Assert that a PVC is bound to a PV
 pub fn assert_pvc_bound(pvc: &PersistentVolumeClaim) {

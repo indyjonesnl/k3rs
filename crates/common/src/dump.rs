@@ -1,6 +1,6 @@
 //! Payload-dump instrumentation for conformance debugging.
 //!
-//! When `K3RS_DUMP_PAYLOADS=1`, panics, 5xx responses, and JSON decode
+//! When `KUBERNETES_RS_DUMP_PAYLOADS=1`, panics, 5xx responses, and JSON decode
 //! failures emit a `tracing::error!` containing the offending request body
 //! (with Secret data redacted). All entrypoints are no-ops when the env var
 //! is unset.
@@ -10,10 +10,11 @@ use std::sync::OnceLock;
 
 static DUMPS_ENABLED: OnceLock<bool> = OnceLock::new();
 
-/// Returns true iff `K3RS_DUMP_PAYLOADS=1` was set when this process
+/// Returns true iff `KUBERNETES_RS_DUMP_PAYLOADS=1` was set when this process
 /// started.
 pub fn dumps_enabled() -> bool {
-    *DUMPS_ENABLED.get_or_init(|| std::env::var("K3RS_DUMP_PAYLOADS").is_ok_and(|v| v == "1"))
+    *DUMPS_ENABLED
+        .get_or_init(|| std::env::var("KUBERNETES_RS_DUMP_PAYLOADS").is_ok_and(|v| v == "1"))
 }
 
 /// Length of a base64-encoded payload's decoded bytes, or the encoded length

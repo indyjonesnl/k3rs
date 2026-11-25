@@ -6,7 +6,7 @@
 //! (apimachinery/pkg/util/strategicpatch/patch.go:812) merges `status.conditions`
 //! by its `type` merge key, so a delta carrying one condition leaves the rest.
 
-use k3rs_common::patch::{apply_patch, PatchType};
+use kubernetes_rs_common::patch::{apply_patch, PatchType};
 use serde_json::json;
 
 #[test]

@@ -12,12 +12,12 @@
 //! REST surface is exercised in the api-server conformance suites). Each
 //! function mirrors the upstream Ginkgo descriptor in name and docstring.
 
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::workloads::*;
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::cronjob::CronJobController;
-use k3rs_controller_manager::controllers::job::JobController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::workloads::*;
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::cronjob::CronJobController;
+use kubernetes_rs_controller_manager::controllers::job::JobController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

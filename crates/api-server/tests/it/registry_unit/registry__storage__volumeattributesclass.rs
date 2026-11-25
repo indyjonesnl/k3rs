@@ -2,23 +2,23 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_common::resources::csi::VolumeAttributesClass;
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_common::validation::volumeattributesclass::{
+    pub use kubernetes_rs_common::resources::csi::VolumeAttributesClass;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_common::validation::volumeattributesclass::{
         validate_volume_attributes_class, validate_volume_attributes_class_update,
     };
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::storage::volumeattributesclass::*;
+    use kubernetes_rs_api_server::registry::storage::volumeattributesclass::*;
 
     fn vac(driver: &str, param: &str) -> VolumeAttributesClass {
         serde_json::from_value(serde_json::json!({

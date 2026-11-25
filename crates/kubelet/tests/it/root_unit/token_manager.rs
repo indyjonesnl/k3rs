@@ -4,7 +4,7 @@
 //! `TestServiceAccountRecreationCacheInvalidation`).
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use k3rs_kubelet::token_manager::{
+use kubernetes_rs_kubelet::token_manager::{
     key_func, BoundObjectReference, Clock, GetTokenFn, Manager, TokenRequest, TokenRequestSpec,
     TokenRequestStatus,
 };

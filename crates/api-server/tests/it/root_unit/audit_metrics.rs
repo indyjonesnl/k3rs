@@ -4,9 +4,9 @@
 //! deltas since the counters are process-global.
 
 use axum::{body::Body, routing::get, Router};
-use k3rs_api_server::audit::{with_audit, AuditConfig, Policy};
-use k3rs_api_server::audit_metrics::*;
-use k3rs_common::audit::{AuditBackend, AuditEvent, AuditLevel};
+use kubernetes_rs_api_server::audit::{with_audit, AuditConfig, Policy};
+use kubernetes_rs_api_server::audit_metrics::*;
+use kubernetes_rs_common::audit::{AuditBackend, AuditEvent, AuditLevel};
 use std::sync::Arc;
 use tower::ServiceExt;
 

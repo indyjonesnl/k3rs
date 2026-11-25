@@ -17,7 +17,7 @@
 //! per-test namespace (`f.Namespace`) is created up front with
 //! `strict_namespaces()`.
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 async fn send(

@@ -16,7 +16,7 @@
 //!
 //! Implementation note: this is the kubelet unit, so there is no HTTP
 //! harness. Each test exercises a pure helper from
-//! `k3rs_kubelet::{kubelet, lifecycle, downward_api}` and asserts
+//! `kubernetes_rs_kubelet::{kubelet, lifecycle, downward_api}` and asserts
 //! the byte-level / value-level invariant that the upstream Ginkgo test
 //! enforces against a live cluster. Tests whose upstream is currently
 //! red in Sonobuoy Round 160 (WebSocket exec, /etc/hosts via HostAliases)
@@ -24,15 +24,17 @@
 
 use std::collections::HashMap;
 
-use k3rs_common::resources::pod::HostAlias;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::pod::HostAlias;
+use kubernetes_rs_common::resources::{
     Container, ContainerState, ContainerStateTerminated, ContainerStatus, Pod, PodSpec, PodStatus,
     ResourceFieldSelector,
 };
-use k3rs_common::types::{ObjectMeta, ResourceRequirements, TypeMeta};
-use k3rs_kubelet::downward_api::{resolve_container_resource, resolve_pod_field, DownwardError};
-use k3rs_kubelet::kubelet::build_managed_hosts_content;
-use k3rs_kubelet::lifecycle;
+use kubernetes_rs_common::types::{ObjectMeta, ResourceRequirements, TypeMeta};
+use kubernetes_rs_kubelet::downward_api::{
+    resolve_container_resource, resolve_pod_field, DownwardError,
+};
+use kubernetes_rs_kubelet::kubelet::build_managed_hosts_content;
+use kubernetes_rs_kubelet::lifecycle;
 
 // ---------------------------------------------------------------------------
 // Test helpers

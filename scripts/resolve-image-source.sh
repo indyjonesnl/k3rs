@@ -15,14 +15,14 @@
 # Probe = the OCI distribution anonymous flow: GET ghcr.io/token for a pull-scoped
 # token, then GET /v2/<repo>/manifests/<tag> (distribution-spec, "Pulling
 # manifests"). curl only; no registry login.
-#   MIRROR_PREFIX  default ghcr.io/indyjonesnl/k3rs/mirror
+#   MIRROR_PREFIX  default ghcr.io/indyjonesnl/kubernetes-rs/mirror
 #   PROBE_JOBS     parallel probes (default 8)
 #   PROBE_TIMEOUT  seconds per request (default 10)
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 
 LIST="${1:-ci/mirror/images.txt}"
-MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/k3rs/mirror}"
+MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/kubernetes-rs/mirror}"
 PROBE_JOBS="${PROBE_JOBS:-8}"
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-10}"
 [ -f "$LIST" ] || { echo "image list not found: $LIST" >&2; exit 2; }

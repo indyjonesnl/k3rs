@@ -7,14 +7,14 @@
 //! and `handleErr` re-queues with `AddRateLimited` up to `maxRetries` = 15
 //! (:271-286). Only NotFound on the Endpoints lister means "deleted" (:303-311).
 //!
-//! k3rs has no periodic resync (12h), so a swallowed error means the mirrored
+//! kubernetes-rs has no periodic resync (12h), so a swallowed error means the mirrored
 //! slice is never created: conformance `EndpointSliceMirroring should mirror a
 //! custom Endpoints resource` polls for 12s and fails.
 
-use k3rs_common::resources::endpointslice::EndpointSlice;
-use k3rs_common::resources::{Endpoints, Service};
-use k3rs_controller_manager::controllers::endpointslice::EndpointSliceController;
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage, WatchStream};
+use kubernetes_rs_common::resources::endpointslice::EndpointSlice;
+use kubernetes_rs_common::resources::{Endpoints, Service};
+use kubernetes_rs_controller_manager::controllers::endpointslice::EndpointSliceController;
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage, WatchStream};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -46,49 +46,49 @@ fn take(counter: &AtomicUsize) -> bool {
 
 #[async_trait::async_trait]
 impl Storage for FlakyStorage {
-    async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         if key.starts_with("/registry/endpointslices/") && take(&self.create_failures) {
-            return Err(k3rs_common::Error::Storage("transient".into()));
+            return Err(kubernetes_rs_common::Error::Storage("transient".into()));
         }
         self.inner.create(key, value).await
     }
 
-    async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+    async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
     where
         T: serde::de::DeserializeOwned + Send + Sync,
     {
         if key.starts_with("/registry/endpoints/") && take(&self.endpoints_get_failures) {
-            return Err(k3rs_common::Error::Storage("transient".into()));
+            return Err(kubernetes_rs_common::Error::Storage("transient".into()));
         }
         self.inner.get(key).await
     }
 
-    async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.update(key, value).await
     }
 
-    async fn update_raw(&self, key: &str, value: &Value) -> k3rs_common::Result<()> {
+    async fn update_raw(&self, key: &str, value: &Value) -> kubernetes_rs_common::Result<()> {
         self.inner.update_raw(key, value).await
     }
 
-    async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+    async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.list(prefix).await
     }
 
-    async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+    async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
         self.inner.delete(key).await
     }
 
-    async fn watch(&self, prefix: &str) -> k3rs_common::Result<WatchStream> {
+    async fn watch(&self, prefix: &str) -> kubernetes_rs_common::Result<WatchStream> {
         self.inner.watch(prefix).await
     }
 
@@ -96,15 +96,15 @@ impl Storage for FlakyStorage {
         &self,
         prefix: &str,
         revision: i64,
-    ) -> k3rs_common::Result<WatchStream> {
+    ) -> kubernetes_rs_common::Result<WatchStream> {
         self.inner.watch_from_revision(prefix, revision).await
     }
 
-    async fn current_revision(&self) -> k3rs_common::Result<i64> {
+    async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
         self.inner.current_revision().await
     }
 
-    async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+    async fn is_revision_compacted(&self, revision: i64) -> kubernetes_rs_common::Result<bool> {
         self.inner.is_revision_compacted(revision).await
     }
 }

@@ -3,12 +3,14 @@
 //! volume attachments reach the graph through list+watch, deletes remove
 //! their edges, and a decision follows.
 
-use k3rs_api_server::node_graph_populator;
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::node_graph::NodeGraph;
-use k3rs_common::authz::Authorizer;
-use k3rs_common::authz::{NodeAuthorizer, NodeAuthorizerFeatures, Opinion, RequestAttributes};
-use k3rs_storage::{build_key, MemoryStorage, Storage};
+use kubernetes_rs_api_server::node_graph_populator;
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::node_graph::NodeGraph;
+use kubernetes_rs_common::authz::Authorizer;
+use kubernetes_rs_common::authz::{
+    NodeAuthorizer, NodeAuthorizerFeatures, Opinion, RequestAttributes,
+};
+use kubernetes_rs_storage::{build_key, MemoryStorage, Storage};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;

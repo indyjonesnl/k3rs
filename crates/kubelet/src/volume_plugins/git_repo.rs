@@ -4,7 +4,7 @@ use crate::volume_plugins::{
 };
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use k3rs_common::resources::Pod;
+use kubernetes_rs_common::resources::Pod;
 use serde::Deserialize;
 use std::path::Path;
 use std::sync::Arc;
@@ -56,7 +56,7 @@ impl GitRepoPlugin {
 
 /// `v1.GitRepoVolumeSource` (`staging/src/k8s.io/api/core/v1/types.go`). The
 /// common crate keeps the deprecated source as opaque JSON
-/// ([`k3rs_common::resources::LegacyVolumeSources`]); the plugin reads
+/// ([`kubernetes_rs_common::resources::LegacyVolumeSources`]); the plugin reads
 /// its three fields. Absent strings are Go's zero value `""`.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
@@ -270,7 +270,9 @@ impl Mounter for GitRepoVolumeMounter {
     /// `SetUp` (`git_repo.go:173-179`): refuses while the deprecated
     /// `GitRepoVolumeDriver` gate is off, then `SetUpAt(b.GetPath(), args)`.
     async fn set_up_with(&self, args: &MounterArgs) -> Result<()> {
-        if !k3rs_common::feature_gates::gate_enabled("GitRepoVolumeDriver").unwrap_or(false) {
+        if !kubernetes_rs_common::feature_gates::gate_enabled("GitRepoVolumeDriver")
+            .unwrap_or(false)
+        {
             return Err(anyhow!(
                 "git-repo volume plugin has been disabled; if necessary, it may be re-enabled by enabling the feature-gate `GitRepoVolumeDriver`"
             ));

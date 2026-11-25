@@ -6,12 +6,12 @@
 //! error, else `denied` / `no-opinion`.
 
 use async_trait::async_trait;
-use k3rs_api_server::state::ApiServerState;
-use k3rs_common::auth::{TokenManager, UserInfo};
-use k3rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
-use k3rs_common::observability::MetricsRegistry;
-use k3rs_common::Result;
-use k3rs_storage::{MemoryStorage, StorageBackend};
+use kubernetes_rs_api_server::state::ApiServerState;
+use kubernetes_rs_common::auth::{TokenManager, UserInfo};
+use kubernetes_rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
+use kubernetes_rs_common::observability::MetricsRegistry;
+use kubernetes_rs_common::Result;
+use kubernetes_rs_storage::{MemoryStorage, StorageBackend};
 use std::sync::Arc;
 
 /// The metrics are process-global: the ONE lock every test in this binary that
@@ -31,21 +31,23 @@ impl Authorizer for Fake {
                 reason,
                 error: None,
             } => Ok(Decision::Deny(reason)),
-            Opinion::NoOpinion { error: Some(e), .. } => Err(k3rs_common::Error::Authorization(e)),
+            Opinion::NoOpinion { error: Some(e), .. } => {
+                Err(kubernetes_rs_common::Error::Authorization(e))
+            }
         }
     }
     async fn authorize_opinion(&self, _: &RequestAttributes) -> Result<Opinion> {
         match &self.0 {
             Ok(o) => Ok(o.clone()),
-            Err(e) => Err(k3rs_common::Error::Authorization(e.to_string())),
+            Err(e) => Err(kubernetes_rs_common::Error::Authorization(e.to_string())),
         }
     }
     async fn get_user_rules_outcome(
         &self,
         _: &UserInfo,
         _: &str,
-    ) -> Result<k3rs_common::authz::UserRulesOutcome> {
-        Ok(k3rs_common::authz::UserRulesOutcome::default())
+    ) -> Result<kubernetes_rs_common::authz::UserRulesOutcome> {
+        Ok(kubernetes_rs_common::authz::UserRulesOutcome::default())
     }
 }
 
@@ -108,7 +110,7 @@ fn record_authorization_metrics_labels_every_result() {
     // Sync test: it writes the global counters, so it must exclude the
     // before/after-delta readers too.
     let _g = LOCK.blocking_lock();
-    use k3rs_common::authz_filter_metrics::record_authorization_metrics;
+    use kubernetes_rs_common::authz_filter_metrics::record_authorization_metrics;
     use std::time::Duration;
     let cases: Vec<(&str, Result<Opinion>)> = vec![
         ("allowed", Ok(Opinion::Allow(String::new()))),
@@ -129,7 +131,7 @@ fn record_authorization_metrics_labels_every_result() {
         ),
         (
             "error",
-            Err(k3rs_common::Error::Authorization("boom".into())),
+            Err(kubernetes_rs_common::Error::Authorization("boom".into())),
         ),
     ];
     for (label, op) in cases {
@@ -148,7 +150,9 @@ fn record_authorization_metrics_labels_every_result() {
 #[tokio::test]
 async fn handler_authorizers_do_not_record() {
     let _g = LOCK.lock().await;
-    let s = state(Err(k3rs_common::Error::Authorization("boom".into())));
+    let s = state(Err(kubernetes_rs_common::Error::Authorization(
+        "boom".into(),
+    )));
     let a0 = attempts("error");
     let _ = s.authorizer.authorize(&attrs()).await;
     let _ = s.unfiltered_authorizer.authorize(&attrs()).await;

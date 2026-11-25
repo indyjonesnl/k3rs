@@ -17,15 +17,15 @@
 //! Test names follow the upstream e2e categories: ingress, egress, podSelector,
 //! namespaceSelector, port ranges, policyTypes, and default-deny.
 
-use k3rs_common::resources::pod::{Container, Pod, PodSpec, PodStatus};
-use k3rs_common::resources::policy::IntOrString;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::pod::{Container, Pod, PodSpec, PodStatus};
+use kubernetes_rs_common::resources::policy::IntOrString;
+use kubernetes_rs_common::resources::{
     IPBlock, NetworkPolicy, NetworkPolicyEgressRule, NetworkPolicyIngressRule, NetworkPolicyPeer,
     NetworkPolicyPort, NetworkPolicySpec,
 };
-use k3rs_common::types::{LabelSelector, ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::network_policy::NetworkPolicyController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::network_policy::NetworkPolicyController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

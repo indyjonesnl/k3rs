@@ -24,14 +24,14 @@ pub use config::LimitedResource;
 
 use std::collections::{BTreeSet, HashMap};
 
-use k3rs_common::admission::Operation;
-use k3rs_common::quota::{self, ResourceList};
-use k3rs_common::resources::ResourceQuota;
-use k3rs_common::{Error, Result};
-use k3rs_storage::{build_key, build_prefix, Storage};
+use kubernetes_rs_common::admission::Operation;
+use kubernetes_rs_common::quota::{self, ResourceList};
+use kubernetes_rs_common::resources::ResourceQuota;
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::{build_key, build_prefix, Storage};
 use serde_json::Value;
 
-use k3rs_common::resources::ScopedResourceSelectorRequirement;
+use kubernetes_rs_common::resources::ScopedResourceSelectorRequirement;
 
 use self::evaluator::{status_hard_names, Evaluator};
 use crate::registry::rest::GroupResource;

@@ -4,11 +4,11 @@
 mod __parent {
     pub use anyhow::{anyhow, Result};
     pub use chrono::{DateTime, Duration as ChronoDuration, Utc};
-    pub use k3rs_common::resources::{Node, Pod, PodCondition};
-    pub use k3rs_common::types::Phase;
-    pub use k3rs_controller_manager::controllers::podgc_metrics as metrics;
-    pub use k3rs_controller_manager::controllers::taint_eviction::update_pod_condition;
-    pub use k3rs_storage::{build_key, build_prefix, Storage};
+    pub use kubernetes_rs_common::resources::{Node, Pod, PodCondition};
+    pub use kubernetes_rs_common::types::Phase;
+    pub use kubernetes_rs_controller_manager::controllers::podgc_metrics as metrics;
+    pub use kubernetes_rs_controller_manager::controllers::taint_eviction::update_pod_condition;
+    pub use kubernetes_rs_storage::{build_key, build_prefix, Storage};
     pub use std::collections::{HashMap, HashSet};
     pub use std::sync::{Arc, Mutex};
     pub use std::time::Duration;
@@ -24,8 +24,8 @@ mod tests {
     //! process-global and tests run in parallel (upstream resets them).
     use super::__parent::*;
     use chrono::TimeZone;
-    use k3rs_controller_manager::controllers::podgc::*;
-    use k3rs_storage::MemoryStorage;
+    use kubernetes_rs_controller_manager::controllers::podgc::*;
+    use kubernetes_rs_storage::MemoryStorage;
     use serde_json::json;
 
     fn phase_str(p: Option<&str>) -> serde_json::Value {

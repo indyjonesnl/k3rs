@@ -18,12 +18,12 @@
 use std::collections::HashMap;
 
 use crate::preempt_support::{check_preemption, check_preemption_with_pdbs};
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     Container, ContainerPort, IntOrString, Node, NodeStatus, Pod, PodDisruptionBudget,
     PodDisruptionBudgetSpec, PodSpec, PodStatus, TopologySpreadConstraint,
 };
-use k3rs_common::types::{LabelSelector, Phase, ResourceRequirements};
-use k3rs_scheduler::advanced::{
+use kubernetes_rs_common::types::{LabelSelector, Phase, ResourceRequirements};
+use kubernetes_rs_scheduler::advanced::{
     calculate_resource_score, calculate_resource_score_with_pods, check_host_port_conflicts,
     check_topology_spread_constraints,
 };

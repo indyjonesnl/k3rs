@@ -1,8 +1,10 @@
 //! Tests for VolumeAttachment validation (port of upstream `ValidateVolumeAttachment`).
 
-use k3rs_common::resources::csi::{VolumeAttachment, VolumeAttachmentSource, VolumeAttachmentSpec};
-use k3rs_common::validation::field::ErrorType;
-use k3rs_common::validation::volumeattachment::validate_volume_attachment;
+use kubernetes_rs_common::resources::csi::{
+    VolumeAttachment, VolumeAttachmentSource, VolumeAttachmentSpec,
+};
+use kubernetes_rs_common::validation::field::ErrorType;
+use kubernetes_rs_common::validation::volumeattachment::validate_volume_attachment;
 
 fn va(attacher: &str, node: &str, source: VolumeAttachmentSource) -> VolumeAttachment {
     let mut x = VolumeAttachment {
@@ -26,7 +28,7 @@ fn pv_source(name: &str) -> VolumeAttachmentSource {
     }
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], field: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], field: &str) -> bool {
     errs.iter().any(|e| e.field == field)
 }
 

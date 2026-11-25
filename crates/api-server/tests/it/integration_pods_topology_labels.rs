@@ -52,23 +52,23 @@
 //!
 //!   * `TestRelaxedDNSSearchValidation` — gated by the
 //!     `RelaxedDNSSearchValidation` feature flag; the gate plumbing lives in
-//!     `k3rs_common::feature_gates` and the validator lives in
-//!     `k3rs_common::validation::pod::validate_pod_dns_config`.
+//!     `kubernetes_rs_common::feature_gates` and the validator lives in
+//!     `kubernetes_rs_common::validation::pod::validate_pod_dns_config`.
 //!
 //!   * `TestNodeDeclaredFeatureAdmission` — gated by `NodeDeclaredFeatures` +
 //!     `InPlacePodVerticalScaling`. The `/pods/{name}/resize` handler refuses
 //!     a Guaranteed-QoS CPU resize when the target Node's
 //!     `status.declaredFeatures` does not include `GuaranteedQoSPodCPUResize`.
 //!     Field lives on `NodeStatus`; gate registry in
-//!     `k3rs_common::feature_gates`; admission helper in
+//!     `kubernetes_rs_common::feature_gates`; admission helper in
 //!     `handlers::pod_subresources::check_node_declared_features_for_resize`.
 //!
 //! See also: `pod_handler_test.rs` and `pod_resize_cas_test.rs` for the
 //! complementary handler-level pod tests already covering create/get/update/
 //! delete plumbing.
 
-use k3rs_storage::memory::MemoryStorage;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_storage::memory::MemoryStorage;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -372,7 +372,7 @@ async fn test_pod_topology_labels_filters_and_preserves_existing() {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_pod_topology_labels_feature_disabled() {
-    use k3rs_common::feature_gates::{with_feature, Feature};
+    use kubernetes_rs_common::feature_gates::{with_feature, Feature};
 
     // Disable the PodTopologyLabelsAdmission gate for the lifetime of this
     // test. The gate defaults to ON at our v1.35 target (Beta), so without
@@ -845,7 +845,7 @@ async fn test_mutable_pod_scheduling_directives() {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_relaxed_dns_search_validation() {
-    use k3rs_common::feature_gates::{reset_to_defaults, with_feature, Feature};
+    use kubernetes_rs_common::feature_gates::{reset_to_defaults, with_feature, Feature};
 
     let (_, router) = spawn_router();
     let ns = "pod-update-dns-search";
@@ -962,8 +962,8 @@ async fn test_relaxed_dns_search_validation() {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_node_declared_feature_admission() {
-    use k3rs_common::feature_gates::{reset_to_defaults, with_feature, Feature};
-    use k3rs_storage::Storage;
+    use kubernetes_rs_common::feature_gates::{reset_to_defaults, with_feature, Feature};
+    use kubernetes_rs_storage::Storage;
 
     let (mem, router) = spawn_router();
     let ns = "node-declared-features";
@@ -977,11 +977,11 @@ async fn test_node_declared_feature_admission() {
     // Seed a Node directly via storage (the resize handler reads the node
     // by storage key, so we don't need to drive the Node create handler).
     async fn seed_node(
-        mem: &Arc<k3rs_storage::memory::MemoryStorage>,
+        mem: &Arc<kubernetes_rs_storage::memory::MemoryStorage>,
         name: &str,
         declared: &[&str],
     ) {
-        use k3rs_common::resources::{Node, NodeStatus};
+        use kubernetes_rs_common::resources::{Node, NodeStatus};
         let declared_vec: Vec<String> = declared.iter().map(|s| s.to_string()).collect();
         let mut node = Node::new(name);
         node.status = Some(NodeStatus {
@@ -992,7 +992,7 @@ async fn test_node_declared_feature_admission() {
             },
             ..Default::default()
         });
-        let key = k3rs_storage::build_key("nodes", None, name);
+        let key = kubernetes_rs_storage::build_key("nodes", None, name);
         mem.create(&key, &node).await.expect("seed node");
     }
 
@@ -1047,8 +1047,9 @@ async fn test_node_declared_feature_admission() {
     // the node, so a direct storage edit is sufficient — no need to drive
     // a PUT through the immutability fence.
     {
-        let key = k3rs_storage::build_key("pods", Some(ns), pod_name);
-        let mut stored: k3rs_common::resources::Pod = mem.get(&key).await.expect("re-read pod");
+        let key = kubernetes_rs_storage::build_key("pods", Some(ns), pod_name);
+        let mut stored: kubernetes_rs_common::resources::Pod =
+            mem.get(&key).await.expect("re-read pod");
         if let Some(spec) = stored.spec.as_mut() {
             spec.node_name = Some("node-with-features".to_string());
         }
@@ -1072,8 +1073,9 @@ async fn test_node_declared_feature_admission() {
     // Rebind to the feature-less node so a regression that wrongly fires
     // the resize admission on the main PUT path would be caught.
     {
-        let key = k3rs_storage::build_key("pods", Some(ns), pod_name);
-        let mut stored: k3rs_common::resources::Pod = mem.get(&key).await.expect("re-read pod");
+        let key = kubernetes_rs_storage::build_key("pods", Some(ns), pod_name);
+        let mut stored: kubernetes_rs_common::resources::Pod =
+            mem.get(&key).await.expect("re-read pod");
         if let Some(spec) = stored.spec.as_mut() {
             spec.node_name = Some("node-without-features".to_string());
         }
@@ -1082,8 +1084,8 @@ async fn test_node_declared_feature_admission() {
     // Build a label-only PUT body off the latest stored pod so unrelated
     // fields don't trip the immutability fence.
     let label_update = {
-        let key = k3rs_storage::build_key("pods", Some(ns), pod_name);
-        let stored: k3rs_common::resources::Pod =
+        let key = kubernetes_rs_storage::build_key("pods", Some(ns), pod_name);
+        let stored: kubernetes_rs_common::resources::Pod =
             mem.get(&key).await.expect("re-read pod for label update");
         let mut as_value = serde_json::to_value(&stored).expect("pod to json");
         as_value["metadata"]["labels"] = json!({ "tier": "frontend" });
@@ -1120,9 +1122,9 @@ async fn test_node_declared_feature_admission() {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_cpu_resize_gate_skips_pod_burstable_via_init_container() {
-    use k3rs_common::feature_gates::{reset_to_defaults, with_feature, Feature};
-    use k3rs_common::resources::{Node, NodeStatus};
-    use k3rs_storage::Storage;
+    use kubernetes_rs_common::feature_gates::{reset_to_defaults, with_feature, Feature};
+    use kubernetes_rs_common::resources::{Node, NodeStatus};
+    use kubernetes_rs_storage::Storage;
 
     let (mem, router) = spawn_router();
     let ns = "init-container-qos-resize";
@@ -1139,7 +1141,7 @@ async fn test_cpu_resize_gate_skips_pod_burstable_via_init_container() {
         ..Default::default()
     });
     mem.create(
-        &k3rs_storage::build_key("nodes", None, "node-without-features"),
+        &kubernetes_rs_storage::build_key("nodes", None, "node-without-features"),
         &node,
     )
     .await
@@ -1445,7 +1447,7 @@ async fn pod_created_without_node_name_or_with_unknown_node_is_untouched() {
 #[tokio::test]
 #[serial_test::serial]
 async fn pod_created_with_node_name_gate_off_gets_no_topology_labels() {
-    use k3rs_common::feature_gates::{with_feature, Feature};
+    use kubernetes_rs_common::feature_gates::{with_feature, Feature};
     let _guard = with_feature(Feature::PodTopologyLabelsAdmission, false);
     let (_, router) = spawn_router();
     let ns = "pod-topology-create-off";

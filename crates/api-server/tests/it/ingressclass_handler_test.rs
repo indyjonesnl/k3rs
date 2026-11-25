@@ -3,9 +3,11 @@
 //! Tests all CRUD operations, edge cases, and error handling for ingressclasses.
 //! IngressClass represents the class of an Ingress, referenced by the Ingress Spec.
 
-use k3rs_common::resources::{IngressClass, IngressClassParametersReference, IngressClassSpec};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{
+    IngressClass, IngressClassParametersReference, IngressClassSpec,
+};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

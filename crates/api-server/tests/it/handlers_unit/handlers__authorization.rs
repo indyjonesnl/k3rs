@@ -7,9 +7,9 @@ mod __parent {
         http::StatusCode,
         Extension, Json,
     };
-    pub use k3rs_api_server::{middleware::AuthContext, state::ApiServerState};
-    pub use k3rs_common::dump::DumpingJson;
-    pub use k3rs_common::{
+    pub use kubernetes_rs_api_server::{middleware::AuthContext, state::ApiServerState};
+    pub use kubernetes_rs_common::dump::DumpingJson;
+    pub use kubernetes_rs_common::{
         auth::UserInfo,
         authz::{Decision, RequestAttributes},
         resources::{

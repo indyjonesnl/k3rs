@@ -61,13 +61,13 @@
 //! Part of the /batch landing upstream integration-test mirrors as
 //! RED-state TDD pins.
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     Container, Pod, PodSpec, ResourceQuota, ResourceQuotaSpec, Service, ServicePort, ServiceSpec,
     ServiceType,
 };
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -202,11 +202,12 @@ async fn test_quota() {
     let hard_status = status.hard.expect("status.hard must mirror spec.hard");
     // Compare parsed values, as upstream does (`Quantity.Cmp`): the wire form
     // is canonicalised (`1000` marshals as `1k`, quantity.go:694).
-    let hard_pods =
-        k3rs_common::quantity::Quantity::parse(hard_status.get("pods").expect("status.hard.pods"))
-            .unwrap();
+    let hard_pods = kubernetes_rs_common::quantity::Quantity::parse(
+        hard_status.get("pods").expect("status.hard.pods"),
+    )
+    .unwrap();
     assert!(
-        hard_pods.value_eq(&k3rs_common::quantity::Quantity::parse("1000").unwrap()),
+        hard_pods.value_eq(&kubernetes_rs_common::quantity::Quantity::parse("1000").unwrap()),
         "status.hard.pods must mirror spec.hard.pods"
     );
 }

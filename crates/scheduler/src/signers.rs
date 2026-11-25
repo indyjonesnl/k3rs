@@ -6,10 +6,10 @@
 //! order does not matter the lists are sorted, so equal pods produce equal
 //! values. Maps serialize with sorted keys.
 
-use k3rs_common::resources::pod::{
+use kubernetes_rs_common::resources::pod::{
     NodeSelectorRequirement, NodeSelectorTerm, PreferredSchedulingTerm,
 };
-use k3rs_common::resources::Pod;
+use kubernetes_rs_common::resources::Pod;
 use serde_json::{json, Value};
 
 pub const DYNAMIC_RESOURCES_SIGNER_NAME: &str = "v1.Pod.Spec.DynamicResources";

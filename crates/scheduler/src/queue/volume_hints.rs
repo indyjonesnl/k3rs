@@ -21,10 +21,10 @@
 //! `TestIsSchedulableAfterPersistentVolumeChange` tables.
 
 use super::events::{as_typed, EventObject, QueueingHint};
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::resources::volume::{
     PersistentVolume, PersistentVolumeClaim, StorageClass, VolumeBindingMode,
 };
-use k3rs_common::resources::{Pod, Volume};
+use kubernetes_rs_common::resources::{Pod, Volume};
 use std::collections::BTreeSet;
 use tracing::debug;
 

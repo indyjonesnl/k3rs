@@ -16,10 +16,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
-use k3rs_common::admission::{GroupVersionKind, GroupVersionResource};
-use k3rs_common::resources::Namespace;
-use k3rs_common::Result;
-use k3rs_storage::Storage;
+use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource};
+use kubernetes_rs_common::resources::Namespace;
+use kubernetes_rs_common::Result;
+use kubernetes_rs_storage::Storage;
 
 use super::policy_matching::{EquivalentResourceMapper, NamespaceLister};
 
@@ -110,7 +110,7 @@ impl EquivalentResourceRegistry {
     /// prefix across groups upstream, and it is not served here.
     pub fn from_discovery() -> Self {
         let reg = Self::new();
-        for k in k3rs_discovery::registered_kinds() {
+        for k in kubernetes_rs_discovery::registered_kinds() {
             reg.register_kind_for(
                 GroupVersionResource {
                     group: k.group,
@@ -187,7 +187,7 @@ impl<S: Storage> NamespaceLister for StorageNamespaceLister<S> {
     async fn namespace_labels(&self, name: &str) -> Result<HashMap<String, String>> {
         let ns: Namespace = self
             .storage
-            .get(&k3rs_storage::build_key("namespaces", None, name))
+            .get(&kubernetes_rs_storage::build_key("namespaces", None, name))
             .await?;
         Ok(ns.metadata.labels.unwrap_or_default())
     }

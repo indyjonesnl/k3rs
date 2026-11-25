@@ -3,12 +3,12 @@
 
 mod __parent {
     pub use chrono::{SubsecRound, Utc};
-    pub use k3rs_common::fieldmanager::fieldset::{
+    pub use kubernetes_rs_common::fieldmanager::fieldset::{
         field_kind, key_element, typed_key_element, FieldKind, Set,
     };
-    pub use k3rs_common::fieldmanager::schema::{ListKind, Type};
-    pub use k3rs_common::fieldmanager::versionconverter::UpdateFailure;
-    pub use k3rs_common::fieldmanager::{
+    pub use kubernetes_rs_common::fieldmanager::schema::{ListKind, Type};
+    pub use kubernetes_rs_common::fieldmanager::versionconverter::UpdateFailure;
+    pub use kubernetes_rs_common::fieldmanager::{
         build_manager_identifier, remove_managed_fields, strip_set, FieldManager, Managed,
         VersionedSet, OPERATION_APPLY,
     };
@@ -17,7 +17,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::fieldmanager::apply::*;
+    use kubernetes_rs_common::fieldmanager::apply::*;
     use serde_json::json;
 
     /// Ported from the removed top-level-key engine's

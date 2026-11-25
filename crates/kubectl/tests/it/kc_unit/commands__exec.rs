@@ -3,12 +3,12 @@
 
 mod __parent {
     pub use anyhow::Result;
-    pub use k3rs_client::http::ApiClient;
-    pub use k3rs_kubectl::websocket;
+    pub use kubernetes_rs_client::http::ApiClient;
+    pub use kubernetes_rs_kubectl::websocket;
 }
 
 mod tests {
-    use k3rs_kubectl::commands::exec::urlencoding;
+    use kubernetes_rs_kubectl::commands::exec::urlencoding;
 
     #[test]
     fn test_exec_url_construction_basic() {

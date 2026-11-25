@@ -2,13 +2,13 @@
 //! `TestValidatePersistentVolumeClaimUpdate`
 //! (pkg/apis/core/validation/validation_test.go:2346-3136, release-1.35).
 
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::resources::volume::{
     PersistentVolumeAccessMode, PersistentVolumeClaim, PersistentVolumeClaimPhase,
     PersistentVolumeClaimSpec, PersistentVolumeClaimStatus, PersistentVolumeMode,
     ResourceRequirements, TypedLocalObjectReference,
 };
-use k3rs_common::validation::field::ErrorType;
-use k3rs_common::validation::pvc::validate_persistent_volume_claim_update;
+use kubernetes_rs_common::validation::field::ErrorType;
+use kubernetes_rs_common::validation::pvc::validate_persistent_volume_claim_update;
 use std::collections::HashMap;
 
 fn pvc(storage: &str, mode: Option<PersistentVolumeMode>) -> PersistentVolumeClaim {
@@ -17,7 +17,7 @@ fn pvc(storage: &str, mode: Option<PersistentVolumeMode>) -> PersistentVolumeCla
     PersistentVolumeClaim {
         type_meta: Default::default(),
         // `ValidatePersistentVolumeClaim` now checks ObjectMeta too.
-        metadata: k3rs_common::types::ObjectMeta {
+        metadata: kubernetes_rs_common::types::ObjectMeta {
             name: "c".into(),
             namespace: Some("default".into()),
             resource_version: Some("1".into()),
@@ -53,7 +53,7 @@ fn unbound(mut p: PersistentVolumeClaim) -> PersistentVolumeClaim {
     p
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], field: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], field: &str) -> bool {
     errs.iter().any(|e| e.field == field)
 }
 

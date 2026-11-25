@@ -9,7 +9,7 @@
 //!   confirm. Mirrors the harness in `list_resource_version_router_test.rs`.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 // Thin shim over the shared `TestApiServer`, preserving this file's

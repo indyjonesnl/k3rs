@@ -32,7 +32,7 @@
 //!     attempting to bind a (port, protocol) already owned by a 0.0.0.0 pod).
 //!
 //! NO HTTP harness — scheduler logic is exercised by direct calls into
-//! `k3rs_scheduler::advanced`. Fixtures are plain `Node`/`Pod` values.
+//! `kubernetes_rs_scheduler::advanced`. Fixtures are plain `Node`/`Pod` values.
 //!
 //! See the test-by-test status table in docs/CONFORMANCE.md for the current
 //! pass/fail mapping.
@@ -40,9 +40,11 @@
 use std::collections::HashMap;
 
 use crate::preempt_support::check_preemption;
-use k3rs_common::resources::{Container, ContainerPort, Pod, PodCondition, PodSpec, PodStatus};
-use k3rs_common::types::{Phase, ResourceRequirements};
-use k3rs_scheduler::advanced::check_host_port_conflicts;
+use kubernetes_rs_common::resources::{
+    Container, ContainerPort, Pod, PodCondition, PodSpec, PodStatus,
+};
+use kubernetes_rs_common::types::{Phase, ResourceRequirements};
+use kubernetes_rs_scheduler::advanced::check_host_port_conflicts;
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -106,7 +108,7 @@ fn container_with_host_port(
     c
 }
 
-use k3rs_test_support::node_with_resources as make_node;
+use kubernetes_rs_test_support::node_with_resources as make_node;
 
 /// Scheduled, running pod on `node_name` with the given priority.
 fn make_running_pod(name: &str, priority: i32, cpu: &str, memory: &str, node_name: &str) -> Pod {

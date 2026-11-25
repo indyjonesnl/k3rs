@@ -2,27 +2,27 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::feature_gates::{self, Feature};
-    pub use k3rs_common::quantity::{Format, Quantity};
-    pub use k3rs_common::quota::pod_limits;
-    pub use k3rs_common::resources::pod::SELinuxOptions;
-    pub use k3rs_common::resources::volume::PersistentVolumeAccessMode;
-    pub use k3rs_common::resources::Pod;
-    pub use k3rs_kubelet::volume_manager::cache::desired_state_of_world_selinux_metrics::{
+    pub use kubernetes_rs_common::feature_gates::{self, Feature};
+    pub use kubernetes_rs_common::quantity::{Format, Quantity};
+    pub use kubernetes_rs_common::quota::pod_limits;
+    pub use kubernetes_rs_common::resources::pod::SELinuxOptions;
+    pub use kubernetes_rs_common::resources::volume::PersistentVolumeAccessMode;
+    pub use kubernetes_rs_common::resources::Pod;
+    pub use kubernetes_rs_kubelet::volume_manager::cache::desired_state_of_world_selinux_metrics::{
         register_selinux_metrics, GaugeVec, SELINUX_CONTAINER_CONTEXT_ERRORS,
         SELINUX_CONTAINER_CONTEXT_WARNINGS, SELINUX_POD_CONTEXT_MISMATCH_ERRORS,
         SELINUX_POD_CONTEXT_MISMATCH_WARNINGS, SELINUX_VOLUMES_ADMITTED,
         SELINUX_VOLUME_CONTEXT_MISMATCH_ERRORS, SELINUX_VOLUME_CONTEXT_MISMATCH_WARNINGS,
     };
-    pub use k3rs_kubelet::volume_plugins::plugin::{OwnedSpec, Spec, VolumePlugin};
-    pub use k3rs_kubelet::volume_plugins::registry::VolumePluginMgr;
-    pub use k3rs_kubelet::volume_plugins::util::operation_executor;
-    pub use k3rs_kubelet::volume_plugins::util::selinux::{
+    pub use kubernetes_rs_kubelet::volume_plugins::plugin::{OwnedSpec, Spec, VolumePlugin};
+    pub use kubernetes_rs_kubelet::volume_plugins::registry::VolumePluginMgr;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::operation_executor;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::selinux::{
         get_mount_selinux_label, volume_supports_selinux_mount, SELinuxLabelError,
         SELinuxLabelTranslator,
     };
-    pub use k3rs_kubelet::volume_plugins::util::types::{UniquePodName, UniqueVolumeName};
-    pub use k3rs_kubelet::volume_plugins::util::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::types::{UniquePodName, UniqueVolumeName};
+    pub use kubernetes_rs_kubelet::volume_plugins::util::{
         contains_access_mode, get_unique_volume_name_from_spec,
         get_unique_volume_name_from_spec_with_pod, is_attachable_volume,
         is_device_mountable_volume, is_local_ephemeral_volume,
@@ -58,12 +58,12 @@ mod tests {
     use super::__parent::*;
     use anyhow::{anyhow, Result};
     use async_trait::async_trait;
-    use k3rs_common::feature_gates::with_feature;
-    use k3rs_common::resources::{PersistentVolume, Volume};
-    use k3rs_kubelet::volume_manager::cache::desired_state_of_world::*;
-    use k3rs_kubelet::volume_plugins::plugin::Mounter;
-    use k3rs_kubelet::volume_plugins::util::get_unique_pod_name;
-    use k3rs_kubelet::volume_plugins::util::selinux::FakeSELinuxLabelTranslator;
+    use kubernetes_rs_common::feature_gates::with_feature;
+    use kubernetes_rs_common::resources::{PersistentVolume, Volume};
+    use kubernetes_rs_kubelet::volume_manager::cache::desired_state_of_world::*;
+    use kubernetes_rs_kubelet::volume_plugins::plugin::Mounter;
+    use kubernetes_rs_kubelet::volume_plugins::util::get_unique_pod_name;
+    use kubernetes_rs_kubelet::volume_plugins::util::selinux::FakeSELinuxLabelTranslator;
     use serde_json::json;
     use std::collections::HashSet;
 
@@ -158,7 +158,7 @@ mod tests {
             &self,
             _vol_name: &str,
             _pod_uid: &str,
-        ) -> Result<Box<dyn k3rs_kubelet::volume_plugins::Unmounter>> {
+        ) -> Result<Box<dyn kubernetes_rs_kubelet::volume_plugins::Unmounter>> {
             unimplemented!("test plugin never unmounts")
         }
 
@@ -166,7 +166,7 @@ mod tests {
             &self,
             _vol_name: &str,
             _mount_path: &str,
-        ) -> Result<k3rs_kubelet::volume_plugins::ReconstructedVolume> {
+        ) -> Result<kubernetes_rs_kubelet::volume_plugins::ReconstructedVolume> {
             unimplemented!("test plugin never reconstructs")
         }
     }

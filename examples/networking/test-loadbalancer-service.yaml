@@ -1,5 +1,5 @@
 ---
-# Example LoadBalancer Service for k3rs
+# Example LoadBalancer Service for kubernetes-rs
 # This creates an external load balancer (AWS NLB by default)
 
 apiVersion: v1

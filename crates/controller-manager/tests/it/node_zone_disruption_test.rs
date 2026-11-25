@@ -9,10 +9,10 @@
 //! (`pkg/controller/apis/config/v1alpha1/defaults.go`).
 
 use chrono::{Duration, Utc};
-use k3rs_common::resources::{Node, NodeCondition, NodeStatus};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::node::NodeController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{Node, NodeCondition, NodeStatus};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::node::NodeController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

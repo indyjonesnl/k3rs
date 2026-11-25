@@ -18,7 +18,7 @@
 //! Defaulting the field would have turned "protects no pods" into "protects
 //! every pod in the namespace".
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 /// `(label, path, body, substring the answer must contain)`.

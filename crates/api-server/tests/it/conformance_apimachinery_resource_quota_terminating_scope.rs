@@ -18,10 +18,10 @@
 //! object-count mirrors make. `haveUsedResources` (:2513) compares only the
 //! expected keys, with `Quantity.Equal`, so the mirror does too.
 
-use k3rs_common::quantity::Quantity;
-use k3rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
-use k3rs_storage::memory::MemoryStorage;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::quantity::Quantity;
+use kubernetes_rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
+use kubernetes_rs_storage::memory::MemoryStorage;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 

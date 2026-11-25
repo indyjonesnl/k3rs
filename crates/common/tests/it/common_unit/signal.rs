@@ -9,7 +9,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::signal::*;
+    use kubernetes_rs_common::signal::*;
     use std::time::Duration;
     use tokio::sync::{mpsc, oneshot};
 

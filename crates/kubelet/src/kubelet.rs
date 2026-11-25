@@ -2,7 +2,7 @@ use crate::cri_runtime::CriContainerRuntime;
 use crate::eviction::{get_node_stats, get_pod_stats, EvictionManager, EvictionSignal};
 use crate::lifecycle::{phase_is_terminal, should_skip_phase_write};
 use anyhow::Result;
-use k3rs_common::{
+use kubernetes_rs_common::{
     resources::{
         ContainerState, ContainerStateRunning, ContainerStateTerminated, ContainerStateWaiting,
         ContainerStatus, Node, NodeAddress, NodeSpec, NodeStatus, Pod, PodCondition, PodIP,
@@ -10,7 +10,7 @@ use k3rs_common::{
     },
     types::Phase,
 };
-use k3rs_storage::{build_key, build_prefix, Storage, StorageBackend, WatchEvent};
+use kubernetes_rs_storage::{build_key, build_prefix, Storage, StorageBackend, WatchEvent};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -65,7 +65,7 @@ const REDUCED_CRASHLOOP_BACKOFF_INITIAL: Duration = Duration::from_secs(1);
 /// it is only consulted when `KubeletCrashLoopBackOffMax` is enabled, exactly
 /// as upstream.
 pub fn new_crash_loop_backoff(configured: Option<Duration>) -> (Duration, Duration) {
-    use k3rs_common::feature_gates::{enabled, Feature};
+    use kubernetes_rs_common::feature_gates::{enabled, Feature};
     let mut bo_max = CRASHLOOP_BACKOFF_MAX;
     let mut bo_initial = CRASHLOOP_BACKOFF_INITIAL;
     if enabled(Feature::ReduceDefaultCrashLoopBackOffDecay) {
@@ -358,12 +358,14 @@ pub fn terminal_phase_requires_termination(pod: &Pod) -> bool {
 /// This kubelet reserves nothing (no `--system-reserved`/`--kube-reserved`),
 /// so `nodeAllocatableReservationFunc` is empty and each value copies as is.
 /// Returns whether allocatable changed.
-pub fn sync_allocatable_with_capacity(status: &mut k3rs_common::resources::NodeStatus) -> bool {
+pub fn sync_allocatable_with_capacity(
+    status: &mut kubernetes_rs_common::resources::NodeStatus,
+) -> bool {
     let capacity = status.capacity.clone().unwrap_or_default();
     let allocatable = status.allocatable.get_or_insert_with(HashMap::new);
     let before = allocatable.clone();
     allocatable.retain(|k, _| {
-        capacity.contains_key(k) || !k3rs_common::quota::is_extended_resource_name(k)
+        capacity.contains_key(k) || !kubernetes_rs_common::quota::is_extended_resource_name(k)
     });
     allocatable.extend(capacity);
     *allocatable != before
@@ -416,7 +418,7 @@ pub struct RestartBackoff {
 /// are unknown.
 type HostIpFields = (
     Option<String>,
-    Option<Vec<k3rs_common::resources::pod::HostIP>>,
+    Option<Vec<kubernetes_rs_common::resources::pod::HostIP>>,
 );
 
 pub struct Kubelet {
@@ -444,7 +446,7 @@ pub struct Kubelet {
     /// Upstream: `Kubelet.runtimeState` (pkg/kubelet/runtime.go).
     pub runtime_state: crate::runtime_state::RuntimeState,
     /// `Kubelet.recorder` for `recordNodeStatusEvent` (kubelet_node_status.go:632).
-    pub node_event_recorder: k3rs_storage::EventRecorder<StorageBackend>,
+    pub node_event_recorder: kubernetes_rs_storage::EventRecorder<StorageBackend>,
     pub sync_interval: Duration,
     /// Filesystem path used for `statvfs` when computing nodefs eviction stats.
     /// Defaults to `/var/lib/kubelet` when not provided.
@@ -478,7 +480,7 @@ pub struct Kubelet {
     /// only after the old UID's worker has finished terminating; an explicit
     /// same-fullname barrier exists only for static pods (allowStaticPodStart,
     /// startedStaticPodsByFullname). Our name-keyed skip-and-retry is a
-    /// k3rs-specific serialization achieving the same effect.
+    /// kubernetes-rs-specific serialization achieving the same effect.
     pub pod_sync_locks: crate::sync_locks::SyncLocks,
     /// Per-container CrashLoopBackOff state, keyed by
     /// `"{namespace}/{pod}/{container}"`. Source of truth for restartCount +
@@ -609,7 +611,7 @@ pub struct Kubelet {
 /// container's (upstream pkg/kubelet/status/generate.go). Missing this for
 /// sidecars marks the pod Ready immediately, before the probe's
 /// initialDelaySeconds (NodeConformance "readiness before initial delay", #1069).
-pub fn spec_has_readiness_probe(spec: &k3rs_common::resources::pod::PodSpec) -> bool {
+pub fn spec_has_readiness_probe(spec: &kubernetes_rs_common::resources::pod::PodSpec) -> bool {
     if spec.containers.iter().any(|c| c.readiness_probe.is_some()) {
         return true;
     }
@@ -785,7 +787,7 @@ pub async fn pod_recreated<S: Storage + ?Sized>(storage: &S, key: &str, uid: &st
 /// deleted, `Ok(false)` when it was intentionally retained.
 ///
 /// An explicitly-deleted pod (`deletionTimestamp` set) with no finalizers
-/// MUST be removed: k3rs has no finalizer-driven tombstone GC, so the
+/// MUST be removed: kubernetes-rs has no finalizer-driven tombstone GC, so the
 /// kubelet deletes directly. Leaving it makes the next reconcile default back
 /// to `SyncPod`, which re-detects `deletionTimestamp => needs_terminating` and
 /// re-enters `TerminatingPod` indefinitely (a `pelagos stop` storm).
@@ -846,12 +848,12 @@ pub fn reconcile_existing_node(existing: &mut Node, desired: &Node) {
 /// kubelet mounts are accepted by it. `JWT_SECRET` matches the api-server's
 /// own default when no signing key file is given.
 pub fn service_account_token_manager(
-    opts: &k3rs_common::auth::ServiceAccountOptions,
-) -> Result<k3rs_common::auth::TokenManager> {
+    opts: &kubernetes_rs_common::auth::ServiceAccountOptions,
+) -> Result<kubernetes_rs_common::auth::TokenManager> {
     let jwt_secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "k3rs-secret-change-in-production".to_string());
+        .unwrap_or_else(|_| "kubernetes-rs-secret-change-in-production".to_string());
     Ok(
-        k3rs_common::auth::TokenManager::new_auto(jwt_secret.as_bytes())
+        kubernetes_rs_common::auth::TokenManager::new_auto(jwt_secret.as_bytes())
             .with_service_account_options(opts)?,
     )
 }
@@ -910,7 +912,7 @@ impl Kubelet {
         allowed_unsafe_sysctls: Vec<String>,
         node_ips: Vec<std::net::IpAddr>,
         external_cloud_provider: bool,
-        token_manager: k3rs_common::auth::TokenManager,
+        token_manager: kubernetes_rs_common::auth::TokenManager,
     ) -> Result<Self> {
         let node_ip_validator: Arc<dyn Fn(std::net::IpAddr) -> Result<(), String> + Send + Sync> =
             Arc::new(crate::node_ip::validate_node_ip_on_host);
@@ -1005,7 +1007,7 @@ impl Kubelet {
         // in `fs.go::GetFsInfoForPath`.
         crate::eviction::log_statvfs_path(&eviction_root_dir);
 
-        let node_event_recorder = k3rs_storage::EventRecorder::new(storage.clone());
+        let node_event_recorder = kubernetes_rs_storage::EventRecorder::new(storage.clone());
         let kubelet = Self {
             hostname: node_name.clone(),
             node_name,
@@ -1119,7 +1121,7 @@ impl Kubelet {
             }),
             self.volume_stats_agg_period,
             Arc::new(crate::server_stats::StoragePodEvents {
-                recorder: k3rs_storage::EventRecorder::new(self.storage.clone()),
+                recorder: kubernetes_rs_storage::EventRecorder::new(self.storage.clone()),
                 node_name: self.node_name.clone(),
             }),
         )
@@ -1291,7 +1293,7 @@ impl Kubelet {
     pub fn with_runtime_request_timeout(mut self, d: Option<Duration>) -> Self {
         let d = d
             .filter(|d| !d.is_zero())
-            .unwrap_or(k3rs_cri::DEFAULT_RUNTIME_REQUEST_TIMEOUT);
+            .unwrap_or(kubernetes_rs_cri::DEFAULT_RUNTIME_REQUEST_TIMEOUT);
         let rt = Arc::get_mut(&mut self.runtime)
             .expect("runtime handle is unshared at construction time");
         let updated = rt.clone().with_runtime_request_timeout(d);
@@ -1360,7 +1362,7 @@ impl Kubelet {
     /// alone, otherwise the field is overwritten with the single canonical
     /// reference. Returns `true` if the lease metadata was mutated.
     pub fn apply_node_lease_owner_ref(
-        lease: &mut k3rs_common::resources::Lease,
+        lease: &mut kubernetes_rs_common::resources::Lease,
         node_name: &str,
         node_uid: &str,
     ) -> bool {
@@ -1382,7 +1384,7 @@ impl Kubelet {
         if matches_existing {
             return false;
         }
-        let owner = k3rs_common::types::OwnerReference::new(
+        let owner = kubernetes_rs_common::types::OwnerReference::new(
             "v1",
             "Node",
             node_name.to_string(),
@@ -1479,7 +1481,7 @@ impl Kubelet {
                 Arc::new(crate::image_gc_cri::CriStatsProvider::new(cri)),
                 Vec::new(),
                 Arc::new(crate::image_gc_cri::NodeEvents::new(
-                    k3rs_storage::EventRecorder::new(self.storage.clone()),
+                    kubernetes_rs_storage::EventRecorder::new(self.storage.clone()),
                     &self.node_name,
                 )),
                 policy,
@@ -1693,7 +1695,7 @@ impl Kubelet {
                 let mut cached_node_uid: Option<String> = None;
                 for attempt in 0..5 {
                     match lease_storage
-                        .get::<k3rs_common::resources::Node>(&node_key)
+                        .get::<kubernetes_rs_common::resources::Node>(&node_key)
                         .await
                     {
                         Ok(node) if !node.metadata.uid.is_empty() => {
@@ -1733,7 +1735,7 @@ impl Kubelet {
                     // Lazy-load the node UID if it wasn't available at startup.
                     if cached_node_uid.is_none() {
                         if let Ok(node) = lease_storage
-                            .get::<k3rs_common::resources::Node>(&node_key)
+                            .get::<kubernetes_rs_common::resources::Node>(&node_key)
                             .await
                         {
                             if !node.metadata.uid.is_empty() {
@@ -1744,7 +1746,7 @@ impl Kubelet {
 
                     // Try to update existing lease
                     match lease_storage
-                        .get::<k3rs_common::resources::Lease>(&lease_key)
+                        .get::<kubernetes_rs_common::resources::Lease>(&lease_key)
                         .await
                     {
                         Ok(mut lease) => {
@@ -1777,12 +1779,12 @@ impl Kubelet {
                         }
                         Err(_) => {
                             // Lease doesn't exist — create it
-                            let mut lease = k3rs_common::resources::Lease::new(
+                            let mut lease = kubernetes_rs_common::resources::Lease::new(
                                 lease_node_name.clone(),
                                 "kube-node-lease",
                             )
                             .with_spec(
-                                k3rs_common::resources::LeaseSpec {
+                                kubernetes_rs_common::resources::LeaseSpec {
                                     holder_identity: Some(lease_node_name.clone()),
                                     lease_duration_seconds: Some(40),
                                     acquire_time: Some(now),
@@ -2057,7 +2059,7 @@ impl Kubelet {
             // initialNode (kubelet_node_status.go:325-333): an external cloud
             // provider's CCM removes this taint once it initialises the node.
             taints: self.external_cloud_provider.then(|| {
-                vec![k3rs_common::resources::Taint {
+                vec![kubernetes_rs_common::resources::Taint {
                     key: crate::node_ip::TAINT_EXTERNAL_CLOUD_PROVIDER.to_string(),
                     value: Some("true".to_string()),
                     effect: "NoSchedule".to_string(),
@@ -2084,15 +2086,15 @@ impl Kubelet {
             }),
             // Filled by the NodeAddress setter below (setNodeStatus).
             addresses: None,
-            node_info: Some(k3rs_common::resources::NodeSystemInfo {
-                machine_id: format!("k3rs-{}", self.node_name),
-                system_uuid: format!("k3rs-{}", self.node_name),
-                boot_id: format!("k3rs-{}", self.node_name),
-                kernel_version: "6.1.0-k3rs".to_string(),
-                os_image: "k3rs OS".to_string(),
+            node_info: Some(kubernetes_rs_common::resources::NodeSystemInfo {
+                machine_id: format!("kubernetes-rs-{}", self.node_name),
+                system_uuid: format!("kubernetes-rs-{}", self.node_name),
+                boot_id: format!("kubernetes-rs-{}", self.node_name),
+                kernel_version: "6.1.0-kubernetes-rs".to_string(),
+                os_image: "kubernetes-rs OS".to_string(),
                 container_runtime_version: self.container_runtime_version.clone(),
-                kubelet_version: "v1.35.0-k3rs".to_string(),
-                kube_proxy_version: "v1.35.0-k3rs".to_string(),
+                kubelet_version: "v1.35.0-kubernetes-rs".to_string(),
+                kube_proxy_version: "v1.35.0-kubernetes-rs".to_string(),
                 operating_system: "linux".to_string(),
                 architecture: "amd64".to_string(),
                 swap: None,
@@ -2108,8 +2110,8 @@ impl Kubelet {
             // if a future topology overrides it. The conformance framework
             // hardcodes <node>:10250, so the bind port must stay 10250.
             // See: pkg/kubelet/kubelet.go:505 — DaemonEndpoints{KubeletEndpoint{Port: kubeCfg.Port}}
-            daemon_endpoints: Some(k3rs_common::resources::NodeDaemonEndpoints {
-                kubelet_endpoint: Some(k3rs_common::resources::DaemonEndpoint {
+            daemon_endpoints: Some(kubernetes_rs_common::resources::NodeDaemonEndpoints {
+                kubelet_endpoint: Some(kubernetes_rs_common::resources::DaemonEndpoint {
                     port: self.metrics_port as i32,
                 }),
             }),
@@ -2141,7 +2143,7 @@ impl Kubelet {
         // unaffected — its update_status grafts the same status).
         match self.storage.create(&key, &node).await {
             Ok(_) => info!("Node registered successfully"),
-            Err(k3rs_common::Error::AlreadyExists(_)) => {
+            Err(kubernetes_rs_common::Error::AlreadyExists(_)) => {
                 // Kubelet restart: the Node object already exists. Re-GET it to
                 // carry its current resourceVersion + UID, then graft our
                 // labels/spec onto the fresh object before updating. PUTting the
@@ -2219,7 +2221,9 @@ impl Kubelet {
                 Some(
                     host_ips
                         .iter()
-                        .map(|ip| k3rs_common::resources::pod::HostIP { ip: ip.to_string() })
+                        .map(|ip| kubernetes_rs_common::resources::pod::HostIP {
+                            ip: ip.to_string(),
+                        })
                         .collect(),
                 ),
             ),
@@ -2246,7 +2250,7 @@ impl Kubelet {
                             pod,
                             None,
                             "HostIPsIPFamilyMismatch",
-                            k3rs_common::resources::EventType::Warning,
+                            kubernetes_rs_common::resources::EventType::Warning,
                             &msg,
                         )
                         .await;
@@ -2350,15 +2354,15 @@ impl Kubelet {
                 .as_ref()
                 .is_none_or(|ni| ni.machine_id.is_empty())
             {
-                status.node_info = Some(k3rs_common::resources::NodeSystemInfo {
-                    machine_id: format!("k3rs-{}", self.node_name),
-                    system_uuid: format!("k3rs-{}", self.node_name),
-                    boot_id: format!("k3rs-{}", self.node_name),
-                    kernel_version: "6.1.0-k3rs".to_string(),
-                    os_image: "k3rs OS".to_string(),
+                status.node_info = Some(kubernetes_rs_common::resources::NodeSystemInfo {
+                    machine_id: format!("kubernetes-rs-{}", self.node_name),
+                    system_uuid: format!("kubernetes-rs-{}", self.node_name),
+                    boot_id: format!("kubernetes-rs-{}", self.node_name),
+                    kernel_version: "6.1.0-kubernetes-rs".to_string(),
+                    os_image: "kubernetes-rs OS".to_string(),
                     container_runtime_version: self.container_runtime_version.clone(),
-                    kubelet_version: "v1.35.0-k3rs".to_string(),
-                    kube_proxy_version: "v1.35.0-k3rs".to_string(),
+                    kubelet_version: "v1.35.0-kubernetes-rs".to_string(),
+                    kube_proxy_version: "v1.35.0-kubernetes-rs".to_string(),
                     operating_system: "linux".to_string(),
                     architecture: "amd64".to_string(),
                     swap: None,
@@ -2408,11 +2412,12 @@ impl Kubelet {
                 .map(|e| e.port)
                 .unwrap_or(0);
             if current_port != self.metrics_port as i32 {
-                status.daemon_endpoints = Some(k3rs_common::resources::NodeDaemonEndpoints {
-                    kubelet_endpoint: Some(k3rs_common::resources::DaemonEndpoint {
-                        port: self.metrics_port as i32,
-                    }),
-                });
+                status.daemon_endpoints =
+                    Some(kubernetes_rs_common::resources::NodeDaemonEndpoints {
+                        kubelet_endpoint: Some(kubernetes_rs_common::resources::DaemonEndpoint {
+                            port: self.metrics_port as i32,
+                        }),
+                    });
             }
         }
 
@@ -2493,7 +2498,7 @@ impl Kubelet {
             // strategicPatchObject builds the patch schema from the REST
             // scope's kind; a typed object read back from storage may carry
             // no TypeMeta, so name it here (no schema-less merge-key guess).
-            node.type_meta = k3rs_common::types::TypeMeta {
+            node.type_meta = kubernetes_rs_common::types::TypeMeta {
                 kind: "Node".to_string(),
                 api_version: "v1".to_string(),
             };
@@ -2521,8 +2526,8 @@ impl Kubelet {
     /// Collect container metrics from the runtime and write NodeMetrics to storage.
     /// The api-server reads these to serve the metrics.k8s.io API.
     async fn publish_node_metrics(&self) {
-        use k3rs_common::resources::NodeMetrics;
-        use k3rs_common::types::{ObjectMeta, TypeMeta};
+        use kubernetes_rs_common::resources::NodeMetrics;
+        use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
         use std::collections::BTreeMap;
 
         // The node's pods, from the pod manager (`podManager.GetPods()`, which
@@ -2564,8 +2569,8 @@ impl Kubelet {
     /// `metrics.k8s.io` pod metrics (replacing synthetic usage=requests), which
     /// in turn lets the HPA controller compute true resource utilization.
     async fn publish_pod_metrics(&self) {
-        use k3rs_common::resources::{ContainerMetrics, PodMetrics};
-        use k3rs_common::types::{ObjectMeta, TypeMeta};
+        use kubernetes_rs_common::resources::{ContainerMetrics, PodMetrics};
+        use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
         use std::collections::BTreeMap;
 
         // Pods assigned to this node, from the pod manager (see
@@ -3157,7 +3162,7 @@ impl Kubelet {
                         let body = serde_json::to_vec(&*pod).unwrap_or_default().into();
                         match tokio::time::timeout(
                             Duration::from_secs(timeout_secs),
-                            k3rs_common::dump::with_payload(body, kubelet.sync_pod(&pod)),
+                            kubernetes_rs_common::dump::with_payload(body, kubelet.sync_pod(&pod)),
                         )
                         .await
                         {
@@ -4959,7 +4964,7 @@ impl Kubelet {
                                     ec.name, namespace, pod_name
                                 );
                                 // Convert EphemeralContainer to Container for start_container
-                                let container = k3rs_common::resources::Container {
+                                let container = kubernetes_rs_common::resources::Container {
                                     name: ec.name.clone(),
                                     image: ec.image.clone(),
                                     command: ec.command.clone(),
@@ -5051,7 +5056,7 @@ impl Kubelet {
                                         pod,
                                         None,
                                         crate::events::CONTAINER_UNHEALTHY,
-                                        k3rs_common::resources::EventType::Warning,
+                                        kubernetes_rs_common::resources::EventType::Warning,
                                         "Liveness probe failed, container will be restarted",
                                     )
                                     .await;
@@ -5060,7 +5065,7 @@ impl Kubelet {
                                         pod,
                                         None,
                                         crate::events::KILLING_CONTAINER,
-                                        k3rs_common::resources::EventType::Normal,
+                                        kubernetes_rs_common::resources::EventType::Normal,
                                         "Stopping container after failed liveness probe",
                                     )
                                     .await;
@@ -5084,7 +5089,7 @@ impl Kubelet {
                                             pod,
                                             None,
                                             crate::events::BACK_OFF_START_CONTAINER,
-                                            k3rs_common::resources::EventType::Warning,
+                                            kubernetes_rs_common::resources::EventType::Warning,
                                             "Back-off restarting failed container",
                                         )
                                         .await;
@@ -6467,12 +6472,14 @@ impl Kubelet {
     /// (`apiPodStatus.QOSClass = v1qos.GetPodQOS(pod)`,
     /// `pkg/kubelet/kubelet_pods.go:2097`).
     ///
-    /// Delegates to [`k3rs_common::qos::compute_pod_qos`], the one port
+    /// Delegates to [`kubernetes_rs_common::qos::compute_pod_qos`], the one port
     /// of `ComputePodQOS`, so the class the kubelet publishes, the class the
     /// eviction manager ranks pods by, and the class the api-server wrote at
     /// create time are the same computation.
     fn compute_qos_class(pod: &Pod) -> String {
-        k3rs_common::qos::compute_pod_qos(pod).as_str().to_string()
+        kubernetes_rs_common::qos::compute_pod_qos(pod)
+            .as_str()
+            .to_string()
     }
 
     async fn update_pod_status(
@@ -6646,7 +6653,7 @@ impl Kubelet {
             &self.node_event_recorder,
             &crate::events::pod_object_reference(pod),
             Some(&self.node_name),
-            k3rs_common::resources::EventType::Warning,
+            kubernetes_rs_common::resources::EventType::Warning,
             reason,
             message,
         )
@@ -6934,7 +6941,7 @@ pub async fn upsert_metrics<S, T>(
     storage: &S,
     key: &str,
     mut metrics: T,
-    meta: impl Fn(&mut T) -> &mut k3rs_common::types::ObjectMeta,
+    meta: impl Fn(&mut T) -> &mut kubernetes_rs_common::types::ObjectMeta,
 ) where
     S: Storage,
     T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,

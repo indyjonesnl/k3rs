@@ -14,7 +14,7 @@ mod tests {
     //! `TestGetISCSIPortalHostMapForTarget`, `TestFindDevicesForISCSILun`) over
     //! the same `mockOsIOHandler` tables (`:30-196`).
     use super::__parent::*;
-    use k3rs_kubelet::volume_plugins::util::device_util::*;
+    use kubernetes_rs_kubelet::volume_plugins::util::device_util::*;
 
     struct Mock;
 

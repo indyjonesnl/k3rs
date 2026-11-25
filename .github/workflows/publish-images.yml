@@ -46,10 +46,10 @@ env:
   # mounts; compose/bake validate the volume spec even for a build-only run, so
   # an unset value yields "invalid spec: ::rw,rshared". No container is started
   # here — the path just has to be a non-empty absolute path.
-  KUBELET_VOLUMES_PATH: ${{ github.workspace }}/.k3rs/volumes
+  KUBELET_VOLUMES_PATH: ${{ github.workspace }}/.kubernetes-rs/volumes
   # scheduler / controller-manager sit behind the `build` compose profile.
   COMPOSE_PROFILES: build
-  IMAGE_PREFIX: ghcr.io/indyjonesnl/k3rs
+  IMAGE_PREFIX: ghcr.io/indyjonesnl/kubernetes-rs
   # Disable BuildKit's default provenance + SBOM attestations. They turn each
   # push into a manifest LIST (image + attestation), which push-by-digest can't
   # emit — the per-arch merge job attaches nothing extra, so we don't need them.
@@ -92,13 +92,13 @@ jobs:
 
       - name: Build + push by digest (linux/${{ matrix.arch }})
         env:
-          K3RS_GIT_SHA: ${{ github.sha }}
+          KUBERNETES_RS_GIT_SHA: ${{ github.sha }}
           # compose.ghcr.yml requires this to resolve during parse, but the
           # per-target --set below overrides each image ref to a bare repo (no
           # tag) — push-by-digest rejects a tagged ref ("can't push tagged ref
           # by digest"), so the sha-/main tags are applied later by the merge
           # job via imagetools, not here.
-          K3RS_IMAGE_TAG: sha-${{ github.sha }}
+          KUBERNETES_RS_IMAGE_TAG: sha-${{ github.sha }}
         run: |
           set -euo pipefail
           # One --set per target forcing a tag-less repo name (compose.ghcr.yml

@@ -10,19 +10,19 @@
 use std::sync::Arc;
 
 use chrono::{SecondsFormat, Utc};
-use k3rs_common::resources::certificates::CertificateSigningRequestCondition;
-use k3rs_common::resources::{CertificateSigningRequest, CertificateSigningRequestStatus};
-use k3rs_common::validation::certificatesigningrequest::{
+use kubernetes_rs_common::resources::certificates::CertificateSigningRequestCondition;
+use kubernetes_rs_common::resources::{CertificateSigningRequest, CertificateSigningRequestStatus};
+use kubernetes_rs_common::validation::certificatesigningrequest::{
     validate_certificate_signing_request_approval_update,
     validate_certificate_signing_request_create,
     validate_certificate_signing_request_status_update,
     validate_certificate_signing_request_update_main,
 };
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{
     name_unconstrained, validate_object_meta, validate_object_meta_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

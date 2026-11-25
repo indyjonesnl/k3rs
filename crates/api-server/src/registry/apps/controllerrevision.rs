@@ -4,12 +4,12 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::ControllerRevision;
-use k3rs_common::validation::controllerrevision::{
+use kubernetes_rs_common::resources::ControllerRevision;
+use kubernetes_rs_common::validation::controllerrevision::{
     validate_controller_revision, validate_controller_revision_update,
 };
-use k3rs_common::validation::field::ErrorList;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

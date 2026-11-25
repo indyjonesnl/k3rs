@@ -14,8 +14,8 @@
 //! so an object that is already stored stays updatable; a create (no old spec)
 //! is strict.
 
-use k3rs_common::resources::pod::{Pod, PodSpec};
-use k3rs_common::validation::pod::{validate_pod_create, validate_pod_update};
+use kubernetes_rs_common::resources::pod::{Pod, PodSpec};
+use kubernetes_rs_common::validation::pod::{validate_pod_create, validate_pod_update};
 use serde_json::{json, Value};
 
 fn pod(spec: Value) -> Pod {

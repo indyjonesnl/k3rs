@@ -2,11 +2,11 @@
 //! (`pkg/scheduler/framework/plugins/nodeunschedulable/node_unschedulable_test.go`)
 //! through the plugin object, and through `Framework::run_filter_plugins`
 //! (`runtime/framework.go:1033-1066`).
-use k3rs_common::resources::{Node, Pod};
-use k3rs_scheduler::framework_runtime::ExtensionPoint;
-use k3rs_scheduler::fwk::{Code, CycleState, FilterPlugin, NoHandle, NodeInfo};
-use k3rs_scheduler::in_tree::{NodeUnschedulable, ERR_REASON_UNSCHEDULABLE};
-use k3rs_scheduler::profile::Profile;
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_scheduler::framework_runtime::ExtensionPoint;
+use kubernetes_rs_scheduler::fwk::{Code, CycleState, FilterPlugin, NoHandle, NodeInfo};
+use kubernetes_rs_scheduler::in_tree::{NodeUnschedulable, ERR_REASON_UNSCHEDULABLE};
+use kubernetes_rs_scheduler::profile::Profile;
 
 fn pod(v: serde_json::Value) -> Pod {
     serde_json::from_value(v).unwrap()

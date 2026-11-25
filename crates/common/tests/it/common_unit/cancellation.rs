@@ -9,7 +9,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::cancellation::*;
+    use kubernetes_rs_common::cancellation::*;
     use std::time::Duration;
 
     #[tokio::test]
@@ -76,9 +76,9 @@ mod tests {
 
     #[test]
     fn context_error_is_a_504_timeout_status() {
-        let e: k3rs_common::Error = ContextError::DeadlineExceeded.into();
+        let e: kubernetes_rs_common::Error = ContextError::DeadlineExceeded.into();
         match e {
-            k3rs_common::Error::Status(s) => {
+            kubernetes_rs_common::Error::Status(s) => {
                 assert_eq!(s.code, Some(504));
                 assert_eq!(s.reason.as_deref(), Some("Timeout"));
             }

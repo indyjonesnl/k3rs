@@ -3,19 +3,19 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_common::resources::{EventSource, EventType, ObjectReference};
-    pub use k3rs_cri::{v1, CriClient};
-    pub use k3rs_kubelet::image_gc::{
+    pub use kubernetes_rs_common::resources::{EventSource, EventType, ObjectReference};
+    pub use kubernetes_rs_cri::{v1, CriClient};
+    pub use kubernetes_rs_kubelet::image_gc::{
         FsStats, GcContainer, GcPod, Image, ImageGcRuntime, ImageSpec, NodeEventSink, StatsProvider,
     };
-    pub use k3rs_kubelet::labels::{POD_NAMESPACE_LABEL, POD_NAME_LABEL, POD_UID_LABEL};
-    pub use k3rs_storage::{EventRecorder, StorageBackend};
+    pub use kubernetes_rs_kubelet::labels::{POD_NAMESPACE_LABEL, POD_NAME_LABEL, POD_UID_LABEL};
+    pub use kubernetes_rs_storage::{EventRecorder, StorageBackend};
     pub use std::collections::HashMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::image_gc_cri::*;
+    use kubernetes_rs_kubelet::image_gc_cri::*;
 
     /// `toKubeContainer` (`kuberuntime/helpers.go:101-123`): `ImageID` is
     /// `c.ImageId`, falling back to `c.ImageRef` for pre-1.30 runtimes; a

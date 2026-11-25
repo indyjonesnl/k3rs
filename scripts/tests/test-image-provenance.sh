@@ -18,7 +18,7 @@ STUB
 chmod +x "$tmp/imagetools"
 export STUB_DIGESTS="$tmp/digests"
 export IMAGETOOLS="$tmp/imagetools"
-P=ghcr.io/indyjonesnl/k3rs/api-server
+P=ghcr.io/indyjonesnl/kubernetes-rs/api-server
 
 fail=0
 run() { # name want_rc want_pattern tag sha

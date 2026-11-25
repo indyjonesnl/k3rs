@@ -3,14 +3,14 @@
 
 mod __parent {
     pub use anyhow::Result;
-    pub use k3rs_client::http::ApiClient;
+    pub use kubernetes_rs_client::http::ApiClient;
     pub use serde::{Deserialize, Serialize};
     pub use tabled::{settings::Style, Table, Tabled};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::api_resources::*;
+    use kubernetes_rs_kubectl::commands::api_resources::*;
 
     #[test]
     fn test_api_resource_deserialization() {

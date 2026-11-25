@@ -5,9 +5,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k3rs_common::resources::rangeallocation::RangeAllocation;
-use k3rs_common::{Error, Result};
-use k3rs_storage::Storage;
+use kubernetes_rs_common::resources::rangeallocation::RangeAllocation;
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::Storage;
 use tokio::sync::Mutex;
 
 use super::{AllocationBitmap, Interface};

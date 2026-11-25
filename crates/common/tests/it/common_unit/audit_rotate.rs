@@ -14,7 +14,7 @@ mod __parent {
 mod tests {
     use super::__parent::*;
     use chrono::Duration;
-    use k3rs_common::audit_rotate::*;
+    use kubernetes_rs_common::audit_rotate::*;
 
     fn touch(dir: &Path, name: &str) {
         fs::write(dir.join(name), b"old").unwrap();

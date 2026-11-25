@@ -11,7 +11,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::tracing::*;
+    use kubernetes_rs_common::tracing::*;
 
     #[test]
     fn verbosity_maps_to_levels() {

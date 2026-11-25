@@ -1,8 +1,8 @@
 //! Tests for Lease validation (port of upstream coordination ValidateLeaseSpec).
 
-use k3rs_common::resources::coordination::{Lease, LeaseSpec};
-use k3rs_common::validation::field::ErrorType;
-use k3rs_common::validation::lease::validate_lease;
+use kubernetes_rs_common::resources::coordination::{Lease, LeaseSpec};
+use kubernetes_rs_common::validation::field::ErrorType;
+use kubernetes_rs_common::validation::lease::validate_lease;
 
 fn spec() -> LeaseSpec {
     LeaseSpec {
@@ -26,7 +26,7 @@ fn lease(spec: Option<LeaseSpec>) -> Lease {
     l
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], field: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], field: &str) -> bool {
     errs.iter().any(|e| e.field.contains(field))
 }
 

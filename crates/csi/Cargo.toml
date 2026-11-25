@@ -1,12 +1,12 @@
 [package]
-name = "k3rs-csi"
+name = "kubernetes-rs-csi"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [lib]
-name = "k3rs_csi"
+name = "kubernetes_rs_csi"
 path = "src/lib.rs"
 
 [dependencies]

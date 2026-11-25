@@ -1,7 +1,7 @@
 name: vanilla-swap-module (reusable)
 
 # Reusable single-module vanilla-swap engine. Stands up an UNMODIFIED upstream
-# Kubernetes cluster (kind) and swaps in exactly ONE k3rs component, then
+# Kubernetes cluster (kind) and swaps in exactly ONE kubernetes-rs component, then
 # runs the test subset scoped to that component. Because every other participant
 # is known-good upstream software, any failure is attributable to that module.
 #
@@ -21,7 +21,7 @@ on:
         required: true
         type: string
       image-tag:
-        description: "GHCR k3rs image tag to swap in"
+        description: "GHCR kubernetes-rs image tag to swap in"
         required: false
         type: string
         default: main
@@ -48,7 +48,7 @@ on:
         type: choice
         options: ["kubelet", "api-server", "scheduler", "controller-manager", "kube-proxy"]
       image-tag:
-        description: "GHCR k3rs image tag to swap in"
+        description: "GHCR kubernetes-rs image tag to swap in"
         required: false
         type: string
         default: main
@@ -71,7 +71,7 @@ on:
 jobs:
   swap:
     name: ${{ inputs.module }}
-    runs-on: arc-runner-set-conformance
+    runs-on: [self-hosted, kubernetes-rs]
     # contents:write lets the badge step push to the orphan `badges` branch
     # (best-effort; never fails the run).
     permissions:
@@ -103,7 +103,7 @@ jobs:
             chmod +x "$bin/kubectl"
           fi
           if ! command -v hydrophone >/dev/null 2>&1; then
-            # The ARC runner image intentionally has no Go toolchain. Use the
+            # The local runner image intentionally has no Go toolchain. Use the
             # upstream release artifact, as the other conformance harnesses do,
             # so this step remains download-only and does not depend on sudo.
             hydrophone_version="v0.7.0"
@@ -122,7 +122,7 @@ jobs:
         env:
           MODULE: ${{ inputs.module }}
           K8S_VERSION: ${{ inputs.k8s-version }}
-          K3RS_IMAGE_TAG: ${{ inputs.image-tag }}
+          KUBERNETES_RS_IMAGE_TAG: ${{ inputs.image-tag }}
           # Single-test proof (#1648); empty keeps the registry focus. Read by
           # scripts/vanilla-swap-run.sh (VS_FOCUS_OVERRIDE).
           VS_FOCUS_OVERRIDE: ${{ inputs.focus }}
@@ -210,5 +210,5 @@ jobs:
           MODULE: ${{ inputs.module }}
         run: |
           kind delete cluster --name "vanilla-swap-$MODULE" >/dev/null 2>&1 || true
-          docker ps -aq --filter "label=k3rs-swap-cluster=vanilla-swap-$MODULE" \
+          docker ps -aq --filter "label=kubernetes-rs-swap-cluster=vanilla-swap-$MODULE" \
             | xargs -r docker rm -f >/dev/null 2>&1 || true

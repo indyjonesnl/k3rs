@@ -9,7 +9,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::jsonpath::*;
+    use kubernetes_rs_common::jsonpath::*;
 
     fn text(s: &str) -> Node {
         Node::Text(s.into())

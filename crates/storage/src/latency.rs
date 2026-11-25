@@ -18,7 +18,7 @@ use std::time::Instant;
 pub async fn tracked<F: Future>(f: F) -> F::Output {
     let started = Instant::now();
     let out = f.await;
-    k3rs_common::latency_trackers::track_storage_latency(started.elapsed());
+    kubernetes_rs_common::latency_trackers::track_storage_latency(started.elapsed());
     out
 }
 
@@ -27,6 +27,6 @@ pub async fn tracked<F: Future>(f: F) -> F::Output {
 pub fn tracked_decode<R>(f: impl FnOnce() -> R) -> R {
     let started = Instant::now();
     let out = f();
-    k3rs_common::latency_trackers::track_decode_latency(started.elapsed());
+    kubernetes_rs_common::latency_trackers::track_decode_latency(started.elapsed());
     out
 }

@@ -4,16 +4,18 @@
 
 use std::sync::Arc;
 
-use k3rs_common::equality::semantic_equal;
-use k3rs_common::resources::{PodDisruptionBudget, PodDisruptionBudgetStatus};
-use k3rs_common::types::{LabelSelector, LabelSelectorRequirement};
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::metav1::{validate_label_selector, LabelSelectorValidationOptions};
-use k3rs_common::validation::pdb::{
+use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::resources::{PodDisruptionBudget, PodDisruptionBudgetStatus};
+use kubernetes_rs_common::types::{LabelSelector, LabelSelectorRequirement};
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::metav1::{
+    validate_label_selector, LabelSelectorValidationOptions,
+};
+use kubernetes_rs_common::validation::pdb::{
     validate_pod_disruption_budget, validate_pod_disruption_budget_status_update,
     PodDisruptionBudgetValidationOptions,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

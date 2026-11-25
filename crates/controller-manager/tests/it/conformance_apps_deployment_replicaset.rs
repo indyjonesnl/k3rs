@@ -21,18 +21,18 @@
 //! RC in storage, the controller produces the right children (ReplicaSets,
 //! pods) and the right status counters.
 
-use k3rs_common::resources::deployment::{DeploymentStrategy, RollingUpdateDeployment};
-use k3rs_common::resources::pod::{PodCondition, PodStatus};
-use k3rs_common::resources::policy::IntOrString;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::deployment::{DeploymentStrategy, RollingUpdateDeployment};
+use kubernetes_rs_common::resources::pod::{PodCondition, PodStatus};
+use kubernetes_rs_common::resources::policy::IntOrString;
+use kubernetes_rs_common::resources::{
     Container, Deployment, DeploymentSpec, Pod, PodSpec, PodTemplateSpec, ReplicaSet,
     ReplicaSetSpec, ReplicationController, ReplicationControllerSpec,
 };
-use k3rs_common::types::{LabelSelector, ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::deployment::DeploymentController;
-use k3rs_controller_manager::controllers::replicaset::ReplicaSetController;
-use k3rs_controller_manager::controllers::replicationcontroller::ReplicationControllerController;
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::deployment::DeploymentController;
+use kubernetes_rs_controller_manager::controllers::replicaset::ReplicaSetController;
+use kubernetes_rs_controller_manager::controllers::replicationcontroller::ReplicationControllerController;
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

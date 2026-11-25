@@ -18,11 +18,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k3rs_common::authz::Authorizer;
-use k3rs_common::resources::{
+use kubernetes_rs_common::authz::Authorizer;
+use kubernetes_rs_common::resources::{
     ClusterRole, ClusterRoleBinding, PolicyRule, Role, RoleBinding, RoleRef,
 };
-use k3rs_common::{Error, Result};
+use kubernetes_rs_common::{Error, Result};
 
 use super::escalation_check::{
     binding_authorized, escalation_allowed, is_only_mutating_gc_fields, role_escalation_authorized,

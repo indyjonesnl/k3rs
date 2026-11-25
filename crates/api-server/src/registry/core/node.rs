@@ -3,12 +3,12 @@
 
 use std::sync::Arc;
 
-use k3rs_common::feature_gates::{self, Feature};
-use k3rs_common::resources::Node;
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::ipaddress::get_warnings_for_cidr;
-use k3rs_common::validation::node::{validate_node, validate_node_update};
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::feature_gates::{self, Feature};
+use kubernetes_rs_common::resources::Node;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::ipaddress::get_warnings_for_cidr;
+use kubernetes_rs_common::validation::node::{validate_node, validate_node_update};
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

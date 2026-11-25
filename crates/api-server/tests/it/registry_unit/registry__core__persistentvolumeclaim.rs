@@ -2,30 +2,30 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_common::quantity::Quantity;
-    pub use k3rs_common::resources::volume::{
+    pub use kubernetes_rs_common::quantity::Quantity;
+    pub use kubernetes_rs_common::resources::volume::{
         PersistentVolumeClaimSpec, TypedLocalObjectReference, TypedObjectReference,
     };
-    pub use k3rs_common::resources::{PersistentVolumeClaim, PersistentVolumeClaimStatus};
-    pub use k3rs_common::validation::field::{ErrorList, Path};
-    pub use k3rs_common::validation::pvc::{
+    pub use kubernetes_rs_common::resources::{PersistentVolumeClaim, PersistentVolumeClaimStatus};
+    pub use kubernetes_rs_common::validation::field::{ErrorList, Path};
+    pub use kubernetes_rs_common::validation::pvc::{
         validate_persistent_volume_claim, validate_persistent_volume_claim_status_update,
         validate_persistent_volume_claim_update,
     };
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::core::persistentvolumeclaim::*;
-    use k3rs_common::resources::volume::PersistentVolumeClaimPhase;
-    use k3rs_common::resources::volume::PersistentVolumeMode;
+    use kubernetes_rs_api_server::registry::core::persistentvolumeclaim::*;
+    use kubernetes_rs_common::resources::volume::PersistentVolumeClaimPhase;
+    use kubernetes_rs_common::resources::volume::PersistentVolumeMode;
 
     fn pvc(extra: serde_json::Value) -> PersistentVolumeClaim {
         let mut body = serde_json::json!({

@@ -3,11 +3,11 @@
 //! a deleted claim / volume wakes the other side (`deleteClaim` :273-295,
 //! `deleteVolume` :228-243).
 
-use k3rs_common::resources::volume::{PersistentVolume, PersistentVolumePhase};
-use k3rs_controller_manager::controllers::pv_binder::{
+use kubernetes_rs_common::resources::volume::{PersistentVolume, PersistentVolumePhase};
+use kubernetes_rs_controller_manager::controllers::pv_binder::{
     deleted_claim_volume_key, deleted_volume_claim_key, PVBinderController,
 };
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;

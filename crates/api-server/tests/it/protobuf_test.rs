@@ -2,7 +2,7 @@
 ///
 /// These tests verify that the API server can encode responses in protobuf format
 /// when requested via the Accept header.
-use k3rs_common::protobuf::{decode_protobuf, encode_protobuf, is_protobuf, TypeMeta};
+use kubernetes_rs_common::protobuf::{decode_protobuf, encode_protobuf, is_protobuf, TypeMeta};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -130,7 +130,7 @@ fn test_protobuf_with_list() {
 #[test]
 fn test_content_negotiation() {
     use axum::http::{header, HeaderMap};
-    use k3rs_api_server::response::{negotiate_content_type, ContentType};
+    use kubernetes_rs_api_server::response::{negotiate_content_type, ContentType};
 
     let _pod = Pod {
         api_version: "v1".to_string(),

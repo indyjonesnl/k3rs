@@ -8,13 +8,13 @@
 
 use std::sync::Arc;
 
-use k3rs_common::equality::semantic_equal;
-use k3rs_common::resources::{DaemonSet, DaemonSetStatus};
-use k3rs_common::validation::apps::{
+use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::resources::{DaemonSet, DaemonSetStatus};
+use kubernetes_rs_common::validation::apps::{
     validate_daemonset, validate_daemonset_status_update, validate_daemonset_update,
 };
-use k3rs_common::validation::field::ErrorList;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{
@@ -46,7 +46,10 @@ impl RestCreateStrategy<DaemonSet> for Strategy {
     fn prepare_for_create(&self, _ctx: &RequestContext, obj: &mut DaemonSet) {
         obj.status = Some(DaemonSetStatus::default());
         obj.metadata.generation = Some(1);
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(&mut obj.spec.template, None);
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
+            &mut obj.spec.template,
+            None,
+        );
         let template_generation = obj.template_generation();
         obj.set_template_generation(template_generation.max(1));
     }
@@ -70,7 +73,7 @@ impl RestUpdateStrategy<DaemonSet> for Strategy {
     /// generation.
     fn prepare_for_update(&self, _ctx: &RequestContext, obj: &mut DaemonSet, old: &DaemonSet) {
         obj.status = old.status.clone();
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
             &mut obj.spec.template,
             Some(&old.spec.template),
         );

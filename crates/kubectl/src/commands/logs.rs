@@ -1,5 +1,5 @@
 use anyhow::Result;
-use k3rs_client::http::ApiClient;
+use kubernetes_rs_client::http::ApiClient;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_enhanced(

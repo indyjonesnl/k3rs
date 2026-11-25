@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::feature_gates::{self, Feature};
+    pub use kubernetes_rs_common::feature_gates::{self, Feature};
     pub use serde::Deserialize;
     pub use std::collections::{HashMap, HashSet};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_scheduler::framework_runtime::*;
+    use kubernetes_rs_scheduler::framework_runtime::*;
 
     const TEST_PLUGIN: &str = "test-plugin";
     const QUEUE_SORT: &str = "no-op-queue-sort-plugin";

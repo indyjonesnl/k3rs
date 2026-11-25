@@ -2,25 +2,25 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_client::api_status::{is_already_exists, is_conflict, is_not_found};
-    pub use k3rs_client::events::ClientEventRecorder;
-    pub use k3rs_client::http::{ApiClient, GetError};
-    pub use k3rs_client::reflector::Reflector;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_client::api_status::{is_already_exists, is_conflict, is_not_found};
+    pub use kubernetes_rs_client::events::ClientEventRecorder;
+    pub use kubernetes_rs_client::http::{ApiClient, GetError};
+    pub use kubernetes_rs_client::reflector::Reflector;
+    pub use kubernetes_rs_common::resources::{
         CSIDriver, CSINode, EventType, Node, PersistentVolume, PersistentVolumeClaim, Pod,
         PodDisruptionBudget, PriorityClass, StorageClass, VolumeAttachment,
     };
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_scheduler::node_volume_limits::NodeVolumeLimitsSnapshot;
-    pub use k3rs_scheduler::volume_binding::VolumeSnapshot;
-    pub use k3rs_storage::{build_key, Storage};
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_scheduler::node_volume_limits::NodeVolumeLimitsSnapshot;
+    pub use kubernetes_rs_scheduler::volume_binding::VolumeSnapshot;
+    pub use kubernetes_rs_storage::{build_key, Storage};
     pub use serde_json::json;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_scheduler::data_plane::*;
+    use kubernetes_rs_scheduler::data_plane::*;
 
     #[test]
     fn binding_body_has_target_name_and_metadata_name() {
@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn api_err_conflict_maps_to_conflict() {
-        let e = anyhow::Error::new(k3rs_client::api_status::ApiStatusError {
+        let e = anyhow::Error::new(kubernetes_rs_client::api_status::ApiStatusError {
             code: 409,
             reason: "Conflict".into(),
             message: "Error from server (Conflict): pod already assigned".into(),
@@ -47,7 +47,7 @@ mod tests {
     /// the rendered message.
     #[test]
     fn api_err_classifies_by_typed_status() {
-        use k3rs_client::api_status::ApiStatusError;
+        use kubernetes_rs_client::api_status::ApiStatusError;
         let typed = |code: u16, reason: &str, message: &str| {
             anyhow::Error::new(ApiStatusError {
                 code,
@@ -101,7 +101,7 @@ mod tests {
     /// (csi.go listers over a shared informer factory).
     #[tokio::test]
     async fn storage_informer_follows_the_store() {
-        use k3rs_storage::{build_prefix, MemoryStorage};
+        use kubernetes_rs_storage::{build_prefix, MemoryStorage};
         let storage = Arc::new(MemoryStorage::new());
         storage
             .create("/registry/persistentvolumes/pv-a", &pv("pv-a"))
@@ -158,7 +158,7 @@ mod tests {
         .unwrap()
     }
 
-    fn capacity(ns: &str, name: &str) -> k3rs_common::resources::CSIStorageCapacity {
+    fn capacity(ns: &str, name: &str) -> kubernetes_rs_common::resources::CSIStorageCapacity {
         serde_json::from_value(json!({
             "apiVersion": "storage.k8s.io/v1", "kind": "CSIStorageCapacity",
             "metadata": {"name": name, "namespace": ns},
@@ -174,7 +174,7 @@ mod tests {
     /// store without a per-cycle list.
     #[tokio::test]
     async fn volume_binding_snapshot_reads_informer_stores() {
-        use k3rs_storage::MemoryStorage;
+        use kubernetes_rs_storage::MemoryStorage;
         let storage = Arc::new(MemoryStorage::new());
         storage
             .create("/registry/persistentvolumeclaims/a/c1", &pvc("a", "c1"))

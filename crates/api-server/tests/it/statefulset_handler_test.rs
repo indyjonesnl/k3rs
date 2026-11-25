@@ -2,11 +2,11 @@
 //!
 //! Tests all CRUD operations, edge cases, and error handling for statefulsets
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     Container, PodSpec, PodTemplateSpec, StatefulSet, StatefulSetSpec, StatefulSetStatus,
 };
-use k3rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

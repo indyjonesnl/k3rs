@@ -2,26 +2,26 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_common::resources::apiregistration::{
+    pub use kubernetes_rs_common::resources::apiregistration::{
         new_local_available_condition, set_api_service_condition, set_defaults_api_service,
     };
-    pub use k3rs_common::resources::APIService;
-    pub use k3rs_common::validation::apiservice::{
+    pub use kubernetes_rs_common::resources::APIService;
+    pub use kubernetes_rs_common::validation::apiservice::{
         validate_api_service, validate_api_service_status_update, validate_api_service_update,
     };
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::apiregistration::apiservice::*;
+    use kubernetes_rs_api_server::registry::apiregistration::apiservice::*;
 
     fn svc(remote: bool) -> APIService {
         let mut a = serde_json::from_value::<APIService>(serde_json::json!({
@@ -91,7 +91,7 @@ mod tests {
         let mut old = svc(true);
         old.status
             .conditions
-            .push(k3rs_common::resources::APIServiceCondition {
+            .push(kubernetes_rs_common::resources::APIServiceCondition {
                 type_: "Available".into(),
                 status: "True".into(),
                 ..Default::default()

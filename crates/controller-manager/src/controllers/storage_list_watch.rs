@@ -19,9 +19,9 @@
 
 use futures::stream::BoxStream;
 use futures::StreamExt;
-use k3rs_client::reflector::{ListWatch, WatchItem};
-use k3rs_client::watch::WatchEvent as ClientWatchEvent;
-use k3rs_storage::{Storage, WatchEvent, WatchStream};
+use kubernetes_rs_client::reflector::{ListWatch, WatchItem};
+use kubernetes_rs_client::watch::WatchEvent as ClientWatchEvent;
+use kubernetes_rs_storage::{Storage, WatchEvent, WatchStream};
 use std::sync::{Arc, Mutex};
 
 /// Keep-predicate applied to listed items and watched objects.

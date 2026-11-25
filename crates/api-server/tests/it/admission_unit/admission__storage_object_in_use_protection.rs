@@ -2,15 +2,15 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::volume::{
+    pub use kubernetes_rs_common::resources::volume::{
         PVC_PROTECTION_FINALIZER, PV_PROTECTION_FINALIZER, VAC_PROTECTION_FINALIZER,
     };
-    pub use k3rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_common::types::ObjectMeta;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::storage_object_in_use_protection::*;
+    use kubernetes_rs_api_server::admission::storage_object_in_use_protection::*;
 
     #[test]
     fn adds_finalizer_when_absent() {

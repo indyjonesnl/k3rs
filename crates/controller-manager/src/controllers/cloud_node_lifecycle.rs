@@ -25,9 +25,9 @@
 use crate::cloud_provider::api::TAINT_NODE_SHUTDOWN;
 use crate::cloud_provider::node_helpers::{add_or_update_taint_on_node, remove_taint_off_node};
 use crate::cloud_provider::{get_instance_provider_id, CloudError, Interface};
-use k3rs_common::resources::service_account::ObjectReference;
-use k3rs_common::resources::{EventSource, EventType, Node, Taint};
-use k3rs_storage::{build_key, build_prefix, EventRecorder, Storage};
+use kubernetes_rs_common::resources::service_account::ObjectReference;
+use kubernetes_rs_common::resources::{EventSource, EventType, Node, Taint};
+use kubernetes_rs_storage::{build_key, build_prefix, EventRecorder, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info};

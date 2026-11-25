@@ -43,11 +43,11 @@
 //!   * JSON-side mirror: `tests/integration_eviction_subresource.rs`.
 
 use axum::http::StatusCode;
-use k3rs_api_server::protobuf::ProtoRegistry;
-use k3rs_common::resources::{Container, Pod, PodSpec, PodStatus};
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_api_server::protobuf::ProtoRegistry;
+use kubernetes_rs_common::resources::{Container, Pod, PodSpec, PodStatus};
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------

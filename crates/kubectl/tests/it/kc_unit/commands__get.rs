@@ -5,8 +5,8 @@ mod __parent {
     pub use anyhow::{Context, Result};
     pub use chrono::Utc;
     pub use futures::StreamExt;
-    pub use k3rs_client::http::{ApiClient, GetError};
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_client::http::{ApiClient, GetError};
+    pub use kubernetes_rs_common::resources::{
         CronJob, DaemonSet, Deployment, Job, Namespace, Node, PersistentVolume,
         PersistentVolumeClaim, Pod, Service, StatefulSet,
     };
@@ -15,7 +15,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::get::*;
+    use kubernetes_rs_kubectl::commands::get::*;
     use std::collections::HashMap;
 
     #[test]
@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn test_sort_by_jsonpath_metadata_name() {
-        use k3rs_common::types::ObjectMeta;
+        use kubernetes_rs_common::types::ObjectMeta;
 
         let mut pods = vec![
             Pod {
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn test_sort_by_jsonpath_with_braces() {
-        use k3rs_common::types::ObjectMeta;
+        use kubernetes_rs_common::types::ObjectMeta;
 
         let mut pods = vec![
             Pod {
@@ -179,8 +179,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_pods() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let pod_mapping = ResourceMapping {
             group: "".into(),
             version: "v1".into(),
@@ -203,8 +203,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_deployments() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let dep_mapping = ResourceMapping {
             group: "apps".into(),
             version: "v1".into(),
@@ -223,8 +223,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_nodes() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let node_mapping = ResourceMapping {
             group: "".into(),
             version: "v1".into(),
@@ -240,8 +240,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_namespaces() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let ns_mapping = ResourceMapping {
             group: "".into(),
             version: "v1".into(),
@@ -573,8 +573,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_services() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let svc_mapping = ResourceMapping {
             group: "".into(),
             version: "v1".into(),
@@ -597,8 +597,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_configmaps() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let cm_mapping = ResourceMapping {
             group: "".into(),
             version: "v1".into(),
@@ -617,8 +617,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_jobs() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let job_mapping = ResourceMapping {
             group: "batch".into(),
             version: "v1".into(),
@@ -637,8 +637,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_cronjobs() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let cj_mapping = ResourceMapping {
             group: "batch".into(),
             version: "v1".into(),
@@ -657,8 +657,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_statefulsets() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let sts_mapping = ResourceMapping {
             group: "apps".into(),
             version: "v1".into(),
@@ -677,8 +677,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_daemonsets() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let ds_mapping = ResourceMapping {
             group: "apps".into(),
             version: "v1".into(),
@@ -829,8 +829,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_serviceaccounts() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let sa_mapping = ResourceMapping {
             group: "".into(),
             version: "v1".into(),
@@ -849,8 +849,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_persistentvolumes() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let pv_mapping = ResourceMapping {
             group: "".into(),
             version: "v1".into(),
@@ -870,8 +870,8 @@ mod tests {
 
     #[test]
     fn test_mapper_build_path_ingresses() {
-        use k3rs_kubectl::discovery::ResourceMapping;
-        use k3rs_kubectl::ops::build_path;
+        use kubernetes_rs_kubectl::discovery::ResourceMapping;
+        use kubernetes_rs_kubectl::ops::build_path;
         let ing_mapping = ResourceMapping {
             group: "networking.k8s.io".into(),
             version: "v1".into(),

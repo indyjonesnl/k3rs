@@ -3,9 +3,9 @@
 //! Mirrors the core of upstream `ValidateHorizontalPodAutoscalerSpec`
 //! (`pkg/apis/autoscaling/validation/validation.go`, release-1.35).
 
-use k3rs_common::resources::autoscaling::HorizontalPodAutoscaler;
-use k3rs_common::validation::field::{Error, ErrorType};
-use k3rs_common::validation::hpa::validate_horizontal_pod_autoscaler;
+use kubernetes_rs_common::resources::autoscaling::HorizontalPodAutoscaler;
+use kubernetes_rs_common::validation::field::{Error, ErrorType};
+use kubernetes_rs_common::validation::hpa::validate_horizontal_pod_autoscaler;
 use serde_json::json;
 
 fn hpa(spec: serde_json::Value) -> HorizontalPodAutoscaler {

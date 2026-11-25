@@ -2,24 +2,26 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_controller_core::{apiservice, clusterrole_aggregation};
+    pub use kubernetes_rs_controller_core::{apiservice, clusterrole_aggregation};
 }
 
 mod gather_metrics_tests {
     #[test]
     fn serves_version_info_from_default_registry() {
-        k3rs_common::compat_version_metrics::record_compat_version_info(
+        kubernetes_rs_common::compat_version_metrics::record_compat_version_info(
             "kube", "1.35", "1.35", "1.34",
         );
-        assert!(k3rs_controller_manager::controllers::gather_metrics().contains(
+        assert!(kubernetes_rs_controller_manager::controllers::gather_metrics().contains(
             "version_info{binary=\"1.35\",component=\"kube\",emulation=\"1.35\",min_compat=\"1.34\"} 1"
         ));
     }
 }
 
 mod error_predicate_tests {
-    use k3rs_common::Error;
-    use k3rs_controller_manager::controllers::{is_already_exists, is_already_exists_anyhow};
+    use kubernetes_rs_common::Error;
+    use kubernetes_rs_controller_manager::controllers::{
+        is_already_exists, is_already_exists_anyhow,
+    };
 
     #[test]
     fn typed_already_exists_is_matched() {
@@ -64,7 +66,7 @@ mod worker_pool_tests {
     //! One test per controller, each driving the real `run()` (not
     //! `reconcile_all`, which only tests call — see #1872) and asserting the
     //! worker pool is wider than one.
-    use k3rs_controller_manager::controllers::worker_pool::test_support::{
+    use kubernetes_rs_controller_manager::controllers::worker_pool::test_support::{
         meta, peak_concurrency, template,
     };
     use serde_json::json;
@@ -89,7 +91,7 @@ mod worker_pool_tests {
             |i| workload("Deployment", "apps/v1", i, match_labels()),
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::deployment::DeploymentController::new(
+                    kubernetes_rs_controller_manager::controllers::deployment::DeploymentController::new(
                         s, 1,
                     ),
                 )
@@ -109,7 +111,7 @@ mod worker_pool_tests {
             |i| workload("ReplicaSet", "apps/v1", i, match_labels()),
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::replicaset::ReplicaSetController::new(
+                    kubernetes_rs_controller_manager::controllers::replicaset::ReplicaSetController::new(
                         s, 1,
                     ),
                 )
@@ -129,7 +131,7 @@ mod worker_pool_tests {
             |i| workload("ReplicationController", "v1", i, json!({"a": "b"})),
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::replicationcontroller::ReplicationControllerController::new(
+                    kubernetes_rs_controller_manager::controllers::replicationcontroller::ReplicationControllerController::new(
                         s, 1,
                     ),
                 )
@@ -149,7 +151,7 @@ mod worker_pool_tests {
             |i| workload("DaemonSet", "apps/v1", i, match_labels()),
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::daemonset::DaemonSetController::new(s),
+                    kubernetes_rs_controller_manager::controllers::daemonset::DaemonSetController::new(s),
                 )
                 .run()
                 .await;
@@ -172,7 +174,7 @@ mod worker_pool_tests {
             },
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::endpoints::EndpointsController::new(s),
+                    kubernetes_rs_controller_manager::controllers::endpoints::EndpointsController::new(s),
                 )
                 .run()
                 .await;
@@ -194,7 +196,7 @@ mod worker_pool_tests {
                 })
             },
             |s| async move {
-                let _ = Arc::new(k3rs_controller_manager::controllers::resource_quota::ResourceQuotaController::new(s))
+                let _ = Arc::new(kubernetes_rs_controller_manager::controllers::resource_quota::ResourceQuotaController::new(s))
                     .run()
                     .await;
             },
@@ -219,7 +221,7 @@ mod worker_pool_tests {
                 })
             },
             |s| async move {
-                let _ = Arc::new(k3rs_controller_manager::controllers::hpa::HorizontalPodAutoscalerController::new(s))
+                let _ = Arc::new(kubernetes_rs_controller_manager::controllers::hpa::HorizontalPodAutoscalerController::new(s))
                     .run()
                     .await;
             },
@@ -247,7 +249,7 @@ mod worker_pool_tests {
             },
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::ttl_after_finished::TTLAfterFinishedController::new(
+                    kubernetes_rs_controller_manager::controllers::ttl_after_finished::TTLAfterFinishedController::new(
                         s,
                     ),
                 )
@@ -273,7 +275,7 @@ mod worker_pool_tests {
             },
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::certificate_signing_request::CertificateSigningRequestController::new(s),
+                    kubernetes_rs_controller_manager::controllers::certificate_signing_request::CertificateSigningRequestController::new(s),
                 )
                 .run()
                 .await;
@@ -295,7 +297,7 @@ mod worker_pool_tests {
             },
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::statefulset::StatefulSetController::new(
+                    kubernetes_rs_controller_manager::controllers::statefulset::StatefulSetController::new(
                         s,
                     ),
                 )
@@ -319,9 +321,11 @@ mod worker_pool_tests {
                 })
             },
             |s| async move {
-                let _ = Arc::new(k3rs_controller_manager::controllers::job::JobController::new(s))
-                    .run()
-                    .await;
+                let _ = Arc::new(
+                    kubernetes_rs_controller_manager::controllers::job::JobController::new(s),
+                )
+                .run()
+                .await;
             },
         )
         .await;
@@ -342,7 +346,7 @@ mod worker_pool_tests {
                 })
             },
             |s| async move {
-                let _ = Arc::new(k3rs_controller_manager::controllers::cronjob::CronJobController::new(s))
+                let _ = Arc::new(kubernetes_rs_controller_manager::controllers::cronjob::CronJobController::new(s))
                     .run()
                     .await;
             },
@@ -365,7 +369,7 @@ mod worker_pool_tests {
             },
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::servicecidr::ServiceCIDRController::new(
+                    kubernetes_rs_controller_manager::controllers::servicecidr::ServiceCIDRController::new(
                         s,
                     ),
                 )
@@ -391,7 +395,7 @@ mod worker_pool_tests {
             },
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::apiservice::APIServiceAvailabilityController::new(s),
+                    kubernetes_rs_controller_manager::controllers::apiservice::APIServiceAvailabilityController::new(s),
                 )
                 .run()
                 .await;
@@ -415,7 +419,7 @@ mod worker_pool_tests {
             },
             |s| async move {
                 let _ = Arc::new(
-                    k3rs_controller_manager::controllers::volume_expansion::VolumeExpansionController::new(s),
+                    kubernetes_rs_controller_manager::controllers::volume_expansion::VolumeExpansionController::new(s),
                 )
                 .run()
                 .await;
@@ -438,7 +442,7 @@ mod worker_pool_tests {
                 })
             },
             |s| async move {
-                let _ = Arc::new(k3rs_controller_manager::controllers::resourceclaim::ResourceClaimController::new(s))
+                let _ = Arc::new(kubernetes_rs_controller_manager::controllers::resourceclaim::ResourceClaimController::new(s))
                     .run()
                     .await;
             },
@@ -460,10 +464,11 @@ mod worker_pool_tests {
                 })
             },
             |s| async move {
-                let _ =
-                    Arc::new(k3rs_controller_manager::controllers::node::NodeController::new(s))
-                        .run()
-                        .await;
+                let _ = Arc::new(
+                    kubernetes_rs_controller_manager::controllers::node::NodeController::new(s),
+                )
+                .run()
+                .await;
             },
         )
         .await;
@@ -486,10 +491,11 @@ mod worker_pool_tests {
                 })
             },
             |s| async move {
-                let _ =
-                    Arc::new(k3rs_controller_manager::controllers::node::NodeController::new(s))
-                        .run()
-                        .await;
+                let _ = Arc::new(
+                    kubernetes_rs_controller_manager::controllers::node::NodeController::new(s),
+                )
+                .run()
+                .await;
             },
         )
         .await;
@@ -509,7 +515,7 @@ mod worker_pool_tests {
                 })
             },
             |s| async move {
-                let _ = Arc::new(k3rs_controller_manager::controllers::volume_snapshot::VolumeSnapshotController::new(s))
+                let _ = Arc::new(kubernetes_rs_controller_manager::controllers::volume_snapshot::VolumeSnapshotController::new(s))
                     .run()
                     .await;
             },

@@ -19,10 +19,10 @@
 //!   * `tower::ServiceExt::oneshot` per request.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
-// Harness: `TestApiServer` (k3rs-test-support) — `build_router` on
+// Harness: `TestApiServer` (kubernetes-rs-test-support) — `build_router` on
 // `MemoryStorage` with `--skip-auth`, driven via `tower::oneshot`. `send_raw`
 // returns the raw bytes for the wire-level `"items":` substring check below.
 

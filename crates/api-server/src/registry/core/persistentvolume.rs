@@ -5,15 +5,19 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use k3rs_common::pod_warnings::warnings_for_volume_node_selector_term;
-use k3rs_common::resources::volume::{PersistentVolumeMode, PersistentVolumeReclaimPolicy};
-use k3rs_common::resources::{PersistentVolume, PersistentVolumePhase, PersistentVolumeStatus};
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::persistentvolume::{
+use kubernetes_rs_common::pod_warnings::warnings_for_volume_node_selector_term;
+use kubernetes_rs_common::resources::volume::{
+    PersistentVolumeMode, PersistentVolumeReclaimPolicy,
+};
+use kubernetes_rs_common::resources::{
+    PersistentVolume, PersistentVolumePhase, PersistentVolumeStatus,
+};
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::persistentvolume::{
     validate_persistent_volume, validate_persistent_volume_plugin,
     validate_persistent_volume_status_update, validate_persistent_volume_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

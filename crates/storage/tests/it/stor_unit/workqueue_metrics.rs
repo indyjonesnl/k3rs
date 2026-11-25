@@ -3,7 +3,7 @@
 #![allow(unused_imports, dead_code)]
 
 mod tests {
-    use k3rs_storage::WorkQueue;
+    use kubernetes_rs_storage::WorkQueue;
     use std::time::Duration;
 
     /// One series from the default registry's text exposition, e.g.

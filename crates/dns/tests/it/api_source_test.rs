@@ -4,9 +4,9 @@
 //! path and the API path funnel into the same pure zone construction, so
 //! the two modes provably produce identical zones for identical inputs.
 
-use k3rs_common::resources::{EndpointSlice, Pod, Service};
-use k3rs_dns::watcher::{api_paths, rebuild_zone, DnsData};
-use k3rs_dns::zone::{DnsRecord, LookupOutcome};
+use kubernetes_rs_common::resources::{EndpointSlice, Pod, Service};
+use kubernetes_rs_dns::watcher::{api_paths, rebuild_zone, DnsData};
+use kubernetes_rs_dns::zone::{DnsRecord, LookupOutcome};
 
 #[test]
 fn api_paths_are_the_rest_collection_endpoints() {

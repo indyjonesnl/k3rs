@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::validation::structural::{Structural, StructuralOrBool};
+    pub use kubernetes_rs_common::validation::structural::{Structural, StructuralOrBool};
     pub use serde_json::{Map, Value};
     pub use std::collections::BTreeMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::fieldmanager::schema::*;
+    use kubernetes_rs_common::fieldmanager::schema::*;
     use serde_json::json;
 
     fn schemas() -> Map<String, Value> {

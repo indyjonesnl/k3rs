@@ -2,7 +2,7 @@
 //! `pkg/registry/discovery/endpointslice/strategy.go`.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const EPS: &str = "/apis/discovery.k8s.io/v1/namespaces/default/endpointslices";

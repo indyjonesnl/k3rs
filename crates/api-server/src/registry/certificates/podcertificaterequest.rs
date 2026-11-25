@@ -11,13 +11,13 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use k3rs_common::resources::podcertificaterequest::PodCertificateRequest;
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::podcertificaterequest::{
+use kubernetes_rs_common::resources::podcertificaterequest::PodCertificateRequest;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::podcertificaterequest::{
     validate_pod_certificate_request_create, validate_pod_certificate_request_status_update,
     validate_pod_certificate_request_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

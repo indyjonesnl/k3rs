@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# k3rs AWS Production Installer
+# kubernetes-rs AWS Production Installer
 #
-# This script automates the complete deployment of k3rs on AWS EC2
+# This script automates the complete deployment of kubernetes-rs on AWS EC2
 # with production-ready configuration including VPC, security groups, and optional HA.
 #
 # Usage:
@@ -25,10 +25,10 @@
 #
 # Examples:
 #   # Single-node deployment
-#   ./aws-install.sh --key-name k3rs-keypair --region us-east-1
+#   ./aws-install.sh --key-name kubernetes-rs-keypair --region us-east-1
 #
 #   # HA deployment with 3 nodes
-#   ./aws-install.sh --key-name k3rs-keypair --ha --region us-west-2
+#   ./aws-install.sh --key-name kubernetes-rs-keypair --ha --region us-west-2
 #
 
 set -e  # Exit on error
@@ -51,8 +51,8 @@ ALLOCATE_EIP=false
 SKIP_CLEANUP=false
 NON_INTERACTIVE=false
 VPC_CIDR="10.0.0.0/16"
-INSTALL_DIR="/home/ec2-user/k3rs"
-GITHUB_REPO="https://github.com/yourusername/k3rs.git"
+INSTALL_DIR="/home/ec2-user/kubernetes-rs"
+GITHUB_REPO="https://github.com/yourusername/kubernetes-rs.git"
 
 # Resource tracking (for cleanup)
 VPC_ID=""
@@ -257,7 +257,7 @@ check_prerequisites() {
 display_config() {
     echo
     echo "=========================================="
-    echo "  k3rs AWS Deployment Configuration"
+    echo "  kubernetes-rs AWS Deployment Configuration"
     echo "=========================================="
     echo "AWS Region: $AWS_REGION"
     echo "Instance Type: $INSTANCE_TYPE"
@@ -296,7 +296,7 @@ create_vpc() {
 
     VPC_ID=$(aws ec2 create-vpc \
         --cidr-block "$VPC_CIDR" \
-        --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=k3rs-vpc}]" \
+        --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=kubernetes-rs-vpc}]" \
         --query 'Vpc.VpcId' \
         --output text \
         --region "$AWS_REGION")
@@ -320,7 +320,7 @@ create_internet_gateway() {
     log_step "Creating Internet Gateway..."
 
     IGW_ID=$(aws ec2 create-internet-gateway \
-        --tag-specifications "ResourceType=internet-gateway,Tags=[{Key=Name,Value=k3rs-igw}]" \
+        --tag-specifications "ResourceType=internet-gateway,Tags=[{Key=Name,Value=kubernetes-rs-igw}]" \
         --query 'InternetGateway.InternetGatewayId' \
         --output text \
         --region "$AWS_REGION")
@@ -351,7 +351,7 @@ create_subnets() {
         --vpc-id "$VPC_ID" \
         --cidr-block 10.0.1.0/24 \
         --availability-zone "$AZ_1" \
-        --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=k3rs-public-1}]" \
+        --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=kubernetes-rs-public-1}]" \
         --query 'Subnet.SubnetId' \
         --output text \
         --region "$AWS_REGION")
@@ -379,7 +379,7 @@ create_subnets() {
             --vpc-id "$VPC_ID" \
             --cidr-block 10.0.2.0/24 \
             --availability-zone "$AZ_2" \
-            --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=k3rs-public-2}]" \
+            --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=kubernetes-rs-public-2}]" \
             --query 'Subnet.SubnetId' \
             --output text \
             --region "$AWS_REGION")
@@ -393,7 +393,7 @@ create_subnets() {
             --vpc-id "$VPC_ID" \
             --cidr-block 10.0.3.0/24 \
             --availability-zone "$AZ_3" \
-            --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=k3rs-public-3}]" \
+            --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=kubernetes-rs-public-3}]" \
             --query 'Subnet.SubnetId' \
             --output text \
             --region "$AWS_REGION")
@@ -432,10 +432,10 @@ create_security_group() {
     log_step "Creating security group..."
 
     SG_ID=$(aws ec2 create-security-group \
-        --group-name k3rs-sg \
-        --description "Security group for k3rs cluster" \
+        --group-name kubernetes-rs-sg \
+        --description "Security group for kubernetes-rs cluster" \
         --vpc-id "$VPC_ID" \
-        --tag-specifications "ResourceType=security-group,Tags=[{Key=Name,Value=k3rs-sg}]" \
+        --tag-specifications "ResourceType=security-group,Tags=[{Key=Name,Value=kubernetes-rs-sg}]" \
         --query 'GroupId' \
         --output text \
         --region "$AWS_REGION")
@@ -488,7 +488,7 @@ create_security_group() {
 create_user_data() {
     log_step "Creating instance initialization script..."
 
-    cat > /tmp/k3rs-user-data.sh <<'USERDATA'
+    cat > /tmp/kubernetes-rs-user-data.sh <<'USERDATA'
 #!/bin/bash
 set -e
 
@@ -511,21 +511,21 @@ ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source /root/.cargo/env
 
-# Create k3rs user
-useradd -m -s /bin/bash k3rs
-usermod -aG docker k3rs
+# Create kubernetes-rs user
+useradd -m -s /bin/bash kubernetes-rs
+usermod -aG docker kubernetes-rs
 
 # Clone repository
-cd /home/k3rs
-git clone GITHUB_REPO_PLACEHOLDER k3rs
-chown -R k3rs:k3rs k3rs
+cd /home/kubernetes-rs
+git clone GITHUB_REPO_PLACEHOLDER kubernetes-rs
+chown -R kubernetes-rs:kubernetes-rs kubernetes-rs
 
 # Mark complete
-touch /var/log/k3rs-init-complete
+touch /var/log/kubernetes-rs-init-complete
 USERDATA
 
     # Replace placeholder
-    sed -i "s|GITHUB_REPO_PLACEHOLDER|$GITHUB_REPO|g" /tmp/k3rs-user-data.sh
+    sed -i "s|GITHUB_REPO_PLACEHOLDER|$GITHUB_REPO|g" /tmp/kubernetes-rs-user-data.sh
 
     log_info "User data script created"
 }
@@ -544,7 +544,7 @@ launch_instance() {
         --security-group-ids "$SG_ID" \
         --subnet-id "$SUBNET" \
         --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":100,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
-        --user-data file:///tmp/k3rs-user-data.sh \
+        --user-data file:///tmp/kubernetes-rs-user-data.sh \
         --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$NAME}]" \
         --query 'Instances[0].InstanceId' \
         --output text \
@@ -578,7 +578,7 @@ allocate_elastic_ip() {
 
     EIP_ALLOC=$(aws ec2 allocate-address \
         --domain vpc \
-        --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=Name,Value=k3rs-eip}]" \
+        --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=Name,Value=kubernetes-rs-eip}]" \
         --query 'AllocationId' \
         --output text \
         --region "$AWS_REGION")
@@ -602,7 +602,7 @@ create_load_balancer() {
     log_step "Creating Application Load Balancer..."
 
     LB_ARN=$(aws elbv2 create-load-balancer \
-        --name k3rs-lb \
+        --name kubernetes-rs-lb \
         --subnets "$SUBNET_ID" "$SUBNET_ID_2" "$SUBNET_ID_3" \
         --security-groups "$SG_ID" \
         --scheme internet-facing \
@@ -615,7 +615,7 @@ create_load_balancer() {
 
     # Create target group
     TG_ARN=$(aws elbv2 create-target-group \
-        --name k3rs-api-tg \
+        --name kubernetes-rs-api-tg \
         --protocol HTTPS \
         --port 6443 \
         --vpc-id "$VPC_ID" \
@@ -659,7 +659,7 @@ create_load_balancer() {
 display_completion() {
     echo
     echo "=========================================="
-    echo "  k3rs AWS Deployment Complete!"
+    echo "  kubernetes-rs AWS Deployment Complete!"
     echo "=========================================="
     echo
     echo -e "${GREEN}Deployment successful!${NC}"
@@ -694,12 +694,12 @@ display_completion() {
     echo "  1. Wait for instance initialization to complete (~5-10 minutes)"
     echo "  2. SSH to instance: ssh -i ~/.ssh/$KEY_NAME.pem ec2-user@<IP>"
     echo "  3. Check initialization: tail -f /var/log/cloud-init-output.log"
-    echo "  4. Switch to k3rs user: sudo su - k3rs"
+    echo "  4. Switch to kubernetes-rs user: sudo su - kubernetes-rs"
     echo "  5. Build and start cluster:"
-    echo "     cd ~/k3rs"
+    echo "     cd ~/kubernetes-rs"
     echo "     source ~/.cargo/env"
     echo "     cargo build --release"
-    echo "     export KUBELET_VOLUMES_PATH=\$(pwd)/.k3rs/volumes"
+    echo "     export KUBELET_VOLUMES_PATH=\$(pwd)/.kubernetes-rs/volumes"
     echo "     docker-compose build"
     echo "     docker-compose up -d"
     echo "     envsubst < bootstrap-cluster.yaml > /tmp/bootstrap-expanded.yaml"
@@ -727,7 +727,7 @@ display_completion() {
 
 # Main installation flow
 main() {
-    log_info "Starting k3rs AWS deployment..."
+    log_info "Starting kubernetes-rs AWS deployment..."
 
     check_prerequisites
     display_config
@@ -742,9 +742,9 @@ main() {
 
     if [[ "$INSTALL_HA" == "true" ]]; then
         # HA deployment
-        INSTANCE_ID=$(launch_instance "k3rs-master-1" "$SUBNET_ID")
-        INSTANCE_2=$(launch_instance "k3rs-master-2" "$SUBNET_ID_2")
-        INSTANCE_3=$(launch_instance "k3rs-master-3" "$SUBNET_ID_3")
+        INSTANCE_ID=$(launch_instance "kubernetes-rs-master-1" "$SUBNET_ID")
+        INSTANCE_2=$(launch_instance "kubernetes-rs-master-2" "$SUBNET_ID_2")
+        INSTANCE_3=$(launch_instance "kubernetes-rs-master-3" "$SUBNET_ID_3")
 
         wait_for_instance "$INSTANCE_ID" > /dev/null
         wait_for_instance "$INSTANCE_2" > /dev/null
@@ -753,7 +753,7 @@ main() {
         create_load_balancer
     else
         # Single-node deployment
-        INSTANCE_ID=$(launch_instance "k3rs-node" "$SUBNET_ID")
+        INSTANCE_ID=$(launch_instance "kubernetes-rs-node" "$SUBNET_ID")
         wait_for_instance "$INSTANCE_ID" > /dev/null
 
         if [[ "$ALLOCATE_EIP" == "true" ]]; then

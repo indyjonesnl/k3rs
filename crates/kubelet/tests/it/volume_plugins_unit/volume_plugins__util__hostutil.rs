@@ -7,7 +7,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::volume_plugins::util::hostutil::*;
+    use kubernetes_rs_kubelet::volume_plugins::util::hostutil::*;
     use std::os::unix::fs::MetadataExt;
 
     /// `TestGetSELinuxSupport` (`hostutil_linux_test.go:137`).

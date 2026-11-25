@@ -1,12 +1,12 @@
 //! The shadow type check of a ValidatingAdmissionPolicy against the embedded
 //! upstream OpenAPI types (`plugin/policy/validating/typechecking.go`).
 
-use k3rs_api_server::registry::admissionregistration::vap_typechecking::{
+use kubernetes_rs_api_server::registry::admissionregistration::vap_typechecking::{
     typed_divergences, types_to_check, MAX_TYPES_TO_CHECK,
 };
-use k3rs_common::cel_openapi_resolver::Gvk;
-use k3rs_common::cel_versions::{self, EnvSet};
-use k3rs_common::resources::ValidatingAdmissionPolicy;
+use kubernetes_rs_common::cel_openapi_resolver::Gvk;
+use kubernetes_rs_common::cel_versions::{self, EnvSet};
+use kubernetes_rs_common::resources::ValidatingAdmissionPolicy;
 use serde_json::{json, Value};
 
 fn policy(spec: Value) -> ValidatingAdmissionPolicy {

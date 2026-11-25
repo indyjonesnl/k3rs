@@ -30,7 +30,7 @@
 //!   watcher as the transition it must turn into a DELETED.
 //!   `suggestedWatchChannelSize` gets `indexExists`/`triggerUsed` accordingly.
 //!
-//! Deviations (k3rs-specific):
+//! Deviations (kubernetes-rs-specific):
 //! * The namespace dimension of `namespacedName` is the storage prefix itself
 //!   (a namespaced watch has its own prefix).
 //! * Upstream's `watchCache` keeps every object (`w.store`), and
@@ -50,7 +50,7 @@
 //!   also `chanSize` deep.
 
 use crate::watch_cache::{CachedWatchEvent, WatchEventData, EVENT_FRESH_DURATION};
-use k3rs_storage::WatchEvent;
+use kubernetes_rs_storage::WatchEvent;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

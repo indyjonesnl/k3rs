@@ -7,7 +7,7 @@
 // A faithful port of the `api` package: `Older`, `Equivalent` and friends are
 // ported ahead of their callers (versioned checks, namespace validation).
 
-use k3rs_common::validation::field::{self, Path};
+use kubernetes_rs_common::validation::field::{self, Path};
 use std::collections::HashMap;
 use std::fmt;
 

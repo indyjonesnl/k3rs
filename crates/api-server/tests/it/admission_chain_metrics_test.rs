@@ -6,15 +6,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use k3rs_api_server::endpoints::handlers::admission::Admission;
-use k3rs_api_server::registry::rest::RequestContext;
-use k3rs_api_server::state::ApiServerState;
-use k3rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
-use k3rs_common::auth::{TokenManager, UserInfo};
-use k3rs_common::authz::AlwaysAllowAuthorizer;
-use k3rs_common::observability::MetricsRegistry;
-use k3rs_common::resources::ConfigMap;
-use k3rs_storage::{MemoryStorage, Storage, StorageBackend};
+use kubernetes_rs_api_server::endpoints::handlers::admission::Admission;
+use kubernetes_rs_api_server::registry::rest::RequestContext;
+use kubernetes_rs_api_server::state::ApiServerState;
+use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
+use kubernetes_rs_common::auth::{TokenManager, UserInfo};
+use kubernetes_rs_common::authz::AlwaysAllowAuthorizer;
+use kubernetes_rs_common::observability::MetricsRegistry;
+use kubernetes_rs_common::resources::ConfigMap;
+use kubernetes_rs_storage::{MemoryStorage, Storage, StorageBackend};
 use serde_json::json;
 
 fn state() -> ApiServerState {
@@ -373,8 +373,9 @@ async fn rejecting_plugin_is_observed_as_rejected() {
         resource: "pods".into(),
     };
     let admission = cm_admission(&state, &kind, &resource, &user);
-    k3rs_test_support::harness::seed_default_service_account(&*state.storage, "default").await;
-    let pod: k3rs_common::resources::Pod = serde_json::from_value(json!({
+    kubernetes_rs_test_support::harness::seed_default_service_account(&*state.storage, "default")
+        .await;
+    let pod: kubernetes_rs_common::resources::Pod = serde_json::from_value(json!({
         "apiVersion": "v1", "kind": "Pod",
         "metadata": {"name": "p", "namespace": "default"},
         "spec": {"priorityClassName": "does-not-exist",
@@ -407,17 +408,21 @@ fn pod_chain_fits_a_small_stack() {
                 .unwrap()
                 .block_on(async {
                     let state = state();
-                    let ns: k3rs_common::resources::Namespace = serde_json::from_value(json!({
-                        "apiVersion": "v1", "kind": "Namespace",
-                        "metadata": {"name": "default"},
-                    }))
-                    .unwrap();
+                    let ns: kubernetes_rs_common::resources::Namespace =
+                        serde_json::from_value(json!({
+                            "apiVersion": "v1", "kind": "Namespace",
+                            "metadata": {"name": "default"},
+                        }))
+                        .unwrap();
                     state
                         .storage
-                        .create(&k3rs_storage::build_key("namespaces", None, "default"), &ns)
+                        .create(
+                            &kubernetes_rs_storage::build_key("namespaces", None, "default"),
+                            &ns,
+                        )
                         .await
                         .unwrap();
-                    k3rs_test_support::harness::seed_default_service_account(
+                    kubernetes_rs_test_support::harness::seed_default_service_account(
                         &*state.storage,
                         "default",
                     )
@@ -448,7 +453,7 @@ fn pod_chain_fits_a_small_stack() {
                         dry_run: false,
                         forbid_create: false,
                     };
-                    let pod: k3rs_common::resources::Pod = serde_json::from_value(json!({
+                    let pod: kubernetes_rs_common::resources::Pod = serde_json::from_value(json!({
                         "apiVersion": "v1", "kind": "Pod",
                         "metadata": {"name": "p", "namespace": "default"},
                         "spec": {"containers": [{"name": "c", "image": "busybox"}]},

@@ -1,5 +1,5 @@
-use k3rs_common::resources::Node;
-use k3rs_common::validation::node::validate_node_update;
+use kubernetes_rs_common::resources::Node;
+use kubernetes_rs_common::validation::node::validate_node_update;
 use serde_json::json;
 
 fn node(spec: serde_json::Value) -> Node {

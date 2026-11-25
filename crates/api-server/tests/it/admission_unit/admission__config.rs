@@ -7,8 +7,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::config::*;
-    use k3rs_api_server::admission::plugins::EnabledForTest;
+    use kubernetes_rs_api_server::admission::config::*;
+    use kubernetes_rs_api_server::admission::plugins::EnabledForTest;
 
     const LEGACY: &str = "podNodeSelectorPluginConfig:\n  clusterDefaultNodeSelector: a=b\n";
 

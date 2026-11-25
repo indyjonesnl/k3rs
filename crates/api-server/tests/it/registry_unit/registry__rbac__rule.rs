@@ -3,25 +3,25 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_api_server::registry::rbac::policy_compact::{
+    pub use kubernetes_rs_api_server::registry::rbac::policy_compact::{
         compact_rules, compact_string, quote_strings,
     };
-    pub use k3rs_api_server::registry::rbac::policy_comparator::covers;
-    pub use k3rs_common::auth::UserInfo;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_api_server::registry::rbac::policy_comparator::covers;
+    pub use kubernetes_rs_common::auth::UserInfo;
+    pub use kubernetes_rs_common::resources::{
         ClusterRole, ClusterRoleBinding, PolicyRule, Role, RoleBinding, RoleRef, Subject,
     };
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_storage::{build_key, build_prefix, Storage};
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_storage::{build_key, build_prefix, Storage};
     pub use std::collections::BTreeSet;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::rbac::rule::*;
-    use k3rs_common::types::ObjectMeta;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_api_server::registry::rbac::rule::*;
+    use kubernetes_rs_common::types::ObjectMeta;
+    use kubernetes_rs_storage::memory::MemoryStorage;
 
     fn user(name: &str, groups: &[&str]) -> UserInfo {
         UserInfo {

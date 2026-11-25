@@ -1,6 +1,6 @@
 # MetalLB Configuration Examples
 
-This directory contains example MetalLB configurations for different deployment scenarios with k3rs.
+This directory contains example MetalLB configurations for different deployment scenarios with kubernetes-rs.
 
 ## Quick Start
 
@@ -59,7 +59,7 @@ addresses:
 
 ### Podman (`metallb-config-podman.yaml`)
 
-For k3rs running in Podman containers.
+For kubernetes-rs running in Podman containers.
 
 **Before applying:**
 1. Check your Podman network:
@@ -253,4 +253,4 @@ spec:
 
 - [Complete MetalLB Integration Guide](../../docs/METALLB_INTEGRATION.md)
 - [MetalLB Official Documentation](https://metallb.universe.tf/)
-- [k3rs LoadBalancer Overview](../../LOADBALANCER.md)
+- [kubernetes-rs LoadBalancer Overview](../../LOADBALANCER.md)

@@ -17,7 +17,7 @@ env:
   # workspace links ~500 test binaries (api-server alone has 206 test files,
   # each a separate binary statically linking the whole graph), so even
   # line-tables ends up at 69 GiB of target/ — 65.5 GiB of it test binaries.
-  # The arc-runner-set node has ~85 GiB allocatable and kubelet holds back a
+  # The old cluster runner node had ~85 GiB allocatable and kubelet held back a
   # ~14.5 GiB nodefs eviction threshold, leaving a real ceiling near 65 GiB,
   # so builds were evicted mid-nextest ("low on resource: ephemeral-storage
   # ... Container runner was using 69066692Ki"), surfacing as an opaque
@@ -60,7 +60,7 @@ env:
 jobs:
   clippy:
     name: cargo clippy
-    runs-on: arc-runner-set
+    runs-on: [self-hosted, kubernetes-rs]
     steps:
       - name: Checkout repository
         # fetch-depth: 0 gives the change-detection diff the PR base commit.
@@ -116,7 +116,7 @@ jobs:
 
   nextest:
     name: cargo nextest
-    runs-on: arc-runner-set
+    runs-on: [self-hosted, kubernetes-rs]
     steps:
       - name: Checkout repository
         # fetch-depth: 0 gives the change-detection diff the PR base commit.
@@ -158,7 +158,7 @@ jobs:
         # (nextest limitation); none of the workspace depends on doctest
         # coverage; add a separate `cargo test --doc` step if that changes.
         if: steps.rust.outputs.changed == 'true'
-        run: cargo nextest run --workspace --features k3rs-api-server/sqlite --locked --no-fail-fast --status-level fail
+        run: cargo nextest run --workspace --features kubernetes-rs-api-server/sqlite --locked --no-fail-fast --status-level fail
 
       - name: Wire-format coverage report (warnings only)
         # Passing nextest tests hide their output, so the gaps (protobuf
@@ -184,7 +184,7 @@ jobs:
     name: cargo clippy + nextest
     needs: [clippy, nextest]
     if: always()
-    runs-on: arc-runner-set-small
+    runs-on: [self-hosted, kubernetes-rs]
     steps:
       - name: Require clippy and nextest
         run: |

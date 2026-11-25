@@ -11,9 +11,9 @@
 //! `ServerTimeout`, HTTP 500, `details.retryAfterSeconds = 2`.
 #![cfg(feature = "sqlite")]
 
-use k3rs_common::Error;
-use k3rs_storage::rhino::RhinoStorage;
-use k3rs_storage::Storage;
+use kubernetes_rs_common::Error;
+use kubernetes_rs_storage::rhino::RhinoStorage;
+use kubernetes_rs_storage::Storage;
 use rhino::SqliteConfig;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions, SqliteConnection};

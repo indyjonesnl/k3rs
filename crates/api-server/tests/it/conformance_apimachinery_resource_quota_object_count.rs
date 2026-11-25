@@ -22,9 +22,9 @@
 //! keys are ignored), and compares with `Quantity.Equal`, so the mirror
 //! compares the listed keys as quantities too.
 
-use k3rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
-use k3rs_storage::memory::MemoryStorage;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
+use kubernetes_rs_storage::memory::MemoryStorage;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 

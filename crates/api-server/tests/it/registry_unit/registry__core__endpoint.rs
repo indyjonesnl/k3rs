@@ -2,24 +2,24 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_common::resources::Endpoints;
-    pub use k3rs_common::validation::endpoints::{
+    pub use kubernetes_rs_common::resources::Endpoints;
+    pub use kubernetes_rs_common::validation::endpoints::{
         validate_endpoints_create, validate_endpoints_update,
     };
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_common::validation::metav1::get_warnings_for_ip;
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_common::validation::metav1::get_warnings_for_ip;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::core::endpoint::*;
+    use kubernetes_rs_api_server::registry::core::endpoint::*;
 
     fn endpoints(ip: &str) -> Endpoints {
         serde_json::from_value(serde_json::json!({

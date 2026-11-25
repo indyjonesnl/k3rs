@@ -1,7 +1,9 @@
 use chrono::Utc;
 use futures::StreamExt;
-use k3rs_common::resources::{Event, EventSource, EventType, ObjectReference, Pod};
-use k3rs_storage::{build_prefix, EventRecorder, Storage, WorkQueue, RECONCILE_ALL_SENTINEL};
+use kubernetes_rs_common::resources::{Event, EventSource, EventType, ObjectReference, Pod};
+use kubernetes_rs_storage::{
+    build_prefix, EventRecorder, Storage, WorkQueue, RECONCILE_ALL_SENTINEL,
+};
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 
@@ -9,7 +11,7 @@ use tokio::time::{sleep, Duration};
 pub struct EventsController<S: Storage> {
     storage: Arc<S>,
     /// Unified recorder: every emission runs through the shared
-    /// [`EventCorrelator`](k3rs_common::event_correlator::EventCorrelator)
+    /// [`EventCorrelator`](kubernetes_rs_common::event_correlator::EventCorrelator)
     /// (spam-filter + aggregation + count) before reaching storage, replacing
     /// the hand-rolled create/bump this controller used to do inline.
     recorder: EventRecorder<S>,
@@ -146,7 +148,7 @@ impl<S: Storage + 'static> EventsController<S> {
 
         // Check pod phase and create appropriate events
         if let Some(status) = &pod.status {
-            use k3rs_common::types::Phase;
+            use kubernetes_rs_common::types::Phase;
 
             match &status.phase {
                 Some(Phase::Pending) => {
@@ -248,7 +250,7 @@ impl<S: Storage + 'static> EventsController<S> {
         // spam-filter + aggregation + count stages run. The recorder is the
         // single authority on `count` and `series`.
         let source = EventSource {
-            component: component.unwrap_or_else(|| "k3rs".to_string()),
+            component: component.unwrap_or_else(|| "kubernetes-rs".to_string()),
             host: None,
         };
         self.recorder

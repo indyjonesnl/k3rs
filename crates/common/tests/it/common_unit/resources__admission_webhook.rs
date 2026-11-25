@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::WebhookClientConfig;
-    pub use k3rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_common::resources::WebhookClientConfig;
+    pub use kubernetes_rs_common::types::ObjectMeta;
     pub use serde::{Deserialize, Serialize};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::admission_webhook::*;
+    use kubernetes_rs_common::resources::admission_webhook::*;
 
     /// Go-parity decode: a webhook `rule` that omits `apiGroups` (and other
     /// list fields) must deserialize. Upstream `admissionregistration.Rule`

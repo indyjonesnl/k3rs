@@ -51,16 +51,16 @@ use crate::controllers::typed_workqueue::{NopQueue, RateLimitingQueue, WorkItemQ
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use futures::StreamExt;
-use k3rs_common::resources::devicetaintrule::DeviceTaintRule;
-use k3rs_common::resources::dra::{
+use kubernetes_rs_common::resources::devicetaintrule::DeviceTaintRule;
+use kubernetes_rs_common::resources::dra::{
     AllocationResult, Device, DeviceRequestAllocationResult, DeviceTaint, DeviceTaintEffect,
     DeviceToleration, ResourceClaim, ResourceSlice, TolerationOperator,
 };
-use k3rs_common::resources::pod::PodResourceClaim;
-use k3rs_common::resources::{EventSource, EventType, ObjectReference, Pod, PodCondition};
-use k3rs_common::types::Condition;
-use k3rs_common::Error;
-use k3rs_storage::{build_key, build_prefix, EventRecorder, Storage, WatchEvent};
+use kubernetes_rs_common::resources::pod::PodResourceClaim;
+use kubernetes_rs_common::resources::{EventSource, EventType, ObjectReference, Pod, PodCondition};
+use kubernetes_rs_common::types::Condition;
+use kubernetes_rs_common::Error;
+use kubernetes_rs_storage::{build_key, build_prefix, EventRecorder, Storage, WatchEvent};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1281,8 +1281,8 @@ impl<S: Storage + 'static> DeviceTaintEvictionController<S> {
     /// [`run`](Self::run)). The `DeviceTaintRule` handling is only enabled
     /// when the `DRADeviceTaintRules` feature gate is.
     pub fn new(storage: Arc<S>) -> Self {
-        let rules_enabled = k3rs_common::feature_gates::enabled(
-            k3rs_common::feature_gates::Feature::DRADeviceTaintRules,
+        let rules_enabled = kubernetes_rs_common::feature_gates::enabled(
+            kubernetes_rs_common::feature_gates::Feature::DRADeviceTaintRules,
         );
         Self::with_parts(
             storage,
@@ -2026,6 +2026,6 @@ pub async fn run_informer<S, T, F>(
 /// (`cmd/kube-controller-manager/app/core.go:255-259`):
 /// `DynamicResourceAllocation` and `DRADeviceTaints`.
 pub fn feature_enabled() -> bool {
-    use k3rs_common::feature_gates::{enabled, Feature};
+    use kubernetes_rs_common::feature_gates::{enabled, Feature};
     enabled(Feature::DynamicResourceAllocation) && enabled(Feature::DRADeviceTaints)
 }

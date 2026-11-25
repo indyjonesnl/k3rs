@@ -3,11 +3,15 @@
 //! pkg/registry/batch/job/strategy.go:184 (`validationOptionsForJob`) and
 //! cronjob/strategy.go:114,147, versus the create path (`..., nil`).
 //! Mirrors the apps test for #3947.
-use k3rs_common::feature_gates::{with_feature, Feature};
-use k3rs_common::resources::workloads::Job;
-use k3rs_common::resources::CronJob;
-use k3rs_common::validation::cronjob::{validate_cron_job_create, validate_cron_job_update};
-use k3rs_common::validation::job::{validate_job, validate_job_update, JobValidationOptions};
+use kubernetes_rs_common::feature_gates::{with_feature, Feature};
+use kubernetes_rs_common::resources::workloads::Job;
+use kubernetes_rs_common::resources::CronJob;
+use kubernetes_rs_common::validation::cronjob::{
+    validate_cron_job_create, validate_cron_job_update,
+};
+use kubernetes_rs_common::validation::job::{
+    validate_job, validate_job_update, JobValidationOptions,
+};
 use serde_json::{json, Value};
 
 const RELAXED: &str = "my_search.example.com";

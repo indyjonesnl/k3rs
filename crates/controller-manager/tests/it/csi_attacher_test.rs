@@ -7,14 +7,14 @@
 //! `GetFinalizerName`) and `pkg/attacher/attacher.go`; the cases mirror
 //! `csi_handler_test.go`.
 
-use k3rs_common::resources::csi::VolumeAttachment;
-use k3rs_common::resources::PersistentVolume;
-use k3rs_controller_manager::controllers::csi_attacher::CsiAttacher;
-use k3rs_csi::controller_client::CsiControllerClient;
-use k3rs_csi::proto::controller_server::{Controller, ControllerServer};
-use k3rs_csi::proto::identity_server::{Identity, IdentityServer};
-use k3rs_csi::proto::*;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::csi::VolumeAttachment;
+use kubernetes_rs_common::resources::PersistentVolume;
+use kubernetes_rs_controller_manager::controllers::csi_attacher::CsiAttacher;
+use kubernetes_rs_csi::controller_client::CsiControllerClient;
+use kubernetes_rs_csi::proto::controller_server::{Controller, ControllerServer};
+use kubernetes_rs_csi::proto::identity_server::{Identity, IdentityServer};
+use kubernetes_rs_csi::proto::*;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

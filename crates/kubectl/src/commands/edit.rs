@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use k3rs_client::http::ApiClient;
+use kubernetes_rs_client::http::ApiClient;
 use std::env;
 use std::fs;
 use std::process::Command;

@@ -1,15 +1,17 @@
 use crate::controllers::worker_pool::spawn_workers;
 use anyhow::{Context, Result};
-use k3rs_common::resources::service_account::ObjectReference;
-use k3rs_common::resources::volume::PersistentVolumeClaimPhase;
-use k3rs_common::resources::volume::VolumeSnapshotContentSource;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::service_account::ObjectReference;
+use kubernetes_rs_common::resources::volume::PersistentVolumeClaimPhase;
+use kubernetes_rs_common::resources::volume::VolumeSnapshotContentSource;
+use kubernetes_rs_common::resources::{
     DeletionPolicy, EventSource, EventType, PersistentVolume, PersistentVolumeClaim,
     VolumeSnapshot, VolumeSnapshotClass, VolumeSnapshotContent, VolumeSnapshotContentSpec,
     VolumeSnapshotContentStatus, VolumeSnapshotStatus,
 };
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, extract_key, EventRecorder, Storage, WorkQueue};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{
+    build_key, build_prefix, extract_key, EventRecorder, Storage, WorkQueue,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
@@ -57,7 +59,7 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
         loop {
             self.enqueue_all(&queue).await;
 
-            let prefix = k3rs_storage::build_prefix("volumesnapshots", None);
+            let prefix = kubernetes_rs_storage::build_prefix("volumesnapshots", None);
             let watch_result = self.storage.watch(&prefix).await;
             let mut watch = match watch_result {
                 Ok(w) => w,
@@ -346,7 +348,7 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
     /// no-op.
     ///
     /// Not ported: the `IsVolumeGroupSnapshotMember` short-circuit (`:1475`) —
-    /// k3rs has no VolumeGroupSnapshot.
+    /// kubernetes-rs has no VolumeGroupSnapshot.
     async fn set_default_snapshot_class(&self, vs: &VolumeSnapshot) -> Result<Option<String>> {
         if vs.spec.source.volume_snapshot_content_name.is_some() {
             return Ok(None);
@@ -495,7 +497,7 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
         // For now, we only support our own hostpath snapshotter
         matches!(
             driver,
-            "k3rs.io/hostpath-snapshotter" | "hostpath-snapshotter"
+            "kubernetes-rs.io/hostpath-snapshotter" | "hostpath-snapshotter"
         )
     }
 

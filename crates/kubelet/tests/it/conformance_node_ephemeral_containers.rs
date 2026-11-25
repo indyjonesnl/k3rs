@@ -1,4 +1,4 @@
-// Copyright The k3rs Authors
+// Copyright The kubernetes-rs Authors
 // SPDX-License-Identifier: Apache-2.0
 
 //! Conformance: EphemeralContainer resource shape.
@@ -15,7 +15,7 @@
 //! sharing" path. They complement `ephemeral_containers_test.rs` (which
 //! covers in-pod mutation of `spec.ephemeralContainers`).
 
-use k3rs_common::resources::{EphemeralContainer, Pod};
+use kubernetes_rs_common::resources::{EphemeralContainer, Pod};
 use serde_json::json;
 
 fn ec(name: &str, target: Option<&str>) -> EphemeralContainer {

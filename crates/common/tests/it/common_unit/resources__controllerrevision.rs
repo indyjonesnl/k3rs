@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::types::{ObjectMeta, TypeMeta};
+    pub use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::Value;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::controllerrevision::*;
+    use kubernetes_rs_common::resources::controllerrevision::*;
     use serde_json::json;
 
     #[test]
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_controller_revision_with_owner_references() {
-        use k3rs_common::types::OwnerReference;
+        use kubernetes_rs_common::types::OwnerReference;
 
         let mut cr = ControllerRevision::new("owned-rev", "default", 1);
         cr.metadata.owner_references = Some(vec![OwnerReference {

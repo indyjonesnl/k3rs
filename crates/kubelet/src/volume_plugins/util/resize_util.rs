@@ -25,11 +25,11 @@
 
 use anyhow::{anyhow, Result};
 use chrono::SecondsFormat;
-use k3rs_common::quantity::Quantity;
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::quantity::Quantity;
+use kubernetes_rs_common::resources::volume::{
     PersistentVolumeClaim, PersistentVolumeClaimCondition, PersistentVolumeClaimStatus,
 };
-use k3rs_storage::{build_key, Storage};
+use kubernetes_rs_storage::{build_key, Storage};
 
 /// `v1.ResourceStorage`.
 pub const RESOURCE_STORAGE: &str = "storage";

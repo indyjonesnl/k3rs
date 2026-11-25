@@ -3,9 +3,9 @@
 
 mod __parent {
     pub use chrono::{DateTime, SubsecRound, Utc};
-    pub use k3rs_common::fieldmanager::fieldset::{field_path, Fields, Set};
-    pub use k3rs_common::fieldmanager::versionconverter::{Converter, UpdateFailure};
-    pub use k3rs_common::types::ManagedFieldsEntry;
+    pub use kubernetes_rs_common::fieldmanager::fieldset::{field_path, Fields, Set};
+    pub use kubernetes_rs_common::fieldmanager::versionconverter::{Converter, UpdateFailure};
+    pub use kubernetes_rs_common::types::ManagedFieldsEntry;
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::Value;
     pub use std::collections::BTreeMap;
@@ -14,7 +14,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::fieldmanager::*;
+    use kubernetes_rs_common::fieldmanager::*;
 
     /// `capManagersManager` merges per API version into one bucket, oldest first
     /// (capmanagers_test.go `TestCapUpdateManagers`).

@@ -19,6 +19,6 @@ export const useUIStore = create<UIState>()(
       toggleSidebar: () =>
         set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     }),
-    { name: "k3rs-ui" },
+    { name: "kubernetes-rs-ui" },
   ),
 );

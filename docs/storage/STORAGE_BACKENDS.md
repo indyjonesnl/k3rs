@@ -2,7 +2,7 @@
 
 
 > **Tip:** Storage configuration, classes, and PVCs are manageable through the [web console](../CONSOLE_USER_GUIDE.md) Storage page.
-k3rs supports three deployment modes with different storage backends.
+kubernetes-rs supports three deployment modes with different storage backends.
 The same component binaries work in all modes — the only difference is
 configuration flags and which compose file you use.
 
@@ -61,21 +61,21 @@ bash scripts/bootstrap-cluster.sh
 
 All components run as concurrent tokio tasks in a single process with
 rhino's `SqliteBackend` embedded directly — no gRPC, no network, no
-containers, pure in-process Rust calls. The `k3rs` binary in
-`crates/k3rs/` orchestrates everything.
+containers, pure in-process Rust calls. The `kubernetes-rs` binary in
+`crates/kubernetes-rs/` orchestrates everything.
 
 ```bash
-cargo build -p k3rs
-./target/debug/k3rs
+cargo build -p kubernetes-rs
+./target/debug/kubernetes-rs
 ```
 
-By default it uses SQLite at `./data/k3rs.db`. No etcd, no Docker
+By default it uses SQLite at `./data/kubernetes-rs.db`. No etcd, no Docker
 Compose, no containers — just run the binary.
 
 You can also point the all-in-one at etcd if you prefer:
 
 ```bash
-./target/debug/k3rs --storage-backend etcd --etcd-servers http://etcd:2379
+./target/debug/kubernetes-rs --storage-backend etcd --etcd-servers http://etcd:2379
 ```
 
 ### 5. All-in-one binary with Redis
@@ -86,10 +86,10 @@ Requires a Redis server.
 
 ```bash
 # Build with redis feature
-cargo build -p k3rs --features redis --release
+cargo build -p kubernetes-rs --features redis --release
 
 # Run with a local Redis
-./target/release/k3rs --storage-backend redis --redis-url redis://localhost:6379
+./target/release/kubernetes-rs --storage-backend redis --redis-url redis://localhost:6379
 
 # Or use the compose file (builds and runs everything)
 podman compose -f compose.all-in-one-redis.yml build
@@ -160,15 +160,15 @@ cargo build
 The features propagate through the crate graph:
 
 ```
-k3rs-api-server/sqlite  -> k3rs-storage/sqlite  -> dep:rhino
-k3rs-api-server/redis   -> k3rs-storage/redis   -> dep:rhino
+kubernetes-rs-api-server/sqlite  -> kubernetes-rs-storage/sqlite  -> dep:rhino
+kubernetes-rs-api-server/redis   -> kubernetes-rs-storage/redis   -> dep:rhino
 ```
 
 Every binary crate (api-server, scheduler, controller-manager, kubelet,
 kube-proxy) defines both `sqlite` and `redis` features that forward to
-`k3rs-storage`.
+`kubernetes-rs-storage`.
 
-The `k3rs` all-in-one crate enables the `sqlite` feature **by
+The `kubernetes-rs` all-in-one crate enables the `sqlite` feature **by
 default** — no extra flags needed when building it. For Redis, pass
 `--features redis`.
 
@@ -246,28 +246,28 @@ scheduler --etcd-servers http://localhost:2379
 
 ### All-in-one binary
 
-The `k3rs` binary spawns all components as tokio tasks in one process.
+The `kubernetes-rs` binary spawns all components as tokio tasks in one process.
 The `sqlite` feature is enabled by default for this crate.
 
 ```bash
 # Build and run with defaults (SQLite, localhost:6443, node-1)
-cargo build -p k3rs
-./target/debug/k3rs
+cargo build -p kubernetes-rs
+./target/debug/kubernetes-rs
 
 # With Redis instead
-cargo build -p k3rs --features redis
-./target/debug/k3rs --storage-backend redis --redis-url redis://localhost:6379
+cargo build -p kubernetes-rs --features redis
+./target/debug/kubernetes-rs --storage-backend redis --redis-url redis://localhost:6379
 
 # Custom configuration
-./target/debug/k3rs \
-    --data-dir /var/lib/k3rs.db \
+./target/debug/kubernetes-rs \
+    --data-dir /var/lib/kubernetes-rs.db \
     --node-name my-node \
     --bind-address 0.0.0.0:6443 \
     --tls \
     --tls-san localhost,127.0.0.1,my-node
 
 # Disable kube-proxy (e.g. when iptables is not available)
-./target/debug/k3rs --disable-proxy
+./target/debug/kubernetes-rs --disable-proxy
 ```
 
 The database file is created automatically if it does not exist.
@@ -283,16 +283,16 @@ Every component binary accepts these storage flags:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--storage-backend` | `etcd` | `etcd`, `sqlite`, or `redis` |
-| `--data-dir` | `./data/k3rs.db` | SQLite database file path (sqlite backend) |
+| `--data-dir` | `./data/kubernetes-rs.db` | SQLite database file path (sqlite backend) |
 | `--etcd-servers` | `http://localhost:2379` | etcd endpoints, comma-separated (etcd backend) |
 | `--redis-url` | `redis://localhost:6379` | Redis connection URL (redis backend) |
 
-### All-in-one binary (`k3rs`)
+### All-in-one binary (`kubernetes-rs`)
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--storage-backend` | `sqlite` | `sqlite`, `etcd`, or `redis` |
-| `--data-dir` | `./data/k3rs.db` | SQLite database file path |
+| `--data-dir` | `./data/kubernetes-rs.db` | SQLite database file path |
 | `--etcd-servers` | `http://localhost:2379` | etcd endpoints (when `--storage-backend=etcd`) |
 | `--redis-url` | `redis://localhost:6379` | Redis URL (when `--storage-backend=redis`) |
 | `--kubernetes-service-host` | `127.0.0.1` | API server address injected into pods (or `KUBERNETES_SERVICE_HOST_OVERRIDE` env var) |
@@ -300,7 +300,7 @@ Every component binary accepts these storage flags:
 | `--node-name` | `node-1` | Node name for the embedded kubelet |
 | `--volume-dir` | `./data/volumes` | Pod volume directory |
 | `--cluster-dns` | `10.96.0.10` | Cluster DNS IP |
-| `--network` | `k3rs-network` | Container network name |
+| `--network` | `kubernetes-rs-network` | Container network name |
 | `--tls` | `false` | Enable TLS with self-signed certs |
 | `--tls-cert-file` | — | TLS certificate file (PEM) |
 | `--tls-key-file` | — | TLS private key file (PEM) |
@@ -374,7 +374,7 @@ crates/
       concurrency.rs  # resourceVersion <-> mod_revision conversion
     Cargo.toml        # rhino = { optional = true }, [features] sqlite/redis = ["dep:rhino"]
 
-  k3rs/        # All-in-one meta-crate
+  kubernetes-rs/        # All-in-one meta-crate
     src/main.rs       # Spawns all components as tokio tasks
     Cargo.toml        # Depends on all component crates, sqlite enabled by default
 
@@ -491,7 +491,7 @@ Rhino is a git dependency of the storage crate, pinned by commit in
 `crates/storage/Cargo.toml` and resolved by cargo like any other dependency.
 
 Rhino provides four database backends (SQLite, Redis, PostgreSQL, MySQL) behind
-its `Backend` trait. k3rs uses `SqliteBackend` and `RedisBackend`.
+its `Backend` trait. kubernetes-rs uses `SqliteBackend` and `RedisBackend`.
 `RhinoStorage<B>` is generic over the `Backend` trait, so adding PostgreSQL
 or MySQL would only require a new constructor and `StorageConfig`/`StorageBackend`
 variant.

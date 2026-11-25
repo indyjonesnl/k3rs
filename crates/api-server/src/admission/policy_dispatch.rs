@@ -27,12 +27,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use k3rs_common::admission::{GroupVersionKind, GroupVersionResource};
-use k3rs_common::resources::validating_admission_policy::{
+use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource};
+use kubernetes_rs_common::resources::validating_admission_policy::{
     FailurePolicy, MatchResources, ParamKind, ParamRef, ParameterNotFoundAction,
 };
-use k3rs_common::types::{Selector, Status, StatusCause, StatusDetails};
-use k3rs_common::Error;
+use kubernetes_rs_common::types::{Selector, Status, StatusCause, StatusDetails};
+use kubernetes_rs_common::Error;
 use serde_json::Value;
 
 use super::policy_matching::{selector_of, Attributes, Matcher};

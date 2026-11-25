@@ -6,9 +6,9 @@
 //! (:66-95).
 
 use async_trait::async_trait;
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
-use k3rs_common::Result;
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
+use kubernetes_rs_common::Result;
 use prometheus::{register, IntCounterVec, Opts};
 use std::sync::{Arc, LazyLock, Once};
 
@@ -103,7 +103,7 @@ impl Authorizer for InstrumentedAuthorizer {
     async fn authorize_outcome(
         &self,
         attrs: &RequestAttributes,
-    ) -> Result<k3rs_common::authz::AuthorizationOutcome> {
+    ) -> Result<kubernetes_rs_common::authz::AuthorizationOutcome> {
         let outcome = self.delegate.authorize_outcome(attrs).await?;
         self.record(&outcome.opinion);
         Ok(outcome)
@@ -113,7 +113,7 @@ impl Authorizer for InstrumentedAuthorizer {
         &self,
         user: &UserInfo,
         namespace: &str,
-    ) -> Result<k3rs_common::authz::UserRulesOutcome> {
+    ) -> Result<kubernetes_rs_common::authz::UserRulesOutcome> {
         self.delegate.get_user_rules_outcome(user, namespace).await
     }
 }

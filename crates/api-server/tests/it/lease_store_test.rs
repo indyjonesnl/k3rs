@@ -3,7 +3,7 @@
 //! and `Store.Update`.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const LEASES: &str = "/apis/coordination.k8s.io/v1/namespaces/default/leases";

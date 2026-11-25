@@ -10,18 +10,18 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k3rs_common::deletion::DeleteOptions;
-use k3rs_common::equality::semantic_equal;
-use k3rs_common::resources::{Job, JobSpec, JobStatus};
-use k3rs_common::types::LabelSelector;
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::job::{
+use kubernetes_rs_common::deletion::DeleteOptions;
+use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::resources::{Job, JobSpec, JobStatus};
+use kubernetes_rs_common::types::LabelSelector;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::job::{
     get_status_validation_options, validate_job, validate_job_update, validate_job_update_status,
     JobValidationOptions,
 };
-use k3rs_common::validation::metav1::is_dns1123_label;
-use k3rs_common::Result;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::validation::metav1::is_dns1123_label;
+use kubernetes_rs_common::Result;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::{CreateOptions, Deleted, Store, UpdateOptions};
 use crate::registry::rest::{
@@ -143,7 +143,10 @@ impl RestCreateStrategy<Job> for Strategy {
         generate_selector_if_needed(obj);
         obj.status = Some(JobStatus::default());
         obj.metadata.generation = Some(1);
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(&mut obj.spec.template, None);
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
+            &mut obj.spec.template,
+            None,
+        );
     }
 
     fn validate(&self, _ctx: &RequestContext, obj: &Job) -> ErrorList {
@@ -174,7 +177,7 @@ impl RestUpdateStrategy<Job> for Strategy {
     /// change bumps the generation.
     fn prepare_for_update(&self, _ctx: &RequestContext, obj: &mut Job, old: &Job) {
         obj.status = old.status.clone();
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
             &mut obj.spec.template,
             Some(&old.spec.template),
         );

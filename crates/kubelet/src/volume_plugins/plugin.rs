@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use k3rs_common::quantity::Quantity;
-use k3rs_common::resources::{PersistentVolume, Pod, Volume};
+use kubernetes_rs_common::quantity::Quantity;
+use kubernetes_rs_common::resources::{PersistentVolume, Pod, Volume};
 
 /// Port of `volume.Spec` (`pkg/volume/plugins.go:434`).
 ///
@@ -385,7 +385,9 @@ pub struct MounterArgs {
 /// two args are equal regardless of the recorder (it is skipped by `Debug`
 /// too).
 #[derive(Clone)]
-pub struct MounterRecorder(pub k3rs_storage::EventRecorder<k3rs_storage::StorageBackend>);
+pub struct MounterRecorder(
+    pub kubernetes_rs_storage::EventRecorder<kubernetes_rs_storage::StorageBackend>,
+);
 
 impl std::fmt::Debug for MounterRecorder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

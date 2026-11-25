@@ -2,12 +2,12 @@
 //!
 //! Tests all CRUD operations, edge cases, and error handling for replicasets
 
-use k3rs_api_server::handlers::table::{generic_table, wants_table, HasMetadata};
-use k3rs_common::resources::{
+use kubernetes_rs_api_server::handlers::table::{generic_table, wants_table, HasMetadata};
+use kubernetes_rs_common::resources::{
     Container, PodSpec, PodTemplateSpec, ReplicaSet, ReplicaSetSpec, ReplicaSetStatus,
 };
-use k3rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -414,14 +414,15 @@ async fn test_replicaset_with_owner_reference() {
     let storage = Arc::new(MemoryStorage::new());
 
     let mut replicaset = create_test_replicaset("test-owner", "default", 3);
-    replicaset.metadata.owner_references = Some(vec![k3rs_common::types::OwnerReference {
-        api_version: "apps/v1".to_string(),
-        kind: "Deployment".to_string(),
-        name: "parent-deployment".to_string(),
-        uid: "parent-uid-123".to_string(),
-        controller: Some(true),
-        block_owner_deletion: Some(true),
-    }]);
+    replicaset.metadata.owner_references =
+        Some(vec![kubernetes_rs_common::types::OwnerReference {
+            api_version: "apps/v1".to_string(),
+            kind: "Deployment".to_string(),
+            name: "parent-deployment".to_string(),
+            uid: "parent-uid-123".to_string(),
+            controller: Some(true),
+            block_owner_deletion: Some(true),
+        }]);
 
     let key = build_key("replicasets", Some("default"), "test-owner");
 

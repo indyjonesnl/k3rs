@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Run the upstream Kubernetes [Conformance] suite against an already-running
-# k3rs cluster via Hydrophone, in the canonical two-phase split, and
+# kubernetes-rs cluster via Hydrophone, in the canonical two-phase split, and
 # report pass/fail/skip counts per phase.
 #
 # This REPLACES the known-green.txt ratchet for the conformance canary. It is
 # DISCOVERY / REPORTING, not a gate: a failing conformance test does NOT fail
-# the job (k3rs is not yet 100% conformant, so a raw tag run is red by
+# the job (kubernetes-rs is not yet 100% conformant, so a raw tag run is red by
 # construction). The job only fails on an infrastructure error — hydrophone
 # producing no junit at all. To see the regression delta, compare the printed
 # counts (and the uploaded junit) across runs.
@@ -27,10 +27,10 @@
 #
 # Flags:
 #   --kubeconfig PATH     Override kubeconfig
-#                         (default: $KUBECONFIG or ~/.kube/k3rs-config)
+#                         (default: $KUBECONFIG or ~/.kube/kubernetes-rs-config)
 #   --output-dir DIR      Output dir for hydrophone artifacts. Each phase gets
 #                         a subdir (phase1-parallel/, phase2-serial/).
-#                         (default: .k3rs/volumes/conformance-tags-<ts>)
+#                         (default: .kubernetes-rs/volumes/conformance-tags-<ts>)
 #   --conformance-image IMG
 #                         Override conformance image. Defaults to
 #                         registry.k8s.io/conformance:v1.35.0 (k8s target pin).
@@ -53,13 +53,13 @@ IFS=$'\n\t'
 
 # Enable payload dumps in api-server/kubelet so any panic / 5xx / decode
 # failure during conformance logs the offending request body.
-export K3RS_DUMP_PAYLOADS=1
+export KUBERNETES_RS_DUMP_PAYLOADS=1
 
 SCRIPT_NAME="$(basename "$0")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
-KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/k3rs-config}"
+KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/kubernetes-rs-config}"
 DEFAULT_IMAGE="registry.k8s.io/conformance:v1.35.0"
 CONFORMANCE_IMAGE="$DEFAULT_IMAGE"
 OUTPUT_DIR=""
@@ -143,7 +143,7 @@ fi
 [[ -x "$HYDROPHONE_BIN" ]] || die "hydrophone binary not executable: $HYDROPHONE_BIN"
 
 if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="$REPO_ROOT/.k3rs/volumes/conformance-tags-$(date +%Y%m%d-%H%M%S)"
+    OUTPUT_DIR="$REPO_ROOT/.kubernetes-rs/volumes/conformance-tags-$(date +%Y%m%d-%H%M%S)"
 fi
 mkdir -p "$OUTPUT_DIR"
 

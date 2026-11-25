@@ -4,15 +4,15 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::CSIStorageCapacity;
-use k3rs_common::validation::csistoragecapacity::{
+use kubernetes_rs_common::resources::CSIStorageCapacity;
+use kubernetes_rs_common::validation::csistoragecapacity::{
     get_warnings_for_csi_storage_capacity, has_invalid_label_value_in_label_selector,
     validate_csi_storage_capacity, validate_csi_storage_capacity_update,
     CsiStorageCapacityValidateOptions,
 };
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

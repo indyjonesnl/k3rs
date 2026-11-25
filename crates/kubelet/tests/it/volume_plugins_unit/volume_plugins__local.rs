@@ -4,27 +4,29 @@
 mod __parent {
     pub use anyhow::{anyhow, bail, Result};
     pub use async_trait::async_trait;
-    pub use k3rs_common::resources::{EventType, Pod};
-    pub use k3rs_kubelet::volume_plugins::metrics_statfs::MetricsStatFs;
-    pub use k3rs_kubelet::volume_plugins::plugin::{
+    pub use kubernetes_rs_common::resources::{EventType, Pod};
+    pub use kubernetes_rs_kubelet::volume_plugins::metrics_statfs::MetricsStatFs;
+    pub use kubernetes_rs_kubelet::volume_plugins::plugin::{
         BlockVolumeMapper, BlockVolumePlugin, BlockVolumeUnmapper, CustomBlockVolumeMapper,
         DeviceMountableVolumePlugin, DeviceUnmounter, Metrics, MetricsProvider, OwnedSpec,
     };
-    pub use k3rs_kubelet::volume_plugins::util::exec::{Exec, RealExec};
-    pub use k3rs_kubelet::volume_plugins::util::hostutil::FileType;
-    pub use k3rs_kubelet::volume_plugins::util::key_mutex::KeyMutex;
-    pub use k3rs_kubelet::volume_plugins::util::metrics::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::exec::{Exec, RealExec};
+    pub use kubernetes_rs_kubelet::volume_plugins::util::hostutil::FileType;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::key_mutex::KeyMutex;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::metrics::{
         new_metrics_block, MetricsBlock, MetricsNil,
     };
-    pub use k3rs_kubelet::volume_plugins::util::mount_interface::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::mount_interface::{
         MountInterface, SafeFormatAndMount,
     };
-    pub use k3rs_kubelet::volume_plugins::util::mount_ops::cleanup_mount_point;
-    pub use k3rs_kubelet::volume_plugins::util::mount_utils::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::mount_ops::cleanup_mount_point;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::mount_utils::{
         is_not_mount_point_with, path_within_base,
     };
-    pub use k3rs_kubelet::volume_plugins::util::{join_mount_options, mount_option_from_spec};
-    pub use k3rs_kubelet::volume_plugins::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::{
+        join_mount_options, mount_option_from_spec,
+    };
+    pub use kubernetes_rs_kubelet::volume_plugins::{
         Attributes, DeviceMounter, DeviceMounterArgs, Mounter, MounterArgs, ReconstructedVolume,
         Spec, Unmounter, VolumeHost, VolumePlugin,
     };
@@ -41,12 +43,14 @@ mod tests {
     //! `mount.FakeMounter` by the crate's `FakeMounter`.
 
     use super::__parent::*;
-    use k3rs_common::resources::{Event, PersistentVolume, Volume};
-    use k3rs_kubelet::volume_plugins::local::*;
-    use k3rs_kubelet::volume_plugins::util::exec::ExecError;
-    use k3rs_kubelet::volume_plugins::util::mount_interface::testing::{FakeMounter, MountPoint};
-    use k3rs_kubelet::volume_plugins::{KubeletVolumeHost, MounterArgs};
-    use k3rs_storage::{EventRecorder, Storage, StorageBackend};
+    use kubernetes_rs_common::resources::{Event, PersistentVolume, Volume};
+    use kubernetes_rs_kubelet::volume_plugins::local::*;
+    use kubernetes_rs_kubelet::volume_plugins::util::exec::ExecError;
+    use kubernetes_rs_kubelet::volume_plugins::util::mount_interface::testing::{
+        FakeMounter, MountPoint,
+    };
+    use kubernetes_rs_kubelet::volume_plugins::{KubeletVolumeHost, MounterArgs};
+    use kubernetes_rs_storage::{EventRecorder, Storage, StorageBackend};
     use serde_json::json;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
@@ -75,7 +79,7 @@ mod tests {
         Arc::new(KubeletVolumeHost::new_for_tests(
             base.to_string_lossy().into_owned(),
             None,
-            k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+            kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
             std::collections::HashMap::new(),
         ))
     }
@@ -378,9 +382,9 @@ mod tests {
         let (v, p) = (claimed(), pv(src.to_str().unwrap(), false, &[]));
 
         let storage = Arc::new(StorageBackend::new_memory());
-        let recorder = k3rs_kubelet::volume_plugins::plugin::MounterRecorder(EventRecorder::new(
-            Arc::clone(&storage),
-        ));
+        let recorder = kubernetes_rs_kubelet::volume_plugins::plugin::MounterRecorder(
+            EventRecorder::new(Arc::clone(&storage)),
+        );
 
         // Pod A: first reference, takes ownership.
         let a = pod("pod-a");
@@ -414,7 +418,7 @@ mod tests {
         let key_b = format!(
             "/registry/events/default/{}",
             Event::generate_name(
-                &k3rs_kubelet::events::pod_object_reference(&b),
+                &kubernetes_rs_kubelet::events::pod_object_reference(&b),
                 WARN_ALREADY_MOUNTED_VOLUME
             )
         );
@@ -436,7 +440,7 @@ mod tests {
         let key_c = format!(
             "/registry/events/default/{}",
             Event::generate_name(
-                &k3rs_kubelet::events::pod_object_reference(&c),
+                &kubernetes_rs_kubelet::events::pod_object_reference(&c),
                 WARN_ALREADY_MOUNTED_VOLUME
             )
         );

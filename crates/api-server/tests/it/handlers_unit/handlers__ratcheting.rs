@@ -2,16 +2,16 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::crd::{
+    pub use kubernetes_rs_common::resources::crd::{
         JSONSchemaProps, JSONSchemaPropsOrArray, JSONSchemaPropsOrBool,
     };
-    pub use k3rs_common::schema_validation::PathSeg;
+    pub use kubernetes_rs_common::schema_validation::PathSeg;
     pub use serde_json::Value;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::ratcheting::*;
+    use kubernetes_rs_api_server::handlers::ratcheting::*;
     use serde_json::json;
 
     fn from_json(v: serde_json::Value) -> JSONSchemaProps {

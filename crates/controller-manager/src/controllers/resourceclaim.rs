@@ -1,11 +1,11 @@
 use crate::controllers::device_taint_eviction::tolerates_taint;
 use crate::controllers::worker_pool::spawn_workers;
 use anyhow::Result;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     AllocationResult, DeviceAllocationResult, DeviceClass, DeviceRequestAllocationResult,
     DeviceToleration, ResourceClaim, ResourceClaimStatus, ResourceSlice,
 };
-use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
+use kubernetes_rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;

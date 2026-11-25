@@ -1,8 +1,8 @@
 //! Tests for ControllerRevision validation (upstream ValidateControllerRevisionCreate).
 
-use k3rs_common::resources::ControllerRevision;
-use k3rs_common::validation::controllerrevision::validate_controller_revision;
-use k3rs_common::validation::field::ErrorType;
+use kubernetes_rs_common::resources::ControllerRevision;
+use kubernetes_rs_common::validation::controllerrevision::validate_controller_revision;
+use kubernetes_rs_common::validation::field::ErrorType;
 use serde_json::json;
 
 fn cr(data: Option<serde_json::Value>) -> ControllerRevision {

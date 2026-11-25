@@ -108,10 +108,10 @@ pub fn register() {
             .register(Box::new(VOLUME_STAT_CAL_DURATION.clone()))
             .expect("volume stat histogram registered once");
         // metrics.go:1281-1285.
-        if k3rs_common::feature_gates::enabled(
-            k3rs_common::feature_gates::Feature::GracefulNodeShutdown,
-        ) && k3rs_common::feature_gates::enabled(
-            k3rs_common::feature_gates::Feature::GracefulNodeShutdownBasedOnPodPriority,
+        if kubernetes_rs_common::feature_gates::enabled(
+            kubernetes_rs_common::feature_gates::Feature::GracefulNodeShutdown,
+        ) && kubernetes_rs_common::feature_gates::enabled(
+            kubernetes_rs_common::feature_gates::Feature::GracefulNodeShutdownBasedOnPodPriority,
         ) {
             r.register(Box::new(GRACEFUL_SHUTDOWN_START_TIME.clone()))
                 .expect("graceful shutdown start gauge registered once");

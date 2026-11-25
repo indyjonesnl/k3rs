@@ -124,7 +124,7 @@ pub async fn with_max_in_flight_limit(
             // answer. It's a super-admin or a loopback connection."
             let privileged = req
                 .extensions()
-                .get::<k3rs_middleware::AuthContext>()
+                .get::<kubernetes_rs_middleware::AuthContext>()
                 .is_some_and(|c| c.user.groups.iter().any(|g| g == SYSTEM_PRIVILEGED_GROUP));
             if privileged {
                 return next.run(req).await;

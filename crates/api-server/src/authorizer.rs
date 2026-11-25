@@ -12,11 +12,11 @@ use crate::authorization_config::{
     name_for_authorizer_mode, AuthorizationConfiguration, AuthorizerConfiguration,
 };
 use crate::authorization_reload::ChainBuilder;
-use k3rs_common::authz::{
+use kubernetes_rs_common::authz::{
     node_graph::NodeGraph, superuser_then, AlwaysAllowAuthorizer, AlwaysDenyAuthorizer, Authorizer,
     AuthzStorage, NodeAuthorizer, NodeAuthorizerFeatures, RBACAuthorizer,
 };
-use k3rs_storage::Storage;
+use kubernetes_rs_storage::Storage;
 use std::path::Path;
 use std::sync::Arc;
 

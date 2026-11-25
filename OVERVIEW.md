@@ -1,15 +1,15 @@
-# k3rs — Project Overview
+# kubernetes-rs — Project Overview
 
-> **Disclaimer:** k3rs is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by k3s, SUSE, Rancher, or the CNCF. k3s is a trademark of its respective owners; the name k3rs only describes the goal of reimplementing k3s in Rust.
+> **Disclaimer:** kubernetes-rs is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by k3s, SUSE, Rancher, or the CNCF. k3s is a trademark of its respective owners; the name kubernetes-rs only describes the goal of reimplementing k3s in Rust.
 >
-> k3rs derives from [calfonso/rusternetes](https://github.com/calfonso/rusternetes) (Apache-2.0).
+> kubernetes-rs derives from [calfonso/rusternetes](https://github.com/calfonso/rusternetes) (Apache-2.0).
 
 A complete, from-scratch reimplementation of **Kubernetes in Rust**. Every
 component — API server, scheduler, controller manager, kubelet, kube-proxy,
 DNS — is written in Rust against the real Kubernetes API surface, wire format,
 and behavioral semantics. It is not a wrapper around the Go codebase or a mock.
 
-This document is the single starting point: what k3rs is, how it is put
+This document is the single starting point: what kubernetes-rs is, how it is put
 together, every binary and its flags, the container images we publish, and how
 to deploy it — on a laptop in Docker, as a single binary on bare metal, or as a
 multi-node cluster.
@@ -54,7 +54,7 @@ multi-node cluster.
 
 ## What it is
 
-k3rs implements the Kubernetes control plane and node components as
+kubernetes-rs implements the Kubernetes control plane and node components as
 native Rust binaries:
 
 | Component | Crate | Role |
@@ -66,7 +66,7 @@ native Rust binaries:
 | **Kube-proxy** | `kube-proxy` | iptables service routing (ClusterIP / NodePort / LoadBalancer) in host-network mode |
 | **DNS** | `dns` | Cluster DNS for Services and Pods |
 | **kubectl** | `kubectl` | A from-scratch `kubectl` CLI |
-| **All-in-one** | `k3rs` | Every component above as concurrent async tasks in one process, with embedded storage |
+| **All-in-one** | `kubernetes-rs` | Every component above as concurrent async tasks in one process, with embedded storage |
 
 Shared resource types, error mapping, and utilities live in the `common` crate;
 storage backends live in `storage`.
@@ -77,7 +77,7 @@ the storage backend change.
 
 ## Why it exists (the north star)
 
-k3rs exists to answer one concrete question: **can a fully conformant
+kubernetes-rs exists to answer one concrete question: **can a fully conformant
 Kubernetes run on hardware this small?**
 
 The north star is a **four-node cluster of Raspberry Pi 3A+ boards** — 512 MB of
@@ -157,7 +157,7 @@ binary shares a common set of storage/logging flags
 ### api-server
 
 ```
-k3rs-api-server [OPTIONS]
+kubernetes-rs-api-server [OPTIONS]
 ```
 
 | Flag | Default | Description |
@@ -165,9 +165,9 @@ k3rs-api-server [OPTIONS]
 | `--bind-address` | `0.0.0.0:6443` | Address to bind |
 | `--etcd-servers` | `http://localhost:2379` | etcd/Rhino endpoints (comma-separated) |
 | `--storage-backend` | `etcd` | `etcd` or `sqlite` |
-| `--data-dir` | `./data/k3rs.db` | SQLite path (when `--storage-backend=sqlite`) |
+| `--data-dir` | `./data/kubernetes-rs.db` | SQLite path (when `--storage-backend=sqlite`) |
 | `--log-level` | `info` | Log level |
-| `--jwt-secret` | `k3rs-secret-change-in-production` | ServiceAccount token signing secret |
+| `--jwt-secret` | `kubernetes-rs-secret-change-in-production` | ServiceAccount token signing secret |
 | `--tls` | `false` | Enable TLS/HTTPS |
 | `--tls-cert-file` | — | TLS certificate (PEM) |
 | `--tls-key-file` | — | TLS private key (PEM) |
@@ -182,14 +182,14 @@ k3rs-api-server [OPTIONS]
 ### scheduler
 
 ```
-k3rs-scheduler [OPTIONS]
+kubernetes-rs-scheduler [OPTIONS]
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `--etcd-servers` | `http://localhost:2379` | etcd/Rhino endpoints |
 | `--storage-backend` | `etcd` | `etcd` or `sqlite` |
-| `--data-dir` | `./data/k3rs.db` | SQLite path |
+| `--data-dir` | `./data/kubernetes-rs.db` | SQLite path |
 | `--log-level` | `info` | Log level |
 | `--interval` | `2` | Scheduling interval (seconds) |
 | `--secure-port` | `10259` | HTTPS port for `/metrics`, `/statusz`, `/flagz` (authn/authz via `--authentication-kubeconfig` / `--authorization-kubeconfig`) |
@@ -204,18 +204,18 @@ k3rs-scheduler [OPTIONS]
 ### controller-manager
 
 ```
-k3rs-controller-manager [OPTIONS]
+kubernetes-rs-controller-manager [OPTIONS]
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `--etcd-servers` | `http://localhost:2379` | etcd/Rhino endpoints |
 | `--storage-backend` | `etcd` | `etcd` or `sqlite` |
-| `--data-dir` | `./data/k3rs.db` | SQLite path |
+| `--data-dir` | `./data/kubernetes-rs.db` | SQLite path |
 | `--log-level` | `info` | Log level |
 | `--sync-interval` | `5` | Controller sync interval (seconds) |
 | `--cloud-provider` | — | Empty or `external` (in-tree providers are not supported) |
-| `--cluster-name` | `k3rs` | Cluster name |
+| `--cluster-name` | `kubernetes-rs` | Cluster name |
 | `--enable-leader-election` | `false` | Enable leader election (HA) |
 | `--leader-election-identity` | — | Unique identity per instance |
 | `--leader-election-resource-namespace` | `kube-system` | Namespace of the leader-election Lease |
@@ -227,7 +227,7 @@ k3rs-controller-manager [OPTIONS]
 ### kubelet
 
 ```
-k3rs-kubelet [--hostname-override <NAME>] [OPTIONS]
+kubernetes-rs-kubelet [--hostname-override <NAME>] [OPTIONS]
 ```
 
 | Flag | Default | Description |
@@ -235,7 +235,7 @@ k3rs-kubelet [--hostname-override <NAME>] [OPTIONS]
 | `--hostname-override` | OS hostname | Node name and hostname (upstream derives `nodeName` from it) |
 | `--etcd-servers` | `http://localhost:2379` | etcd/Rhino endpoints |
 | `--storage-backend` | `etcd` | `etcd` or `sqlite` |
-| `--data-dir` | `./data/k3rs.db` | SQLite path |
+| `--data-dir` | `./data/kubernetes-rs.db` | SQLite path |
 | `--log-level` | — | Log level (trace/debug/info/warn/error) |
 | `--config` | — | Path to a kubelet config file |
 | `--root-dir` | — | Root dir for kubelet files (volume data, plugin state) |
@@ -245,7 +245,7 @@ k3rs-kubelet [--hostname-override <NAME>] [OPTIONS]
 | `--metrics-port` | — | Metrics/read-only server port (`:10250` in compose) |
 | `--cluster-dns` | *(auto-discovered)* | Cluster DNS Service IP |
 | `--cluster-domain` | `cluster.local` | Cluster domain suffix |
-| `--network` | `k3rs-network` | Container network pods attach to |
+| `--network` | `kubernetes-rs-network` | Container network pods attach to |
 | `--eviction-hard` | — | Hard eviction thresholds (`<signal><op><value>`; empty disables) |
 | `--eviction-soft` | — | Soft eviction thresholds (same format) |
 | `--eviction-soft-grace-period` | — | Soft-eviction grace periods (`<signal>=<duration>`) |
@@ -259,7 +259,7 @@ operator is supported).
 ### kube-proxy
 
 ```
-k3rs-kube-proxy --node-name <NAME> [OPTIONS]
+kubernetes-rs-kube-proxy --node-name <NAME> [OPTIONS]
 ```
 
 | Flag | Default | Description |
@@ -267,7 +267,7 @@ k3rs-kube-proxy --node-name <NAME> [OPTIONS]
 | `--node-name` | *(required)* | Node name |
 | `--etcd-servers` | `http://localhost:2379` | etcd/Rhino endpoints |
 | `--storage-backend` | `etcd` | `etcd` or `sqlite` |
-| `--data-dir` | `./data/k3rs.db` | SQLite path |
+| `--data-dir` | `./data/kubernetes-rs.db` | SQLite path |
 | `--log-level` | `info` | Log level |
 | `--sync-interval` | `1` | Sync interval (seconds) |
 | `--cluster-cidr` | *(built-in default)* | ClusterIP CIDR; must match the apiserver's `--service-cluster-ip-range`. Scopes the POSTROUTING MASQUERADE rule. |
@@ -279,14 +279,14 @@ Kube-proxy runs in host-network mode and needs `CAP_NET_ADMIN` (see
 ### dns
 
 ```
-k3rs-dns [OPTIONS]
+kubernetes-rs-dns [OPTIONS]
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `--etcd-servers` | `http://localhost:2379` | etcd/Rhino endpoints |
 | `--storage-backend` | `etcd` | `etcd` or `sqlite` |
-| `--data-dir` | `./data/k3rs.db` | SQLite path |
+| `--data-dir` | `./data/kubernetes-rs.db` | SQLite path |
 | `--log-level` | `info` | Log level |
 | `--cluster-zone` | `cluster.local` | Cluster zone suffix |
 | `--udp-bind` | `0.0.0.0:53` | UDP bind address |
@@ -310,7 +310,7 @@ It implements the full familiar surface, including: `get`, `describe`, `create`,
 
 ## The all-in-one binary
 
-The `k3rs` binary runs the **entire cluster in one process** — API
+The `kubernetes-rs` binary runs the **entire cluster in one process** — API
 server, scheduler, controller manager, kubelet, kube-proxy, and DNS as
 concurrent tokio tasks sharing one storage backend. It defaults to **embedded
 SQLite**, so there is no etcd and no external infrastructure: the whole cluster
@@ -323,27 +323,27 @@ Raspberry-Pi north star.
 
 ```bash
 # Build (SQLite default)
-cargo build --release -p k3rs
-./target/release/k3rs --data-dir ./cluster.db
+cargo build --release -p kubernetes-rs
+./target/release/kubernetes-rs --data-dir ./cluster.db
 
 # With Redis instead of SQLite
-cargo build --release -p k3rs --features redis
-./target/release/k3rs --storage-backend redis --redis-url redis://localhost:6379
+cargo build --release -p kubernetes-rs --features redis
+./target/release/kubernetes-rs --storage-backend redis --redis-url redis://localhost:6379
 ```
 
-Selected flags (run `k3rs --help` for the complete list):
+Selected flags (run `kubernetes-rs --help` for the complete list):
 
 | Flag | Default | Description |
 |---|---|---|
 | `--storage-backend` | `sqlite` | `sqlite`, `etcd`, or `redis` |
-| `--data-dir` | `./data/k3rs.db` | SQLite database path |
+| `--data-dir` | `./data/kubernetes-rs.db` | SQLite database path |
 | `--etcd-servers` | `http://localhost:2379` | etcd endpoints (when `etcd`) |
 | `--redis-url` | `redis://localhost:6379` | Redis URL (when `redis`) |
 | `--bind-address` | `0.0.0.0:6443` | API server bind address |
 | `--node-name` | `node-1` | Embedded kubelet node name |
 | `--volume-dir` | `./data/volumes` | Pod volume directory |
 | `--cluster-dns` | `10.96.0.10` | Cluster DNS ClusterIP |
-| `--network` | `k3rs-network` | Container network name |
+| `--network` | `kubernetes-rs-network` | Container network name |
 | `--tls` / `--tls-cert-file` / `--tls-key-file` / `--tls-san` | `false` / — / — / `localhost,127.0.0.1` | TLS controls |
 | `--client-ca-file` | — | Client CA for mTLS |
 | `--skip-auth` | `true` | Skip authn/authz (development default for this binary) |
@@ -367,17 +367,16 @@ binary).
 | Dockerfile | Build targets | Produces |
 |---|---|---|
 | **`services.Dockerfile`** | `api-server`, `kubelet`, `scheduler`, `controller-manager`, `kube-proxy`, `dns` | One image per component. A shared `cargo-builder` stage compiles all binaries once; a `console-builder` stage bundles the web console into the `api-server` image. |
-| **`all-in-one.Dockerfile`** | *(single stage)* | The `k3rs` all-in-one image, built with `CARGO_FEATURES=sqlite` or `redis`, console bundled in. |
+| **`all-in-one.Dockerfile`** | *(single stage)* | The `kubernetes-rs` all-in-one image, built with `CARGO_FEATURES=sqlite` or `redis`, console bundled in. |
 | **`rhino.Dockerfile`** | *(single stage)* | The `rhino-server` image — etcd-compatible gRPC over SQLite/Redis. |
-| **`dns.Dockerfile`** | *(single stage)* | Standalone `k3rs-dns`. |
+| **`dns.Dockerfile`** | *(single stage)* | Standalone `kubernetes-rs-dns`. |
 | **`kubectl.Dockerfile`** | *(single stage)* | Standalone `kubectl`. |
 | **`local-binary.services.Dockerfile`** | `api-server`, `kubelet`, `scheduler`, `controller-manager`, `kube-proxy` | Thin images that **bind a host-built `target/release/<bin>`** instead of compiling — fast local iteration. |
 
 > Compose stacks build these images locally via `docker compose build` /
-> `podman compose build`. CI builds them the same way; the only image published
-> to a registry today is the self-hosted Actions runner image
-> (`ghcr.io/indyjonesnl/k3rs-arc-runner`), which is infrastructure, not a
-> k3rs component.
+> `podman compose build`. CI builds them the same way; no image is published
+> to a registry; the self-hosted Actions runner image is
+> built locally from `ci/local-runner/`.
 
 ## Deployment
 
@@ -398,7 +397,7 @@ The fastest way to a real multi-container cluster on one machine. Pick a storage
 backend; the components are identical across them.
 
 ```bash
-export KUBELET_VOLUMES_PATH=$(pwd)/.k3rs/volumes
+export KUBELET_VOLUMES_PATH=$(pwd)/.kubernetes-rs/volumes
 
 # Docker
 docker compose build
@@ -410,7 +409,7 @@ podman compose up -d
 
 # Then, regardless of runtime:
 bash scripts/bootstrap-cluster.sh
-export KUBECONFIG=~/.kube/k3rs-config
+export KUBECONFIG=~/.kube/kubernetes-rs-config
 kubectl get nodes
 ```
 
@@ -421,8 +420,8 @@ Available stacks:
 | `compose.yml` / `docker-compose.yml` | etcd | etcd, api-server, scheduler, controller-manager, 2× kubelet, kube-proxy, dns |
 | `compose.sqlite.yml` / `docker-compose.sqlite.yml` | Rhino + SQLite | same components, Rhino instead of etcd |
 | `compose.redis.yml` | Rhino + Redis | same components, Redis-backed Rhino |
-| `compose.all-in-one.yml` | embedded SQLite | a single `k3rs` container |
-| `compose.all-in-one-redis.yml` | Redis | `k3rs` + a Redis container |
+| `compose.all-in-one.yml` | embedded SQLite | a single `kubernetes-rs` container |
+| `compose.all-in-one-redis.yml` | Redis | `kubernetes-rs` + a Redis container |
 | `compose.ha.yml` / `docker-compose.ha.yml` | 3-node etcd | 3× api-server behind HAProxy, 2× scheduler, 2× controller-manager |
 
 Override files compose on top of the base stack:
@@ -442,12 +441,12 @@ Override files compose on top of the base stack:
 A whole cluster in one container, embedded SQLite, no etcd:
 
 ```bash
-export KUBELET_VOLUMES_PATH=$(pwd)/.k3rs/volumes
+export KUBELET_VOLUMES_PATH=$(pwd)/.kubernetes-rs/volumes
 docker compose -f compose.all-in-one.yml up -d
 bash scripts/bootstrap-cluster.sh
 ```
 
-The `k3rs` container runs privileged (kube-proxy needs
+The `kubernetes-rs` container runs privileged (kube-proxy needs
 `CAP_NET_ADMIN`/`NET_RAW` for iptables), shares the bundled `containerd`
 service's network namespace (so Service rules land where the pod IPs live) and
 mounts that service's CRI socket plus the volume directory. Use
@@ -460,12 +459,12 @@ container runtime, and root (for kube-proxy's iptables):
 
 ```bash
 sudo apt-get install -y docker.io iptables iproute2     # or the distro equivalent
-cargo build --release -p k3rs
+cargo build --release -p kubernetes-rs
 npm --prefix console install && npm --prefix console run build   # optional: web console → console/dist
 
-sudo ./target/release/k3rs \
-  --data-dir /var/lib/k3rs/cluster.db \
-  --volume-dir /var/lib/k3rs/volumes \
+sudo ./target/release/kubernetes-rs \
+  --data-dir /var/lib/kubernetes-rs/cluster.db \
+  --volume-dir /var/lib/kubernetes-rs/volumes \
   --tls --console-dir ./console/dist
 # API + console on https://<host>:6443/console/
 ```
@@ -482,7 +481,7 @@ kubelet + kube-proxy on each worker, all pointed at the same storage endpoint
 ./target/release/api-server --bind-address 0.0.0.0:6443 --etcd-servers http://STORE:2379 --tls --tls-cert-file ... --tls-key-file ... --authorization-mode=Node,RBAC
 ./target/release/scheduler           --etcd-servers http://STORE:2379
 ./target/release/controller-manager  --etcd-servers http://STORE:2379
-./target/release/k3rs-dns     --etcd-servers http://STORE:2379
+./target/release/kubernetes-rs-dns     --etcd-servers http://STORE:2379
 
 # each worker (kube-proxy needs root or CAP_NET_ADMIN)
 export CONTAINER_RUNTIME_ENDPOINT=unix:///run/containerd/containerd.sock
@@ -513,7 +512,7 @@ scheduler and controller-manager with **leader election** enabled
 
 ### Bootstrapping and certificates
 
-Two scripts handle one-time setup; both write under `.k3rs/`:
+Two scripts handle one-time setup; both write under `.kubernetes-rs/`:
 
 - **`scripts/generate-certs.sh`** — generates the API-server TLS cert/key
   (EC P-256), the ServiceAccount signing keypair (`sa.key`/`sa.pub`), and the CA
@@ -523,12 +522,12 @@ Two scripts handle one-time setup; both write under `.k3rs/`:
 - **`scripts/bootstrap-cluster.sh`** — after the stack is up, creates the
   `default` and `kube-system` namespaces, the `kubernetes` (`10.96.0.1`) and
   `kube-dns` (`10.96.0.10`) Services, default ServiceAccounts + tokens, and
-  wires DNS to the `k3rs-dns` container (or a CoreDNS Pod). Honors
+  wires DNS to the `kubernetes-rs-dns` container (or a CoreDNS Pod). Honors
   `KUBELET_VOLUMES_PATH`, `CONTAINER_RUNTIME`, and
   `KUBERNETES_SERVICE_HOST_OVERRIDE`.
 
 ```bash
-export KUBELET_VOLUMES_PATH=$(pwd)/.k3rs/volumes
+export KUBELET_VOLUMES_PATH=$(pwd)/.kubernetes-rs/volumes
 bash scripts/generate-certs.sh          # first run only
 bash scripts/bootstrap-cluster.sh       # after `compose up`
 ```
@@ -542,7 +541,7 @@ streaming, full resource management) served at `/console/` when started with
 
 ## Conformance
 
-k3rs is continuously tested against the **official Kubernetes v1.35
+kubernetes-rs is continuously tested against the **official Kubernetes v1.35
 conformance suite** (via Sonobuoy/Hydrophone), plus a kubelet-scoped
 `[NodeConformance]` job. Current pass rates and the per-test breakdown are
 tracked in the repository's GitHub Projects (Node Conformance and Conformance).
@@ -572,7 +571,7 @@ the destination. Themes in flight:
 ```bash
 cargo build                                   # debug build
 cargo test                                    # all workspace tests
-cargo test -p k3rs-api-server          # one crate
+cargo test -p kubernetes-rs-api-server          # one crate
 cargo clippy --all-targets --all-features -- -D warnings
 make pre-commit                               # fmt + clippy + test
 ```

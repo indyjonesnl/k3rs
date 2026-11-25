@@ -211,7 +211,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 command -v jq >/dev/null 2>&1 || die "jq required"
-# coreutils, so present everywhere this runs — but the ARC runners have no sudo
+# coreutils, so present everywhere this runs — but the local runners have no sudo
 # to install anything, so say so plainly rather than letting the partition loop
 # fail per-partition with a bare 127.
 command -v timeout >/dev/null 2>&1 || die "timeout(1) required (coreutils)"
@@ -221,7 +221,7 @@ SELECTION=$(resolve_selection "$MANIFEST" "$TARGETS" "$SKIP_TARGETS" "$ORDER" "$
     || die "could not resolve the partition selection (see above)"
 mapfile -t PARTITIONS <<<"$SELECTION"
 
-[ -n "$OUTPUT_DIR" ] || OUTPUT_DIR="$REPO_ROOT/.k3rs/volumes/suite-$(date +%Y%m%d-%H%M%S)"
+[ -n "$OUTPUT_DIR" ] || OUTPUT_DIR="$REPO_ROOT/.kubernetes-rs/volumes/suite-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUTPUT_DIR"
 SUMMARY_TSV="$OUTPUT_DIR/summary.tsv"
 : > "$SUMMARY_TSV"

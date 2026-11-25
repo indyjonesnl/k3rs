@@ -11,14 +11,14 @@
 //! `SetDefaults_DownwardAPIVolumeSource`, and `SetDefaults_ProjectedVolumeSource`
 //! from `pkg/apis/core/v1/defaults.go`.
 
-use k3rs_api_server::handlers::secret::apply_volume_mode_defaults;
-use k3rs_common::resources::pod::{
+use kubernetes_rs_api_server::handlers::secret::apply_volume_mode_defaults;
+use kubernetes_rs_common::resources::pod::{
     ConfigMapVolumeSource, DownwardAPIVolumeSource, KeyToPath, ProjectedVolumeSource,
     SecretProjection, SecretVolumeSource, Volume, VolumeProjection,
 };
-use k3rs_common::resources::{Container, Pod, PodSpec};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{Container, Pod, PodSpec};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::sync::Arc;
 
 fn empty_container() -> Container {

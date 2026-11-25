@@ -10,10 +10,10 @@
 //! `ipaddresses` sees every allocation and release a Service makes.
 
 use axum::http::StatusCode;
-use k3rs_common::admission::{AdmissionReview, AdmissionReviewResponse};
-use k3rs_storage::{build_key, Storage};
-use k3rs_test_support::harness::TestApiServer;
-use k3rs_test_support::mock_http::*;
+use kubernetes_rs_common::admission::{AdmissionReview, AdmissionReviewResponse};
+use kubernetes_rs_storage::{build_key, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::mock_http::*;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
@@ -73,7 +73,7 @@ async fn register(api: &TestApiServer, url: &str) {
     });
     // The REST validator only admits https URLs, which a local mock cannot
     // serve; the webhook manager reads the same storage key.
-    let cfg: k3rs_common::resources::ValidatingWebhookConfiguration =
+    let cfg: kubernetes_rs_common::resources::ValidatingWebhookConfiguration =
         serde_json::from_value(cfg).unwrap();
     api.storage
         .create(
@@ -138,12 +138,12 @@ async fn a_webhook_that_denies_the_ipaddress_fails_the_service_create() {
 /// controller/repairip.go:373), so a webhook on `ipaddresses` sees it.
 #[tokio::test]
 async fn a_webhook_on_ipaddresses_sees_the_repair_create() {
-    use k3rs_api_server::state::ApiServerState;
-    use k3rs_common::auth::TokenManager;
-    use k3rs_common::authz::AlwaysAllowAuthorizer;
-    use k3rs_common::observability::MetricsRegistry;
-    use k3rs_common::resources::{Service, ServiceCIDR};
-    use k3rs_storage::{MemoryStorage, StorageBackend};
+    use kubernetes_rs_api_server::state::ApiServerState;
+    use kubernetes_rs_common::auth::TokenManager;
+    use kubernetes_rs_common::authz::AlwaysAllowAuthorizer;
+    use kubernetes_rs_common::observability::MetricsRegistry;
+    use kubernetes_rs_common::resources::{Service, ServiceCIDR};
+    use kubernetes_rs_storage::{MemoryStorage, StorageBackend};
 
     let seen = Arc::new(Mutex::new(Vec::new()));
     let (url, _stop) = start_webhook(false, seen.clone()).await;
@@ -156,7 +156,7 @@ async fn a_webhook_on_ipaddresses_sees_the_repair_create() {
         Arc::new(MetricsRegistry::new()),
         true,
     ));
-    let cfg: k3rs_common::resources::ValidatingWebhookConfiguration =
+    let cfg: kubernetes_rs_common::resources::ValidatingWebhookConfiguration =
         serde_json::from_value(json!({
             "apiVersion": "admissionregistration.k8s.io/v1",
             "kind": "ValidatingWebhookConfiguration",
@@ -201,14 +201,18 @@ async fn a_webhook_on_ipaddresses_sees_the_repair_create() {
         .await
         .unwrap();
 
-    k3rs_api_server::bootstrap::repair_service_cluster_ips_once(&state)
+    kubernetes_rs_api_server::bootstrap::repair_service_cluster_ips_once(&state)
         .await
         .unwrap();
 
     assert!(
-        mem.get::<k3rs_common::resources::IPAddress>(&build_key("ipaddresses", None, "10.0.1.1"))
-            .await
-            .is_ok(),
+        mem.get::<kubernetes_rs_common::resources::IPAddress>(&build_key(
+            "ipaddresses",
+            None,
+            "10.0.1.1"
+        ))
+        .await
+        .is_ok(),
         "the repair recreates the IPAddress"
     );
     assert_eq!(

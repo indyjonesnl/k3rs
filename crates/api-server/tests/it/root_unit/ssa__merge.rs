@@ -8,7 +8,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::ssa::merge::*;
+    use kubernetes_rs_api_server::ssa::merge::*;
     use serde_json::json;
 
     #[test]

@@ -3,11 +3,13 @@
 
 mod __parent {
     pub use chrono::NaiveDate;
-    pub use k3rs_common::types::ObjectMeta;
-    pub use k3rs_common::validation::field::{BadValue, Error, ErrorList, Path};
-    pub use k3rs_common::validation::metav1::is_dns1035_label;
-    pub use k3rs_common::validation::objectmeta::{name_is_path_segment, validate_object_meta};
-    pub use k3rs_common::validation::structural::Structural;
+    pub use kubernetes_rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_common::validation::field::{BadValue, Error, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::metav1::is_dns1035_label;
+    pub use kubernetes_rs_common::validation::objectmeta::{
+        name_is_path_segment, validate_object_meta,
+    };
+    pub use kubernetes_rs_common::validation::structural::Structural;
     pub use serde_json::{Map, Value};
 }
 
@@ -24,8 +26,8 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::__parent::*;
-    use k3rs_common::validation::structural::objectmeta::*;
-    use k3rs_common::validation::structural::{Extensions, Generic};
+    use kubernetes_rs_common::validation::structural::objectmeta::*;
+    use kubernetes_rs_common::validation::structural::{Extensions, Generic};
 
     fn obj(v: Value) -> Map<String, Value> {
         v.as_object().unwrap().clone()
@@ -581,7 +583,7 @@ mod tests {
     // validation_test.go.
     // ---------------------------------------------------------------------------
 
-    use k3rs_common::validation::field::ErrorType;
+    use kubernetes_rs_common::validation::field::ErrorType;
 
     /// `validationMatch`: (field path, error type).
     type Match = (&'static str, ErrorType);
@@ -694,7 +696,7 @@ mod tests {
                     "additionalProperties".to_string(),
                     Structural {
                         additional_properties: Some(Box::new(
-                            k3rs_common::validation::structural::StructuralOrBool {
+                            kubernetes_rs_common::validation::structural::StructuralOrBool {
                                 structural: Some(embedded_leaf()),
                                 bool_: false,
                             },

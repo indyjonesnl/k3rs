@@ -13,13 +13,13 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::openapi::*;
+    use kubernetes_rs_api_server::openapi::*;
 
     #[test]
     fn test_generate_openapi_spec() {
         let spec = generate_openapi_spec();
         assert_eq!(spec.openapi, "3.0.0");
-        assert_eq!(spec.info.title, "k3rs Kubernetes API");
+        assert_eq!(spec.info.title, "kubernetes-rs Kubernetes API");
         assert!(!spec.paths.paths.is_empty());
     }
 
@@ -71,7 +71,7 @@ mod tests {
     fn test_spec_serialization() {
         let spec = generate_openapi_spec();
         let json = serde_json::to_string_pretty(&spec).unwrap();
-        assert!(json.contains("k3rs"));
+        assert!(json.contains("kubernetes-rs"));
         assert!(json.contains("openapi"));
     }
 }

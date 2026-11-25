@@ -8,12 +8,12 @@
 //
 // Upstream reference: kubernetes/test/e2e/storage/storage_class.go
 
-use k3rs_common::resources::volume::*;
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::storage_class::{
+use kubernetes_rs_common::resources::volume::*;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::storage_class::{
     StorageClassController, IS_DEFAULT_STORAGE_CLASS_ANNOTATION,
 };
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -69,7 +69,7 @@ async fn test_storageclass_default_designation_single_default() {
     // Two classes both claiming to be the default.
     let sc_a = make_storage_class(
         "default-a",
-        "k3rs.io/hostpath",
+        "kubernetes-rs.io/hostpath",
         Some(ann_true.clone()),
         None,
         Some(PersistentVolumeReclaimPolicy::Delete),
@@ -77,7 +77,7 @@ async fn test_storageclass_default_designation_single_default() {
     );
     let sc_b = make_storage_class(
         "default-b",
-        "k3rs.io/hostpath",
+        "kubernetes-rs.io/hostpath",
         Some(ann_true.clone()),
         None,
         Some(PersistentVolumeReclaimPolicy::Delete),
@@ -133,7 +133,7 @@ async fn test_storageclass_default_designation_zero_defaults() {
 
     let sc = make_storage_class(
         "non-default",
-        "k3rs.io/hostpath",
+        "kubernetes-rs.io/hostpath",
         Some(ann_false),
         None,
         Some(PersistentVolumeReclaimPolicy::Delete),
@@ -220,7 +220,7 @@ async fn test_storageclass_mount_options_propagation_to_pv() {
 
     let sc = make_storage_class(
         "ro-class",
-        "k3rs.io/hostpath",
+        "kubernetes-rs.io/hostpath",
         None,
         None,
         Some(PersistentVolumeReclaimPolicy::Delete),
@@ -301,7 +301,7 @@ async fn test_storageclass_reclaim_policy_default_delete() {
 
     let sc = make_storage_class(
         "no-policy",
-        "k3rs.io/hostpath",
+        "kubernetes-rs.io/hostpath",
         None,
         None,
         None, // intentionally omitted
@@ -335,7 +335,7 @@ async fn test_storageclass_reclaim_policy_retain_preserved() {
 
     let sc = make_storage_class(
         "retain-class",
-        "k3rs.io/hostpath",
+        "kubernetes-rs.io/hostpath",
         None,
         None,
         Some(PersistentVolumeReclaimPolicy::Retain),

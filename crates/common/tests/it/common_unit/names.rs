@@ -5,7 +5,7 @@ mod __parent {}
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::names::*;
+    use kubernetes_rs_common::names::*;
 
     /// Upstream `TestSimpleNameGenerator` (generate_test.go): the base is kept
     /// and five characters are appended.

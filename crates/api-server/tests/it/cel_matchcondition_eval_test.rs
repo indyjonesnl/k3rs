@@ -1,14 +1,14 @@
 //! Integration tests for `ValidatingAdmissionPolicy.spec.matchConditions[*]`
 //! CEL expression evaluation.
 //!
-//! These tests exercise [`k3rs_api_server::cel::MatchConditionEvaluator`]
+//! These tests exercise [`kubernetes_rs_api_server::cel::MatchConditionEvaluator`]
 //! directly, the same surface that
 //! `crate::admission_webhook::run_validating_admission_policies_ext` calls into
 //! before deciding whether a policy applies to an admission request.
 
-use k3rs_api_server::cel::{MatchConditionEvaluator, MatchOutcome};
-use k3rs_common::admission::{AdmissionRequest, Operation, UserInfo};
-use k3rs_common::resources::MatchCondition;
+use kubernetes_rs_api_server::cel::{MatchConditionEvaluator, MatchOutcome};
+use kubernetes_rs_common::admission::{AdmissionRequest, Operation, UserInfo};
+use kubernetes_rs_common::resources::MatchCondition;
 use serde_json::json;
 
 /// Build an `AdmissionRequest` for a ConfigMap CREATE in `namespace`.

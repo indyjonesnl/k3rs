@@ -3,12 +3,12 @@
 
 mod __parent {
     pub use anyhow::{Context, Result};
-    pub use k3rs_client::http::ApiClient;
+    pub use kubernetes_rs_client::http::ApiClient;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::delete::*;
+    use kubernetes_rs_kubectl::commands::delete::*;
 
     #[test]
     fn test_urlencoding() {

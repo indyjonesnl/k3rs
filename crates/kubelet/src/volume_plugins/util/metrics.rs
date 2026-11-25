@@ -12,7 +12,7 @@
 use crate::server_metrics::collect_volume_stat_cal_duration;
 use crate::volume_plugins::plugin::{Metrics, MetricsProvider};
 use anyhow::{anyhow, Result};
-use k3rs_common::quantity::{Format, Quantity};
+use kubernetes_rs_common::quantity::{Format, Quantity};
 use prometheus::{HistogramOpts, HistogramVec};
 use std::io::{Seek, SeekFrom};
 use std::sync::{LazyLock, Once};

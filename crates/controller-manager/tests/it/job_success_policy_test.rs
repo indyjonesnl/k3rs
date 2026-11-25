@@ -11,11 +11,11 @@
 //! short-circuit branch does NOT fire (success_policy_met=false), forcing the code to
 //! reach the `already_complete` guard.  Assert that the guard prevents the overwrite.
 
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::workloads::*;
-use k3rs_common::types::{ObjectMeta, OwnerReference, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::job::JobController;
-use k3rs_storage::{memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::workloads::*;
+use kubernetes_rs_common::types::{ObjectMeta, OwnerReference, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::job::JobController;
+use kubernetes_rs_storage::{memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

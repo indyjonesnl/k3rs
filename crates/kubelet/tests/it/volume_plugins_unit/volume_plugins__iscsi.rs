@@ -4,35 +4,37 @@
 mod __parent {
     pub use anyhow::{anyhow, bail, Result};
     pub use async_trait::async_trait;
-    pub use k3rs_common::resources::volume::{
+    pub use kubernetes_rs_common::resources::volume::{
         ISCSIVolumeSource, PersistentVolumeAccessMode, PersistentVolumeMode,
     };
-    pub use k3rs_common::resources::{Pod, Secret};
-    pub use k3rs_kubelet::volume_plugins::iscsi::attacher::IscsiAttacher;
-    pub use k3rs_kubelet::volume_plugins::iscsi::disk_manager::DiskManager;
-    pub use k3rs_kubelet::volume_plugins::iscsi::util::IscsiUtil;
-    pub use k3rs_kubelet::volume_plugins::metrics_statfs::MetricsStatFs;
-    pub use k3rs_kubelet::volume_plugins::plugin::{
+    pub use kubernetes_rs_common::resources::{Pod, Secret};
+    pub use kubernetes_rs_kubelet::volume_plugins::iscsi::attacher::IscsiAttacher;
+    pub use kubernetes_rs_kubelet::volume_plugins::iscsi::disk_manager::DiskManager;
+    pub use kubernetes_rs_kubelet::volume_plugins::iscsi::util::IscsiUtil;
+    pub use kubernetes_rs_kubelet::volume_plugins::metrics_statfs::MetricsStatFs;
+    pub use kubernetes_rs_kubelet::volume_plugins::plugin::{
         Attributes, BlockVolumeMapper, BlockVolumePlugin, BlockVolumeUnmapper,
         CustomBlockVolumeUnmapper, Metrics, MetricsProvider, OwnedSpec,
     };
-    pub use k3rs_kubelet::volume_plugins::util::device_util::{new_os_device_handler, DeviceUtil};
-    pub use k3rs_kubelet::volume_plugins::util::exec::{Exec, RealExec};
-    pub use k3rs_kubelet::volume_plugins::util::key_mutex::KeyMutex;
-    pub use k3rs_kubelet::volume_plugins::util::metrics::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::device_util::{
+        new_os_device_handler, DeviceUtil,
+    };
+    pub use kubernetes_rs_kubelet::volume_plugins::util::exec::{Exec, RealExec};
+    pub use kubernetes_rs_kubelet::volume_plugins::util::key_mutex::KeyMutex;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::metrics::{
         new_metrics_block, MetricsBlock, MetricsNil,
     };
-    pub use k3rs_kubelet::volume_plugins::util::mount_interface::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::mount_interface::{
         MountInterface, SafeFormatAndMount,
     };
-    pub use k3rs_kubelet::volume_plugins::util::mount_ops::cleanup_mount_point;
-    pub use k3rs_kubelet::volume_plugins::util::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::mount_ops::cleanup_mount_point;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::{
         mount_option_from_spec, types::VolumeOperationError,
     };
-    pub use k3rs_kubelet::volume_plugins::{
+    pub use kubernetes_rs_kubelet::volume_plugins::{
         DeviceMounter, MounterArgs, ReconstructedVolume, Spec, Unmounter, VolumeHost, VolumePlugin,
     };
-    pub use k3rs_storage::{build_key, Storage};
+    pub use kubernetes_rs_storage::{build_key, Storage};
     pub use std::collections::HashMap;
     pub use std::sync::atomic::{AtomicBool, Ordering};
     pub use std::sync::Arc;
@@ -46,19 +48,19 @@ mod tests {
     //! `TestPortalMounter`, `TestGetSecretNameAndNamespaceForPV`,
     //! `TestGetISCSIInitiatorInfo`, `TestGetISCSICHAP`, `TestGetVolumeSpec*`).
     use super::__parent::*;
-    use k3rs_common::resources::{PersistentVolume, Volume};
-    use k3rs_kubelet::volume_plugins::iscsi::*;
-    use k3rs_kubelet::volume_plugins::util::exec::testing::no_commands;
-    use k3rs_kubelet::volume_plugins::util::mount_interface::testing::FakeMounter;
-    use k3rs_kubelet::volume_plugins::Mounter as _;
-    use k3rs_kubelet::volume_plugins::{KubeletVolumeHost, VolumePluginMgr};
+    use kubernetes_rs_common::resources::{PersistentVolume, Volume};
+    use kubernetes_rs_kubelet::volume_plugins::iscsi::*;
+    use kubernetes_rs_kubelet::volume_plugins::util::exec::testing::no_commands;
+    use kubernetes_rs_kubelet::volume_plugins::util::mount_interface::testing::FakeMounter;
+    use kubernetes_rs_kubelet::volume_plugins::Mounter as _;
+    use kubernetes_rs_kubelet::volume_plugins::{KubeletVolumeHost, VolumePluginMgr};
     use serde_json::json;
 
     fn host(tmp: &std::path::Path) -> Arc<dyn VolumeHost> {
         Arc::new(KubeletVolumeHost::new_for_tests(
             tmp.to_string_lossy().to_string(),
             None,
-            k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+            kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
             HashMap::new(),
         ))
     }
@@ -392,7 +394,7 @@ mod tests {
     /// an `initiatorName` the iface becomes `<portal>:<volume name>`.
     #[test]
     fn device_mount_path_is_the_global_pd_name() {
-        use k3rs_kubelet::volume_plugins::plugin::DeviceMounter;
+        use kubernetes_rs_kubelet::volume_plugins::plugin::DeviceMounter;
         let tmp = tempfile::tempdir().unwrap();
         let plug = IscsiPlugin::new(host(tmp.path()));
         let attacher = plug.new_attacher_internal();
@@ -434,7 +436,7 @@ mod tests {
     /// the statfs of the pod volume dir (#3494).
     #[tokio::test]
     async fn mounter_and_unmounter_provide_statfs_metrics() {
-        use k3rs_kubelet::volume_plugins::plugin::MetricsProvider;
+        use kubernetes_rs_kubelet::volume_plugins::plugin::MetricsProvider;
         let tmp = tempfile::tempdir().unwrap();
         let plug = IscsiPlugin::new(host(tmp.path()));
         let v = vol("vol1", source());
@@ -470,7 +472,7 @@ mod tests {
     /// `MountDevice`'s option list (`attacher.go:124-130`).
     #[test]
     fn device_mount_options_add_selinux_context() {
-        use k3rs_kubelet::volume_plugins::iscsi::attacher::device_mount_options;
+        use kubernetes_rs_kubelet::volume_plugins::iscsi::attacher::device_mount_options;
         assert!(device_mount_options(false, "").is_empty());
         assert_eq!(device_mount_options(true, ""), ["ro"]);
         assert_eq!(
@@ -480,8 +482,8 @@ mod tests {
                 "context=\"system_u:object_r:container_file_t:s0:c1,c2\""
             ]
         );
-        let _off = k3rs_common::feature_gates::with_feature(
-            k3rs_common::feature_gates::Feature::SELinuxMountReadWriteOncePod,
+        let _off = kubernetes_rs_common::feature_gates::with_feature(
+            kubernetes_rs_common::feature_gates::Feature::SELinuxMountReadWriteOncePod,
             false,
         );
         assert_eq!(device_mount_options(true, "system_u:object_r:x:s0"), ["ro"]);
@@ -489,7 +491,7 @@ mod tests {
 
     struct ContextHostUtil(String);
 
-    impl k3rs_kubelet::volume_plugins::util::hostutil::HostUtils for ContextHostUtil {
+    impl kubernetes_rs_kubelet::volume_plugins::util::hostutil::HostUtils for ContextHostUtil {
         fn device_opened(&self, _: &str) -> std::io::Result<bool> {
             Ok(false)
         }
@@ -499,7 +501,8 @@ mod tests {
         fn get_file_type(
             &self,
             _: &str,
-        ) -> std::io::Result<k3rs_kubelet::volume_plugins::util::hostutil::FileType> {
+        ) -> std::io::Result<kubernetes_rs_kubelet::volume_plugins::util::hostutil::FileType>
+        {
             Err(std::io::Error::other("not faked"))
         }
         fn get_selinux_mount_context(&self, _: &str) -> std::io::Result<String> {
@@ -531,12 +534,14 @@ mod tests {
             KubeletVolumeHost::new_for_tests(
                 root.to_string_lossy().to_string(),
                 None,
-                k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+                kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
                 HashMap::new(),
             )
             .with_mounter(
-                k3rs_kubelet::volume_plugins::util::mount_ops::Mounter::new("", false, false)
-                    .with_mountinfo_path(mountinfo.to_str().unwrap()),
+                kubernetes_rs_kubelet::volume_plugins::util::mount_ops::Mounter::new(
+                    "", false, false,
+                )
+                .with_mountinfo_path(mountinfo.to_str().unwrap()),
             )
             .with_host_util(Arc::new(ContextHostUtil(
                 "system_u:object_r:c:s0:c1".into(),
@@ -551,8 +556,8 @@ mod tests {
         assert_eq!(iscsi.iqn, "iqn.2014-12.server:storage.target01");
 
         // Gate off: upstream never asks the host util.
-        let _off = k3rs_common::feature_gates::with_feature(
-            k3rs_common::feature_gates::Feature::SELinuxMountReadWriteOncePod,
+        let _off = kubernetes_rs_common::feature_gates::with_feature(
+            kubernetes_rs_common::feature_gates::Feature::SELinuxMountReadWriteOncePod,
             false,
         );
         let got = plug

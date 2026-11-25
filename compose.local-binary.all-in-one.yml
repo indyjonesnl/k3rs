@@ -1,21 +1,21 @@
 # Override: skip Docker cargo build, bind-mount host-built binary.
 #
 # Use with:
-#   cargo build --release -p k3rs --features sqlite
+#   cargo build --release -p kubernetes-rs --features sqlite
 #   docker compose -f compose.all-in-one.yml \
 #                  -f compose.local-binary.all-in-one.yml \
 #                  up -d --no-build
 #
-# Reuses k3rs-k3rs:latest as runtime base (ships iptables,
+# Reuses kubernetes-rs-kubernetes-rs:latest as runtime base (ships iptables,
 # iproute2, libssl3, ca-certificates) and overlays the freshly-built
 # binary from target/release on the host.
 
 services:
-  k3rs:
-    image: k3rs-k3rs:latest
+  kubernetes-rs:
+    image: kubernetes-rs-kubernetes-rs:latest
     pull_policy: never
     volumes:
-      - ./target/release/k3rs:/app/k3rs:ro
+      - ./target/release/kubernetes-rs:/app/kubernetes-rs:ro
     environment:
       # Pod-facing endpoint: Docker bridge gateway [subnet].1 (set by
       # bootstrap at runtime via discover-bridge-gateway.sh). The host's
@@ -26,7 +26,7 @@ services:
       - "--storage-backend"
       - "sqlite"
       - "--data-dir"
-      - "/data/db/k3rs.db"
+      - "/data/db/kubernetes-rs.db"
       - "--tls"
       - "--enable-aggregator-routing=true"
       - "--tls-cert-file"
@@ -56,7 +56,7 @@ services:
       - "--console-dir"
       - "/app/console"
       - "--network"
-      - "k3rs-network"
+      - "kubernetes-rs-network"
       - "--cluster-dns"
       - "10.96.0.10"
       - "--volume-dir"

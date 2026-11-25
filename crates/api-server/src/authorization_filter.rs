@@ -25,10 +25,10 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, Opinion, RequestAttributes};
-use k3rs_common::authz_filter_metrics::record_authorization_outcome_metrics;
-use k3rs_common::types::{ListMeta, Status, StatusDetails};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Authorizer, Opinion, RequestAttributes};
+use kubernetes_rs_common::authz_filter_metrics::record_authorization_outcome_metrics;
+use kubernetes_rs_common::types::{ListMeta, Status, StatusDetails};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -186,7 +186,7 @@ pub async fn with_authorization(
     // no RequestInfo.
     let user = req
         .extensions()
-        .get::<k3rs_middleware::AuthContext>()
+        .get::<kubernetes_rs_middleware::AuthContext>()
         .map(|c| c.user.clone())
         .unwrap_or_else(UserInfo::anonymous);
     let Some(info) = crate::request_scope::current_request_info() else {
@@ -199,7 +199,7 @@ pub async fn with_authorization(
     let authorization_elapsed = authorization_start.elapsed();
     // request.TrackAuthorizationLatency (authorization.go:70;
     // request/webhook_duration.go:262-268), for both allow and failure paths.
-    k3rs_common::latency_trackers::track_authorization_latency(authorization_elapsed);
+    kubernetes_rs_common::latency_trackers::track_authorization_latency(authorization_elapsed);
     record_authorization_outcome_metrics(&result, authorization_elapsed);
 
     let (decision, reason, err) = match result {

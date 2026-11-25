@@ -46,19 +46,21 @@ use cache::{
     SELINUX_CHANGE_POLICY_RECURSIVE,
 };
 use futures::StreamExt;
-use k3rs_common::csi_migration::{translate_in_tree_spec_to_csi, PluginManager, VolumeSpec};
-use k3rs_common::csi_translation::CsiTranslator;
-use k3rs_common::feature_gates::{self, Feature};
-use k3rs_common::resources::csi::CSIDriver;
-use k3rs_common::resources::pod::{PodSecurityContext, SELinuxOptions, Volume};
-use k3rs_common::resources::service_account::ObjectReference;
-use k3rs_common::resources::volume::PersistentVolumeClaimPhase;
-use k3rs_common::resources::{
+use kubernetes_rs_common::csi_migration::{
+    translate_in_tree_spec_to_csi, PluginManager, VolumeSpec,
+};
+use kubernetes_rs_common::csi_translation::CsiTranslator;
+use kubernetes_rs_common::feature_gates::{self, Feature};
+use kubernetes_rs_common::resources::csi::CSIDriver;
+use kubernetes_rs_common::resources::pod::{PodSecurityContext, SELinuxOptions, Volume};
+use kubernetes_rs_common::resources::service_account::ObjectReference;
+use kubernetes_rs_common::resources::volume::PersistentVolumeClaimPhase;
+use kubernetes_rs_common::resources::{
     EventSource, EventType, PersistentVolume, PersistentVolumeClaim, Pod,
 };
-use k3rs_common::types::Phase;
-use k3rs_common::Error;
-use k3rs_storage::{
+use kubernetes_rs_common::types::Phase;
+use kubernetes_rs_common::Error;
+use kubernetes_rs_storage::{
     build_key, build_prefix, extract_key, EventRecorder, Storage, WatchEvent, WorkQueue,
 };
 use std::collections::{BTreeSet, HashMap};
@@ -211,7 +213,9 @@ pub struct FcPlugin;
 
 impl FcPlugin {
     /// `getVolumeSource`.
-    fn source(spec: &VolumeSpec) -> Option<k3rs_common::resources::volume::FCVolumeSource> {
+    fn source(
+        spec: &VolumeSpec,
+    ) -> Option<kubernetes_rs_common::resources::volume::FCVolumeSource> {
         if let Some(fc) = spec
             .volume
             .as_ref()
@@ -438,16 +442,17 @@ pub fn get_pod_volume_names(pod: &Pod) -> (BTreeSet<String>, HashMap<String, Vec
         .as_ref()
         .and_then(|sc| sc.se_linux_options.as_ref());
 
-    let mut visit = |volume_mounts: Option<&Vec<k3rs_common::resources::pod::VolumeMount>>,
-                     container_opts: Option<&SELinuxOptions>| {
-        let effective = container_opts.or(pod_opts);
-        for m in volume_mounts.into_iter().flatten() {
-            mounts.insert(m.name.clone());
-            if let Some(o) = effective {
-                labels.entry(m.name.clone()).or_default().push(o.clone());
+    let mut visit =
+        |volume_mounts: Option<&Vec<kubernetes_rs_common::resources::pod::VolumeMount>>,
+         container_opts: Option<&SELinuxOptions>| {
+            let effective = container_opts.or(pod_opts);
+            for m in volume_mounts.into_iter().flatten() {
+                mounts.insert(m.name.clone());
+                if let Some(o) = effective {
+                    labels.entry(m.name.clone()).or_default().push(o.clone());
+                }
             }
-        }
-    };
+        };
     for c in spec.init_containers.iter().flatten() {
         visit(
             c.volume_mounts.as_ref(),

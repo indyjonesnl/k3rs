@@ -31,7 +31,7 @@
 //! `pod_lifecycle_extended_test.rs`.
 
 use axum::http::{Method, StatusCode};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 async fn create_namespace(router: &TestApiServer, name: &str) {

@@ -204,7 +204,7 @@ impl ServiceAccountClaims {
             iat: now.timestamp(),
             exp: exp.timestamp(),
             iss: "https://kubernetes.default.svc.cluster.local".to_string(),
-            aud: vec!["k3rs".to_string()],
+            aud: vec!["kubernetes-rs".to_string()],
             kubernetes: Some(KubernetesClaims {
                 namespace,
                 svcacct: KubeRef { name: sa_name, uid },
@@ -384,7 +384,7 @@ impl ServiceAccountOptions {
 /// The issuers accepted when `--service-account-issuer` is not given.
 const DEFAULT_ISSUERS: [&str; 2] = [
     "https://kubernetes.default.svc.cluster.local",
-    "k3rs-api-server",
+    "kubernetes-rs-api-server",
 ];
 
 /// TokenManager handles JWT token generation and validation
@@ -747,10 +747,13 @@ impl TokenManager {
         // Try to load RSA keys from standard paths
         let key_paths = [
             ("/etc/kubernetes/pki/sa.key", "/etc/kubernetes/pki/sa.pub"),
-            ("/root/.k3rs/certs/sa.key", "/root/.k3rs/certs/sa.pub"),
             (
-                "/root/.k3rs/keys/sa-signing-key.pem",
-                "/root/.k3rs/keys/sa-signing-key.pub",
+                "/root/.kubernetes-rs/certs/sa.key",
+                "/root/.kubernetes-rs/certs/sa.pub",
+            ),
+            (
+                "/root/.kubernetes-rs/keys/sa-signing-key.pem",
+                "/root/.kubernetes-rs/keys/sa-signing-key.pub",
             ),
         ];
         for (priv_path, pub_path) in &key_paths {

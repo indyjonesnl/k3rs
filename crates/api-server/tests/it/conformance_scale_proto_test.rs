@@ -35,11 +35,11 @@
 //! depending on a real apiserver.
 
 use axum::http::{header, StatusCode};
-use k3rs_api_server::protobuf::ProtoRegistry;
-use k3rs_common::protobuf::decode_unknown_raw;
-use k3rs_common::resources::Scale;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_api_server::protobuf::ProtoRegistry;
+use kubernetes_rs_common::protobuf::decode_unknown_raw;
+use kubernetes_rs_common::resources::Scale;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::json;
 use std::sync::Arc;
 

@@ -4,7 +4,7 @@
 //! (`k8s.io/kubernetes/test/e2e/common/node/configmap.go:261`, k8s v1.34+).
 //!
 //! The conformance canary
-//! (https://github.com/indyjonesnl/k3rs/actions/runs/26249262860/job/77255760479)
+//! (https://github.com/indyjonesnl/kubernetes-rs/actions/runs/26249262860/job/77255760479)
 //! reported:
 //!
 //!     Error creating Pod: failed to decode: missing field `name` at line 1 column 311
@@ -26,7 +26,7 @@
 //! same variant already used for every other `LocalObjectReference`
 //! embedding (`ConfigMapVolumeSource`, `SecretProjection`, …).
 
-use k3rs_api_server::protobuf::ProtoRegistry;
+use kubernetes_rs_api_server::protobuf::ProtoRegistry;
 
 /// Hand-crafted protobuf bytes for `ConfigMapEnvSource { localObjectReference
 /// { name: "x" } }` per `k8s.io/api/core/v1/generated.proto`.
@@ -98,10 +98,10 @@ fn test_secret_env_source_proto_decode_inlines_local_object_reference() {
 /// End-to-end shape check: decode a `Container` whose `envFrom[0]` is a
 /// `ConfigMapEnvSource` with no `prefix` set (the first entry in the
 /// upstream conformance pod). The resulting JSON must round-trip through
-/// `k3rs_common::resources::Container` without losing `name`.
+/// `kubernetes_rs_common::resources::Container` without losing `name`.
 #[test]
 fn test_container_with_envfrom_configmap_round_trips_through_pod_decoder() {
-    use k3rs_common::resources::Container;
+    use kubernetes_rs_common::resources::Container;
 
     let registry = ProtoRegistry::new();
     // Container { name: "env-test", image: "busybox", envFrom: [ ConfigMapEnvSource{...} ] }

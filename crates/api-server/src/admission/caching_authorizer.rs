@@ -5,7 +5,7 @@
 //! Authorize`) and its test (`caching_authorizer_test.go`
 //! `TestCachingAuthorizer`).
 //!
-//! Deviation (Rust expression, not mechanism): `k3rs_common::Error` is
+//! Deviation (Rust expression, not mechanism): `kubernetes_rs_common::Error` is
 //! not `Clone`, so a cached error is replayed as `Error::Authorization` with
 //! the original error's message rather than as the same error value.
 
@@ -13,9 +13,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{AuthorizationOutcome, Authorizer, Decision, Opinion, RequestAttributes};
-use k3rs_common::{Error, Result};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{
+    AuthorizationOutcome, Authorizer, Decision, Opinion, RequestAttributes,
+};
+use kubernetes_rs_common::{Error, Result};
 
 type Cached<T> = std::result::Result<T, String>;
 
@@ -115,7 +117,7 @@ impl Authorizer for CachingAuthorizer {
         &self,
         user: &UserInfo,
         namespace: &str,
-    ) -> Result<k3rs_common::authz::UserRulesOutcome> {
+    ) -> Result<kubernetes_rs_common::authz::UserRulesOutcome> {
         self.authorizer
             .get_user_rules_outcome(user, namespace)
             .await

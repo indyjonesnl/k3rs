@@ -3,11 +3,11 @@
 
 mod __parent {
     pub use chrono::{DateTime, Utc};
-    pub use k3rs_common::event_correlator::TokenBucket;
-    pub use k3rs_common::lru_expire_cache::LruExpireCache;
-    pub use k3rs_common::resources::Event;
-    pub use k3rs_common::validation::field;
-    pub use k3rs_common::Error;
+    pub use kubernetes_rs_common::event_correlator::TokenBucket;
+    pub use kubernetes_rs_common::lru_expire_cache::LruExpireCache;
+    pub use kubernetes_rs_common::resources::Event;
+    pub use kubernetes_rs_common::validation::field;
+    pub use kubernetes_rs_common::Error;
     pub use serde::{Deserialize, Serialize};
     pub use std::sync::{Arc, Mutex, OnceLock};
     pub use std::time::{Duration, Instant};
@@ -15,9 +15,9 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::event_rate_limit::*;
-    use k3rs_common::resources::event::EventSource;
-    use k3rs_common::resources::{Event, ObjectReference};
+    use kubernetes_rs_api_server::admission::event_rate_limit::*;
+    use kubernetes_rs_common::resources::event::EventSource;
+    use kubernetes_rs_common::resources::{Event, ObjectReference};
 
     /// `testingclock.FakeClock`.
     #[derive(Clone)]

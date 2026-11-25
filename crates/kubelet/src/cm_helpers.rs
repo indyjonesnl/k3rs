@@ -5,15 +5,17 @@
 //! reads `podResourceConfig.Memory`. CPU shares/quota, hugepage limits and
 //! `Unified` are not ported (no consumer).
 
-use k3rs_common::qos::{get_pod_qos, QoSClass};
-use k3rs_common::quota::{parse_resource_list, pod_limits, ResourceList};
-use k3rs_common::resources::Pod;
+use kubernetes_rs_common::qos::{get_pod_qos, QoSClass};
+use kubernetes_rs_common::quota::{parse_resource_list, pod_limits, ResourceList};
+use kubernetes_rs_common::resources::Pod;
 
 fn memory_of(list: &ResourceList) -> i128 {
     list.get("memory").map(|q| q.value()).unwrap_or(0)
 }
 
-fn container_memory_limit(resources: Option<&k3rs_common::types::ResourceRequirements>) -> i128 {
+fn container_memory_limit(
+    resources: Option<&kubernetes_rs_common::types::ResourceRequirements>,
+) -> i128 {
     memory_of(
         &resources
             .and_then(|r| r.limits.as_ref())
@@ -53,7 +55,9 @@ pub fn resource_config_for_pod_memory(pod: &Pod) -> Option<i64> {
         }
     }
     // Pod-level limits (PodLevelResources) can declare the limit for the pod.
-    if k3rs_common::feature_gates::enabled(k3rs_common::feature_gates::Feature::PodLevelResources) {
+    if kubernetes_rs_common::feature_gates::enabled(
+        kubernetes_rs_common::feature_gates::Feature::PodLevelResources,
+    ) {
         let pod_level = spec
             .resources
             .as_ref()

@@ -6,7 +6,7 @@
 # coreControllers -> helmchart.Register, jobClusterRole "cluster-admin") and
 # registers the helm.cattle.io CRDs itself (pkg/server/context.go registerCRDs
 # -> helm-controller pkg/crds.List, applied here from the sibling
-# helm.cattle.io_*.yaml files). k3rs has no such in-process hook, so the
+# helm.cattle.io_*.yaml files). kubernetes-rs has no such in-process hook, so the
 # standalone image does the job; flags are the standalone cmd's
 # (pkg/app/app.go): --default-job-image, --job-cluster-role, --node-name,
 # --namespace (empty = watch all namespaces).

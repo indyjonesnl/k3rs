@@ -2,12 +2,12 @@
 //!
 //! Tests all CRUD operations, edge cases, and error handling for HorizontalPodAutoscalers
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     CrossVersionObjectReference, HorizontalPodAutoscaler, HorizontalPodAutoscalerSpec,
     HorizontalPodAutoscalerStatus, MetricSpec, MetricTarget, ResourceMetricSource,
 };
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -112,7 +112,7 @@ async fn test_hpa_delete() {
     storage.delete(&key).await.unwrap();
 
     // Verify it's deleted
-    let result: k3rs_common::Result<HorizontalPodAutoscaler> = storage.get(&key).await;
+    let result: kubernetes_rs_common::Result<HorizontalPodAutoscaler> = storage.get(&key).await;
     assert!(result.is_err());
 }
 
@@ -631,7 +631,7 @@ async fn test_hpa_not_found() {
     let namespace = "test-hpa-not-found";
     let key = build_key("horizontalpodautoscalers", Some(namespace), "nonexistent");
 
-    let result: k3rs_common::Result<HorizontalPodAutoscaler> = storage.get(&key).await;
+    let result: kubernetes_rs_common::Result<HorizontalPodAutoscaler> = storage.get(&key).await;
     assert!(result.is_err());
 }
 

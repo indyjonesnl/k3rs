@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
 use futures::StreamExt;
-use k3rs_client::http::{ApiClient, GetError};
-use k3rs_common::resources::{
+use kubernetes_rs_client::http::{ApiClient, GetError};
+use kubernetes_rs_common::resources::{
     CronJob, DaemonSet, Deployment, Job, Namespace, Node, PersistentVolume, PersistentVolumeClaim,
     Pod, Service, StatefulSet,
 };

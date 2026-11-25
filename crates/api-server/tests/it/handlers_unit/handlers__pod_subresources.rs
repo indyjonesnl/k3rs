@@ -9,17 +9,17 @@ mod __parent {
         response::{IntoResponse, Response},
         Extension,
     };
-    pub use k3rs_api_server::{
+    pub use kubernetes_rs_api_server::{
         handlers::node_conn::{node_conn, NodeConn},
         middleware::AuthContext,
         state::ApiServerState,
         streaming,
     };
-    pub use k3rs_common::{
+    pub use kubernetes_rs_common::{
         authz::{Decision, RequestAttributes},
         Error, Result,
     };
-    pub use k3rs_storage::Storage;
+    pub use kubernetes_rs_storage::Storage;
     pub use serde::Deserialize;
     pub use std::sync::Arc;
     pub use tracing::{debug, info};
@@ -27,7 +27,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::pod_subresources::*;
+    use kubernetes_rs_api_server::handlers::pod_subresources::*;
     #[test]
     fn portforward_kubelet_url_matches_upstream_shape() {
         let conn = NodeConn {
@@ -133,7 +133,7 @@ mod tests {
 }
 
 mod exec_query_bool_tests {
-    use k3rs_api_server::handlers::pod_subresources::parse_exec_query;
+    use kubernetes_rs_api_server::handlers::pod_subresources::parse_exec_query;
 
     /// Upstream decodes stdin/stdout/stderr/tty with
     /// `runtime.Convert_Slice_string_To_bool`
@@ -168,11 +168,11 @@ mod exec_query_bool_tests {
 
 mod connect_admission_step_metrics_tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::pod_subresources::*;
-    use k3rs_common::auth::TokenManager;
-    use k3rs_common::authz::AlwaysAllowAuthorizer;
-    use k3rs_common::observability::MetricsRegistry;
-    use k3rs_storage::{MemoryStorage, StorageBackend};
+    use kubernetes_rs_api_server::handlers::pod_subresources::*;
+    use kubernetes_rs_common::auth::TokenManager;
+    use kubernetes_rs_common::authz::AlwaysAllowAuthorizer;
+    use kubernetes_rs_common::observability::MetricsRegistry;
+    use kubernetes_rs_storage::{MemoryStorage, StorageBackend};
 
     fn step(ty: &str) -> u64 {
         prometheus::gather()
@@ -212,7 +212,7 @@ mod connect_admission_step_metrics_tests {
             Arc::new(MetricsRegistry::new()),
             true,
         );
-        let user = k3rs_common::admission::UserInfo {
+        let user = kubernetes_rs_common::admission::UserInfo {
             username: "u".into(),
             uid: String::new(),
             groups: vec![],

@@ -7,7 +7,7 @@
 use axum::extract::ConnectInfo;
 use axum::routing::get;
 use axum::Router;
-use k3rs_api_server::serve_service;
+use kubernetes_rs_api_server::serve_service;
 use std::net::SocketAddr;
 
 async fn peer(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> String {

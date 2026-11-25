@@ -13,7 +13,7 @@
 
 use crate::audit_webhook::handle_plugin_error;
 use async_trait::async_trait;
-use k3rs_common::audit::{AuditBackend, AuditEvent, AuditLevel};
+use kubernetes_rs_common::audit::{AuditBackend, AuditEvent, AuditLevel};
 use std::sync::Arc;
 
 /// `truncate.PluginName`.

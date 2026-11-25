@@ -3,11 +3,11 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_api_server::handlers::custom_metrics::ServedRestMapper;
-    pub use k3rs_common::auth::UserInfo;
-    pub use k3rs_common::authz::{Authorizer, Opinion, RequestAttributes};
-    pub use k3rs_common::types::{ObjectMeta, OwnerReference};
-    pub use k3rs_discovery::restmapper::{Gk, MapperError, RestMapping, Scope};
+    pub use kubernetes_rs_api_server::handlers::custom_metrics::ServedRestMapper;
+    pub use kubernetes_rs_common::auth::UserInfo;
+    pub use kubernetes_rs_common::authz::{Authorizer, Opinion, RequestAttributes};
+    pub use kubernetes_rs_common::types::{ObjectMeta, OwnerReference};
+    pub use kubernetes_rs_discovery::restmapper::{Gk, MapperError, RestMapping, Scope};
     pub use std::collections::HashMap;
     pub use std::sync::Arc;
 }
@@ -15,9 +15,9 @@ mod __parent {
 #[allow(clippy::cloned_ref_to_slice_refs)]
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::owner_references_permission_enforcement::*;
-    use k3rs_common::authz::Decision;
-    use k3rs_discovery::restmapper::{
+    use kubernetes_rs_api_server::admission::owner_references_permission_enforcement::*;
+    use kubernetes_rs_common::authz::Decision;
+    use kubernetes_rs_discovery::restmapper::{
         new_discovery_rest_mapper, ApiGroupResources, ApiResource, PriorityRestMapper,
     };
 
@@ -26,7 +26,7 @@ mod tests {
 
     #[async_trait]
     impl Authorizer for FakeAuthorizer {
-        async fn authorize(&self, a: &RequestAttributes) -> k3rs_common::Result<Decision> {
+        async fn authorize(&self, a: &RequestAttributes) -> kubernetes_rs_common::Result<Decision> {
             let no_opinion = || Ok(Decision::Deny(String::new()));
             let sub = a.subresource.as_deref().unwrap_or_default();
             let user = a.user.username.as_str();
@@ -63,8 +63,8 @@ mod tests {
             &self,
             _: &UserInfo,
             _: &str,
-        ) -> k3rs_common::Result<k3rs_common::authz::UserRulesOutcome> {
-            Ok(k3rs_common::authz::UserRulesOutcome::default())
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_common::authz::UserRulesOutcome> {
+            Ok(kubernetes_rs_common::authz::UserRulesOutcome::default())
         }
     }
 

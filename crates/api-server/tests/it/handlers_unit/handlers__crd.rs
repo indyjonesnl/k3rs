@@ -9,16 +9,16 @@ mod __parent {
         response::{IntoResponse, Response},
         Extension,
     };
-    pub use k3rs_api_server::endpoints::handlers::{self as endpoints, RequestScope};
-    pub use k3rs_api_server::registry::apiextensions::customresourcedefinition;
-    pub use k3rs_api_server::{middleware::AuthContext, state::ApiServerState};
-    pub use k3rs_common::{
+    pub use kubernetes_rs_api_server::endpoints::handlers::{self as endpoints, RequestScope};
+    pub use kubernetes_rs_api_server::registry::apiextensions::customresourcedefinition;
+    pub use kubernetes_rs_api_server::{middleware::AuthContext, state::ApiServerState};
+    pub use kubernetes_rs_common::{
         admission::{GroupVersionKind, GroupVersionResource},
         authz::{Decision, RequestAttributes},
         resources::CustomResourceDefinition,
         List, Result,
     };
-    pub use k3rs_storage::{build_prefix, Storage};
+    pub use kubernetes_rs_storage::{build_prefix, Storage};
     pub use std::collections::HashMap;
     pub use std::sync::Arc;
     pub use tracing::debug;
@@ -26,12 +26,12 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::crd::*;
-    use k3rs_common::resources::{
+    use kubernetes_rs_api_server::handlers::crd::*;
+    use kubernetes_rs_common::resources::{
         CustomResourceDefinition, CustomResourceDefinitionNames, CustomResourceDefinitionSpec,
         CustomResourceDefinitionVersion, ResourceScope,
     };
-    use k3rs_common::types::ObjectMeta;
+    use kubernetes_rs_common::types::ObjectMeta;
 
     fn create_test_crd() -> CustomResourceDefinition {
         CustomResourceDefinition {
@@ -69,13 +69,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_validating_webhook_called_for_crd_creation() {
-        use k3rs_api_server::admission_webhook::AdmissionWebhookManager;
-        use k3rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation, UserInfo};
-        use k3rs_common::resources::{
+        use kubernetes_rs_api_server::admission_webhook::AdmissionWebhookManager;
+        use kubernetes_rs_common::admission::{
+            GroupVersionKind, GroupVersionResource, Operation, UserInfo,
+        };
+        use kubernetes_rs_common::resources::{
             FailurePolicy, OperationType, Rule, RuleWithOperations, SideEffectClass,
             ValidatingWebhook, ValidatingWebhookConfiguration, WebhookClientConfig,
         };
-        use k3rs_storage::memory::MemoryStorage;
+        use kubernetes_rs_storage::memory::MemoryStorage;
 
         let storage = Arc::new(MemoryStorage::new());
         let manager = AdmissionWebhookManager::new(storage.clone());
@@ -84,7 +86,7 @@ mod tests {
         let webhook_config = ValidatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".to_string(),
             kind: "ValidatingWebhookConfiguration".to_string(),
-            metadata: k3rs_common::types::ObjectMeta::new("deny-crd-creation"),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-crd-creation"),
             webhooks: Some(vec![ValidatingWebhook {
                 name: "deny-crd.example.com".to_string(),
                 client_config: WebhookClientConfig {

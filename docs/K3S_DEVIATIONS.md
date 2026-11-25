@@ -1,8 +1,8 @@
 # Deliberate deviations from k3s
 
-k3rs is a Rust rewrite of k3s `v1.35.9+k3s1` (Kubernetes release-1.35). The
+kubernetes-rs is a Rust rewrite of k3s `v1.35.9+k3s1` (Kubernetes release-1.35). The
 default is to port k3s and the Kubernetes it vendors faithfully. This page lists
-every place k3rs deliberately does something different, and why.
+every place kubernetes-rs deliberately does something different, and why.
 
 **Rule for adding an entry** (CLAUDE.md, upstream-first rule 8): a deviation is
 only allowed when it is deliberate, has a stated reason, and keeps the
@@ -21,10 +21,10 @@ unverified, see notes).
 
 ## Components
 
-| Area | k3s | k3rs | Why | Status |
+| Area | k3s | kubernetes-rs | Why | Status |
 |---|---|---|---|---|
 | Implementation language | Go | Rust | The project goal. | shipped |
-| Cluster DNS | CoreDNS Deployment, `kube-dns` Service 10.96.0.10, `coredns` ConfigMap | In the all-in-one binary, `k3rs-dns` runs in-process behind the same `kube-dns` Service and ClusterIP. Multi-container compose stacks still run upstream CoreDNS as k3s ships it (`scripts/bootstrap-cluster.sh`). | Removes a pod and a Go process from the idle footprint. | partial |
+| Cluster DNS | CoreDNS Deployment, `kube-dns` Service 10.96.0.10, `coredns` ConfigMap | In the all-in-one binary, `kubernetes-rs-dns` runs in-process behind the same `kube-dns` Service and ClusterIP. Multi-container compose stacks still run upstream CoreDNS as k3s ships it (`scripts/bootstrap-cluster.sh`). | Removes a pod and a Go process from the idle footprint. | partial |
 | DNS forwarding | CoreDNS `forward . /etc/resolv.conf` plus `loop` | Ported from the CoreDNS plugins (`crates/dns/src/forward.rs`, #4482). Not ported: `cache`, resolv.conf reload on change, upstream TCP connection pool, DoT/DoH/DoQ. | Parity for external name resolution from ClusterFirst pods. | partial |
 | CNI daemon and plugins | Flannel embedded in the agent as a library; reference CNI plugins | `flannel-rs`: the `flanneld` daemon (VXLAN, kube-subnet-manager) and the CNI plugin chain, as a separate project. | Same behaviour in Rust. Embedding it in the agent process, as k3s does, would remove one more process. | partial (separate process) |
 | Network policy | kube-router's netpol controller embedded in the agent | The `NetworkPolicy` API objects are served and validated; no enforcement controller was found in the codebase. | Needed for NetworkPolicy conformance; the implementation choice (port of the kube-router controller or another Rust implementation) is not decided. | open |
@@ -35,7 +35,7 @@ unverified, see notes).
 | Cloud provider | k3s `pkg/cloudprovider`: `InstancesV2` that always reports the node as existing, `k3s://<node>` provider IDs, ServiceLB | Same shape, in Rust. The node lifecycle controller exists (#4448) but nothing starts it yet. | Parity; wiring is a follow-up. | partial |
 | Bundled addons | traefik, helm-controller, metrics-server, local-path, ServiceLB, coredns | traefik, helm-controller and metrics-server run from the upstream k3s manifests. The Pi profile is intended to leave out traefik and helm-controller (the author's own node uses a Cloudflare tunnel instead). | Footprint on a 512 MB node. | partial |
 | Kubelet mounts | `mount`/`umount` from the node userland | Tmpfs mounts for emptyDir and projected volumes use `mount(2)`/`umount2(2)` in-process (#4483). Other volume plugins still exec `mount`, `umount` and `systemd-run`. | Minimal node images have no util-linux. Upstream `mount-utils` execs the `mount` binary, so this differs on purpose. | partial |
-| Single binary | One `k3s` binary for server and agent | One `k3rs` all-in-one binary, musl plus mimalloc in the shipped build. | Footprint; same idea as k3s. | shipped |
+| Single binary | One `k3s` binary for server and agent | One `kubernetes-rs` all-in-one binary, musl plus mimalloc in the shipped build. | Footprint; same idea as k3s. | shipped |
 | Async worker threads | Go runtime: `GOMAXPROCS` = CPU count (cgroup-aware since Go 1.25); k3s sets no cap | The all-in-one binary defaults to `min(available_parallelism, 4)` tokio workers; `TOKIO_WORKER_THREADS` overrides (#4485, `docs/PERFORMANCE.md`). Standalone binaries are uncapped. | On a 24-CPU host idle anon fell from 227-240 MiB (uncapped) to 171-178 MiB; no change on a 4-CPU Pi. | shipped (all-in-one only) |
 
 ## Not deviations (still faithful)
@@ -51,8 +51,8 @@ unverified, see notes).
 These are places where the visible surface differs today and a k3s user could be
 surprised:
 
-- `k3rs-dns` does not read the `coredns-custom` ConfigMap, and does not cache.
-  (Whether the all-in-one `k3rs-dns` handles `NodeHosts` the way k3s CoreDNS does
+- `kubernetes-rs-dns` does not read the `coredns-custom` ConfigMap, and does not cache.
+  (Whether the all-in-one `kubernetes-rs-dns` handles `NodeHosts` the way k3s CoreDNS does
   has not been verified; the compose bootstrap does fill `NodeHosts` for
   CoreDNS.)
 - The kubelet takes `--hostname-override`; it no longer accepts `--node-name`

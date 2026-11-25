@@ -10,8 +10,8 @@
 //! retries silently.
 
 use futures::StreamExt;
-use k3rs_api_server::handlers::watch::build_delete_fallback_json;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_api_server::handlers::watch::build_delete_fallback_json;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::time::timeout;

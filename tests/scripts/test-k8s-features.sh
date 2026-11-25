@@ -1,5 +1,5 @@
 #!/bin/bash
-# Comprehensive test of Kubernetes features in k3rs
+# Comprehensive test of Kubernetes features in kubernetes-rs
 
 set -e
 
@@ -22,7 +22,7 @@ fail_test() {
     ((FAIL++))
 }
 
-echo "=== k3rs Kubernetes Features Verification ==="
+echo "=== kubernetes-rs Kubernetes Features Verification ==="
 echo ""
 
 # Test 1: Pod Lifecycle
@@ -318,7 +318,7 @@ spec:
       containers:
       - name: busybox
         image: busybox:latest
-        command: ["echo", "Hello from k3rs"]
+        command: ["echo", "Hello from kubernetes-rs"]
       restartPolicy: Never
 EOF
 

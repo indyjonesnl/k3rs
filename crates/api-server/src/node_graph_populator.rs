@@ -16,13 +16,13 @@
 //! remembering the keys it applied.
 
 use futures::StreamExt;
-use k3rs_common::authz::node_graph::{GraphPopulator, NodeGraph};
-use k3rs_common::feature_gates::{self, Feature};
-use k3rs_common::resources::dra::ResourceSlice;
-use k3rs_common::resources::podcertificaterequest::PodCertificateRequest;
-use k3rs_common::resources::volume::PersistentVolume;
-use k3rs_common::resources::{Pod, VolumeAttachment};
-use k3rs_storage::{build_prefix, Storage, WatchEvent};
+use kubernetes_rs_common::authz::node_graph::{GraphPopulator, NodeGraph};
+use kubernetes_rs_common::feature_gates::{self, Feature};
+use kubernetes_rs_common::resources::dra::ResourceSlice;
+use kubernetes_rs_common::resources::podcertificaterequest::PodCertificateRequest;
+use kubernetes_rs_common::resources::volume::PersistentVolume;
+use kubernetes_rs_common::resources::{Pod, VolumeAttachment};
+use kubernetes_rs_storage::{build_prefix, Storage, WatchEvent};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -48,7 +48,7 @@ pub fn spawn<S: Storage + 'static>(storage: Arc<S>, graph: Arc<NodeGraph>) {
         warn!("node authorizer graph populator not started: no tokio runtime");
         return;
     }
-    k3rs_common::authz::node_graph::register_metrics();
+    kubernetes_rs_common::authz::node_graph::register_metrics();
     let populator = Arc::new(GraphPopulator::new(graph));
 
     {
@@ -140,7 +140,7 @@ pub fn spawn<S: Storage + 'static>(storage: Arc<S>, graph: Arc<NodeGraph>) {
     }
 }
 
-fn ns(meta: &k3rs_common::types::ObjectMeta) -> String {
+fn ns(meta: &kubernetes_rs_common::types::ObjectMeta) -> String {
     meta.namespace.clone().unwrap_or_default()
 }
 

@@ -4,14 +4,14 @@
 
 use std::sync::Arc;
 
-use k3rs_common::authz::Authorizer;
-use k3rs_common::resources::MutatingAdmissionPolicyBinding;
-use k3rs_common::validation::field::{Error as FieldError, ErrorList, Path};
-use k3rs_common::validation::mutating_admission_policy::{
+use kubernetes_rs_common::authz::Authorizer;
+use kubernetes_rs_common::resources::MutatingAdmissionPolicyBinding;
+use kubernetes_rs_common::validation::field::{Error as FieldError, ErrorList, Path};
+use kubernetes_rs_common::validation::mutating_admission_policy::{
     set_defaults_mutating_admission_policy_binding, validate_mutating_admission_policy_binding,
 };
-use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
+use kubernetes_rs_storage::StorageBackend;
 
 use super::authz::{authorize_mutating_param_ref, ParamAuthz};
 use crate::registry::generic::Store;

@@ -2,13 +2,13 @@
 //!
 //! Tests all CRUD operations, edge cases, and error handling for daemonsets
 
-use k3rs_common::resources::pod::{Container, PodSpec};
-use k3rs_common::resources::workloads::{
+use kubernetes_rs_common::resources::pod::{Container, PodSpec};
+use kubernetes_rs_common::resources::workloads::{
     DaemonSet, DaemonSetSpec, DaemonSetStatus, DaemonSetUpdateStrategy,
 };
-use k3rs_common::resources::PodTemplateSpec;
-use k3rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::PodTemplateSpec;
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

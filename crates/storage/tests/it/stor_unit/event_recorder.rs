@@ -2,21 +2,23 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::event_correlator::{
+    pub use kubernetes_rs_common::event_correlator::{
         CorrelatorEvent, CorrelatorEventSource, CorrelatorEventType, CorrelatorObjectReference,
         EventCorrelator, RealClock,
     };
-    pub use k3rs_common::resources::{Event, EventSeries, EventSource, EventType, ObjectReference};
-    pub use k3rs_common::Result;
-    pub use k3rs_storage::Storage;
+    pub use kubernetes_rs_common::resources::{
+        Event, EventSeries, EventSource, EventType, ObjectReference,
+    };
+    pub use kubernetes_rs_common::Result;
+    pub use kubernetes_rs_storage::Storage;
     pub use std::sync::atomic::{AtomicU64, Ordering};
     pub use std::sync::{Arc, Mutex};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_storage::event_recorder::*;
-    use k3rs_storage::MemoryStorage;
+    use kubernetes_rs_storage::event_recorder::*;
+    use kubernetes_rs_storage::MemoryStorage;
 
     fn obj_ref(name: &str, namespace: &str) -> ObjectReference {
         ObjectReference {

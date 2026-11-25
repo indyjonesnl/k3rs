@@ -3,22 +3,22 @@
 
 mod __parent {
     pub use crate::preempt_support::check_preemption;
-    pub use k3rs_common::affinity::{
+    pub use kubernetes_rs_common::affinity::{
         check_node_affinity, check_pod_anti_affinity, match_selector, matches_pod_affinity_term,
     };
-    pub use k3rs_common::quantity::parse_resource_value;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::quantity::parse_resource_value;
+    pub use kubernetes_rs_common::resources::{
         IntOrString, Node, Pod, PodDisruptionBudget, PriorityClass, Taint, Toleration,
         TopologySpreadConstraint,
     };
-    pub use k3rs_scheduler::fwk::Code;
+    pub use kubernetes_rs_scheduler::fwk::Code;
     pub use std::collections::HashMap;
     pub use tracing::debug;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_scheduler::advanced::*;
+    use kubernetes_rs_scheduler::advanced::*;
 
     #[test]
     fn test_parse_cpu_quantity() {
@@ -171,14 +171,14 @@ mod tests {
         assert!(toleration_matches_taint(&toleration, &taint));
     }
 
-    use k3rs_common::resources::NodeStatus;
+    use kubernetes_rs_common::resources::NodeStatus;
 
     /// Helper: create a minimal container with resource requests
-    fn make_container(cpu: &str, memory: &str) -> k3rs_common::resources::Container {
+    fn make_container(cpu: &str, memory: &str) -> kubernetes_rs_common::resources::Container {
         let mut requests = HashMap::new();
         requests.insert("cpu".to_string(), cpu.to_string());
         requests.insert("memory".to_string(), memory.to_string());
-        k3rs_common::resources::Container {
+        kubernetes_rs_common::resources::Container {
             name: "main".to_string(),
             image: "busybox".to_string(),
             command: None,
@@ -187,7 +187,7 @@ mod tests {
             ports: None,
             env: None,
             env_from: None,
-            resources: Some(k3rs_common::types::ResourceRequirements {
+            resources: Some(kubernetes_rs_common::types::ResourceRequirements {
                 requests: Some(requests),
                 limits: None,
                 claims: None,
@@ -243,15 +243,15 @@ mod tests {
         memory: &str,
         node_name: &str,
     ) -> Pod {
-        let spec = k3rs_common::resources::PodSpec {
+        let spec = kubernetes_rs_common::resources::PodSpec {
             containers: vec![make_container(cpu, memory)],
             priority: Some(priority),
             node_name: Some(node_name.to_string()),
             ..Default::default()
         };
         let mut pod = Pod::new(name, spec);
-        pod.status = Some(k3rs_common::resources::PodStatus {
-            phase: Some(k3rs_common::types::Phase::Running),
+        pod.status = Some(kubernetes_rs_common::resources::PodStatus {
+            phase: Some(kubernetes_rs_common::types::Phase::Running),
             ..Default::default()
         });
         pod
@@ -265,7 +265,7 @@ mod tests {
         memory: &str,
         preemption_policy: Option<&str>,
     ) -> Pod {
-        let spec = k3rs_common::resources::PodSpec {
+        let spec = kubernetes_rs_common::resources::PodSpec {
             containers: vec![make_container(cpu, memory)],
             priority: Some(priority),
             preemption_policy: preemption_policy.map(|s| s.to_string()),
@@ -306,14 +306,14 @@ mod tests {
             let mut requests = HashMap::new();
             requests.insert("example.com/fakecpu".to_string(), req.to_string());
             let mut container = make_container("0", "0");
-            container.resources = Some(k3rs_common::types::ResourceRequirements {
+            container.resources = Some(kubernetes_rs_common::types::ResourceRequirements {
                 requests: Some(requests),
                 limits: None,
                 claims: None,
             });
             Pod::new(
                 name,
-                k3rs_common::resources::PodSpec {
+                kubernetes_rs_common::resources::PodSpec {
                     containers: vec![container],
                     ..Default::default()
                 },
@@ -366,14 +366,14 @@ mod tests {
             let mut requests = HashMap::new();
             requests.insert("example.com/fakecpu".to_string(), req.to_string());
             let mut container = make_container("0", "0");
-            container.resources = Some(k3rs_common::types::ResourceRequirements {
+            container.resources = Some(kubernetes_rs_common::types::ResourceRequirements {
                 requests: Some(requests),
                 limits: None,
                 claims: None,
             });
             let mut pod = Pod::new(
                 name,
-                k3rs_common::resources::PodSpec {
+                kubernetes_rs_common::resources::PodSpec {
                     containers: vec![container],
                     priority: Some(priority),
                     ..Default::default()
@@ -385,8 +385,8 @@ mod tests {
 
         // A high-priority preemptor (900) nominated to node-2 but not yet bound.
         let mut nominee = fakecpu_pod("preemptor", "900", 100);
-        nominee.status = Some(k3rs_common::resources::PodStatus {
-            phase: Some(k3rs_common::types::Phase::Pending),
+        nominee.status = Some(kubernetes_rs_common::resources::PodStatus {
+            phase: Some(kubernetes_rs_common::types::Phase::Pending),
             nominated_node_name: Some("node-2".to_string()),
             ..Default::default()
         });
@@ -432,13 +432,13 @@ mod tests {
         // Incoming high-priority pod with preemptionPolicy=Never
         let incoming = make_incoming_pod("high-pri-pod", 1000, "2", "2Gi", Some("Never"));
 
-        let scheduler = k3rs_scheduler::scheduler::Scheduler::new_with_name(
-            std::sync::Arc::new(k3rs_storage::memory::MemoryStorage::new()),
+        let scheduler = kubernetes_rs_scheduler::scheduler::Scheduler::new_with_name(
+            std::sync::Arc::new(kubernetes_rs_storage::memory::MemoryStorage::new()),
             1,
             "default-scheduler".to_string(),
         );
-        let diag = k3rs_scheduler::diagnosis::Diagnosis {
-            absent_nodes_code: Some(k3rs_scheduler::fwk::Code::Unschedulable),
+        let diag = kubernetes_rs_scheduler::diagnosis::Diagnosis {
+            absent_nodes_code: Some(kubernetes_rs_scheduler::fwk::Code::Unschedulable),
             ..Default::default()
         };
         let preempted = scheduler
@@ -494,15 +494,15 @@ mod tests {
 
     // ---- HostPort conflict detection tests ----
 
-    use k3rs_common::resources::ContainerPort;
+    use kubernetes_rs_common::resources::ContainerPort;
 
     /// Helper: create a container with a hostPort binding
     fn make_container_with_host_port(
         host_port: u16,
         protocol: &str,
         host_ip: &str,
-    ) -> k3rs_common::resources::Container {
-        k3rs_common::resources::Container {
+    ) -> kubernetes_rs_common::resources::Container {
+        kubernetes_rs_common::resources::Container {
             name: "main".to_string(),
             image: "busybox".to_string(),
             command: None,
@@ -549,14 +549,14 @@ mod tests {
         host_ip: &str,
         node_name: &str,
     ) -> Pod {
-        let spec = k3rs_common::resources::PodSpec {
+        let spec = kubernetes_rs_common::resources::PodSpec {
             containers: vec![make_container_with_host_port(host_port, protocol, host_ip)],
             node_name: Some(node_name.to_string()),
             ..Default::default()
         };
         let mut pod = Pod::new(name, spec);
-        pod.status = Some(k3rs_common::resources::PodStatus {
-            phase: Some(k3rs_common::types::Phase::Running),
+        pod.status = Some(kubernetes_rs_common::resources::PodStatus {
+            phase: Some(kubernetes_rs_common::types::Phase::Running),
             ..Default::default()
         });
         pod
@@ -569,7 +569,7 @@ mod tests {
         protocol: &str,
         host_ip: &str,
     ) -> Pod {
-        let spec = k3rs_common::resources::PodSpec {
+        let spec = kubernetes_rs_common::resources::PodSpec {
             containers: vec![make_container_with_host_port(host_port, protocol, host_ip)],
             ..Default::default()
         };
@@ -680,8 +680,8 @@ mod tests {
         let node = make_node("node-1", "2", "4Gi");
         let mut existing = make_host_port_pod("existing", 8080, "TCP", "", "node-1");
         // Mark existing pod as Succeeded (terminated)
-        existing.status = Some(k3rs_common::resources::PodStatus {
-            phase: Some(k3rs_common::types::Phase::Succeeded),
+        existing.status = Some(kubernetes_rs_common::resources::PodStatus {
+            phase: Some(kubernetes_rs_common::types::Phase::Succeeded),
             ..Default::default()
         });
         let incoming = make_incoming_host_port_pod("incoming", 8080, "TCP", "");
@@ -727,10 +727,8 @@ mod tests {
     fn mark_preempted(pod: &mut Pod) {
         pod.metadata.deletion_timestamp = Some(chrono::Utc::now());
         let status = pod.status.get_or_insert_with(Default::default);
-        status
-            .conditions
-            .get_or_insert_with(Vec::new)
-            .push(k3rs_common::resources::PodCondition {
+        status.conditions.get_or_insert_with(Vec::new).push(
+            kubernetes_rs_common::resources::PodCondition {
                 condition_type: "DisruptionTarget".to_string(),
                 status: "True".to_string(),
                 last_probe_time: None,
@@ -738,7 +736,8 @@ mod tests {
                 reason: Some("PreemptionByScheduler".to_string()),
                 message: Some("Preempted by a higher-priority pod".to_string()),
                 observed_generation: None,
-            });
+            },
+        );
     }
 
     /// #1130: a pod that already preempted must not preempt again while its
@@ -753,7 +752,7 @@ mod tests {
     #[test]
     fn a_pod_with_a_terminating_victim_on_its_nominated_node_is_not_eligible() {
         let mut preemptor = make_incoming_pod("preemptor", 1000, "100m", "128Mi", None);
-        preemptor.status = Some(k3rs_common::resources::PodStatus {
+        preemptor.status = Some(kubernetes_rs_common::resources::PodStatus {
             nominated_node_name: Some("node-1".to_string()),
             ..Default::default()
         });
@@ -773,7 +772,7 @@ mod tests {
     #[test]
     fn a_pod_whose_nominated_node_became_unresolvable_may_preempt_again() {
         let mut preemptor = make_incoming_pod("preemptor", 1000, "100m", "128Mi", None);
-        preemptor.status = Some(k3rs_common::resources::PodStatus {
+        preemptor.status = Some(kubernetes_rs_common::resources::PodStatus {
             nominated_node_name: Some("node-1".to_string()),
             ..Default::default()
         });
@@ -792,7 +791,7 @@ mod tests {
     #[test]
     fn a_pod_whose_victim_has_gone_is_eligible_again() {
         let mut preemptor = make_incoming_pod("preemptor", 1000, "100m", "128Mi", None);
-        preemptor.status = Some(k3rs_common::resources::PodStatus {
+        preemptor.status = Some(kubernetes_rs_common::resources::PodStatus {
             nominated_node_name: Some("node-1".to_string()),
             ..Default::default()
         });
@@ -812,7 +811,7 @@ mod tests {
     #[test]
     fn a_terminating_pod_on_another_node_does_not_block_preemption() {
         let mut preemptor = make_incoming_pod("preemptor", 1000, "100m", "128Mi", None);
-        preemptor.status = Some(k3rs_common::resources::PodStatus {
+        preemptor.status = Some(kubernetes_rs_common::resources::PodStatus {
             nominated_node_name: Some("node-1".to_string()),
             ..Default::default()
         });
@@ -832,7 +831,7 @@ mod tests {
     #[test]
     fn a_terminating_higher_priority_pod_does_not_block_preemption() {
         let mut preemptor = make_incoming_pod("preemptor", 1000, "100m", "128Mi", None);
-        preemptor.status = Some(k3rs_common::resources::PodStatus {
+        preemptor.status = Some(kubernetes_rs_common::resources::PodStatus {
             nominated_node_name: Some("node-1".to_string()),
             ..Default::default()
         });
@@ -860,7 +859,7 @@ mod tests {
     #[test]
     fn a_pod_terminating_for_an_unrelated_reason_does_not_block_preemption() {
         let mut preemptor = make_incoming_pod("preemptor", 1000, "100m", "128Mi", None);
-        preemptor.status = Some(k3rs_common::resources::PodStatus {
+        preemptor.status = Some(kubernetes_rs_common::resources::PodStatus {
             nominated_node_name: Some("node-1".to_string()),
             ..Default::default()
         });
@@ -880,7 +879,7 @@ mod tests {
     #[test]
     fn a_pod_disrupted_by_something_else_does_not_block_preemption() {
         let mut preemptor = make_incoming_pod("preemptor", 1000, "100m", "128Mi", None);
-        preemptor.status = Some(k3rs_common::resources::PodStatus {
+        preemptor.status = Some(kubernetes_rs_common::resources::PodStatus {
             nominated_node_name: Some("node-1".to_string()),
             ..Default::default()
         });
@@ -888,10 +887,8 @@ mod tests {
         let mut drained = make_scheduled_pod("drained", 1, "100m", "128Mi", "node-1");
         drained.metadata.deletion_timestamp = Some(chrono::Utc::now());
         let status = drained.status.get_or_insert_with(Default::default);
-        status
-            .conditions
-            .get_or_insert_with(Vec::new)
-            .push(k3rs_common::resources::PodCondition {
+        status.conditions.get_or_insert_with(Vec::new).push(
+            kubernetes_rs_common::resources::PodCondition {
                 condition_type: "DisruptionTarget".to_string(),
                 status: "True".to_string(),
                 last_probe_time: None,
@@ -899,7 +896,8 @@ mod tests {
                 reason: Some("EvictionByEvictionAPI".to_string()),
                 message: None,
                 observed_generation: None,
-            });
+            },
+        );
 
         assert!(pod_eligible_to_preempt_others(
             &preemptor,
@@ -1100,10 +1098,10 @@ mod tests {
         PodDisruptionBudget::new(
             name,
             ns,
-            k3rs_common::resources::PodDisruptionBudgetSpec {
+            kubernetes_rs_common::resources::PodDisruptionBudgetSpec {
                 min_available: Some(IntOrString::Int(min_available)),
                 max_unavailable: None,
-                selector: Some(k3rs_common::types::LabelSelector {
+                selector: Some(kubernetes_rs_common::types::LabelSelector {
                     match_labels: Some(selector_labels),
                     match_expressions: None,
                 }),
@@ -1158,8 +1156,8 @@ mod tests {
     // max / sidecar sum / overhead / pod-level override in
     // component-helpers/resource/helpers_test.go.
 
-    fn reqs(pairs: &[(&str, &str)]) -> k3rs_common::types::ResourceRequirements {
-        k3rs_common::types::ResourceRequirements {
+    fn reqs(pairs: &[(&str, &str)]) -> kubernetes_rs_common::types::ResourceRequirements {
+        kubernetes_rs_common::types::ResourceRequirements {
             requests: Some(
                 pairs
                     .iter()
@@ -1177,7 +1175,7 @@ mod tests {
         c.resources = Some(reqs(&[("cpu", cpu)]));
         Pod::new(
             "p",
-            k3rs_common::resources::PodSpec {
+            kubernetes_rs_common::resources::PodSpec {
                 containers: vec![c],
                 ..Default::default()
             },
@@ -1188,7 +1186,7 @@ mod tests {
         name: &str,
         cpu: &str,
         restartable: bool,
-    ) -> k3rs_common::resources::Container {
+    ) -> kubernetes_rs_common::resources::Container {
         let mut c = make_container(cpu, "1Mi");
         c.name = name.to_string();
         c.resources = Some(reqs(&[("cpu", cpu)]));
@@ -1243,8 +1241,8 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn pod_level_resources_override_the_container_sum_when_gate_on() {
-        let _g = k3rs_common::feature_gates::with_feature(
-            k3rs_common::feature_gates::Feature::PodLevelResources,
+        let _g = kubernetes_rs_common::feature_gates::with_feature(
+            kubernetes_rs_common::feature_gates::Feature::PodLevelResources,
             true,
         );
         let mut pod = pod_with("1");
@@ -1260,8 +1258,8 @@ mod tests {
     #[serial_test::serial]
     fn pod_level_resources_ignored_when_gate_off() {
         // SkipPodLevelResources: !EnablePodLevelResources (fit.go:296-297).
-        let _g = k3rs_common::feature_gates::with_feature(
-            k3rs_common::feature_gates::Feature::PodLevelResources,
+        let _g = kubernetes_rs_common::feature_gates::with_feature(
+            kubernetes_rs_common::feature_gates::Feature::PodLevelResources,
             false,
         );
         let mut pod = pod_with("1");
@@ -1300,7 +1298,7 @@ mod tests {
     // Ported from TestPodInfoCalculateResources,
     // ../kubernetes/pkg/scheduler/framework/types_test.go:1441-1700.
 
-    fn bare_container(name: &str) -> k3rs_common::resources::Container {
+    fn bare_container(name: &str) -> kubernetes_rs_common::resources::Container {
         let mut c = make_container("1", "1Mi");
         c.name = name.to_string();
         c.resources = None;
@@ -1308,13 +1306,13 @@ mod tests {
     }
 
     fn pod_of(
-        containers: Vec<k3rs_common::resources::Container>,
-        init: Vec<k3rs_common::resources::Container>,
+        containers: Vec<kubernetes_rs_common::resources::Container>,
+        init: Vec<kubernetes_rs_common::resources::Container>,
         pod_level: Option<&[(&str, &str)]>,
     ) -> Pod {
         Pod::new(
             "p",
-            k3rs_common::resources::PodSpec {
+            kubernetes_rs_common::resources::PodSpec {
                 containers,
                 init_containers: if init.is_empty() { None } else { Some(init) },
                 resources: pod_level.map(reqs),
@@ -1323,7 +1321,7 @@ mod tests {
         )
     }
 
-    fn requested(cpu: &str, mem: &str) -> k3rs_common::resources::Container {
+    fn requested(cpu: &str, mem: &str) -> kubernetes_rs_common::resources::Container {
         let mut c = make_container(cpu, mem);
         c.resources = Some(reqs(&[("cpu", cpu), ("memory", mem)]));
         c
@@ -1376,8 +1374,8 @@ mod tests {
     #[serial_test::serial]
     fn non_zero_pod_level_memory_only() {
         // types_test.go:1584 "1X container with pod-level memory requests"
-        let _g = k3rs_common::feature_gates::with_feature(
-            k3rs_common::feature_gates::Feature::PodLevelResources,
+        let _g = kubernetes_rs_common::feature_gates::with_feature(
+            kubernetes_rs_common::feature_gates::Feature::PodLevelResources,
             true,
         );
         let pod = pod_of(
@@ -1395,8 +1393,8 @@ mod tests {
     #[serial_test::serial]
     fn non_zero_pod_level_cpu_only() {
         // types_test.go:1613 "1X container with pod-level cpu requests"
-        let _g = k3rs_common::feature_gates::with_feature(
-            k3rs_common::feature_gates::Feature::PodLevelResources,
+        let _g = kubernetes_rs_common::feature_gates::with_feature(
+            kubernetes_rs_common::feature_gates::Feature::PodLevelResources,
             true,
         );
         let pod = pod_of(
@@ -1414,8 +1412,8 @@ mod tests {
     #[serial_test::serial]
     fn non_zero_pod_level_overrides_containers() {
         // types_test.go:1532 "1X container and 1X sidecar with pod-level requests"
-        let _g = k3rs_common::feature_gates::with_feature(
-            k3rs_common::feature_gates::Feature::PodLevelResources,
+        let _g = kubernetes_rs_common::feature_gates::with_feature(
+            kubernetes_rs_common::feature_gates::Feature::PodLevelResources,
             true,
         );
         let mut side = requested("500m", "500Mi");

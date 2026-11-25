@@ -3,11 +3,11 @@
 //! validation/field/errors.go:282-302`), so the body reads
 //! `Too many: 1001: must have at most 1000 items`. #3330 / #3316.
 
-use k3rs_common::resources::admission_webhook::MatchCondition;
-use k3rs_common::resources::endpointslice::EndpointSlice;
-use k3rs_common::validation::endpointslice::validate_endpoint_slice;
-use k3rs_common::validation::field::Path;
-use k3rs_common::validation::validating_admission_policy::validate_match_conditions;
+use kubernetes_rs_common::resources::admission_webhook::MatchCondition;
+use kubernetes_rs_common::resources::endpointslice::EndpointSlice;
+use kubernetes_rs_common::validation::endpointslice::validate_endpoint_slice;
+use kubernetes_rs_common::validation::field::Path;
+use kubernetes_rs_common::validation::validating_admission_policy::validate_match_conditions;
 use serde_json::json;
 
 fn es(v: serde_json::Value) -> EndpointSlice {

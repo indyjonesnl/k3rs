@@ -2,15 +2,15 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::rbac::policy_comparator::covers;
-    pub use k3rs_common::resources::rbac::{PolicyRule, Subject};
-    pub use k3rs_common::types::LabelSelector;
+    pub use kubernetes_rs_api_server::registry::rbac::policy_comparator::covers;
+    pub use kubernetes_rs_common::resources::rbac::{PolicyRule, Subject};
+    pub use kubernetes_rs_common::types::LabelSelector;
     pub use serde_json::{Map, Value};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::rbac::reconciliation::*;
+    use kubernetes_rs_api_server::registry::rbac::reconciliation::*;
     use serde_json::json;
 
     fn role(rules: Value, agg: Option<Value>) -> Value {

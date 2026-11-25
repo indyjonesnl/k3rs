@@ -2,13 +2,13 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::types::{ObjectMeta, TypeMeta};
+    pub use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
     pub use serde::{Deserialize, Serialize};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::componentstatus::*;
+    use kubernetes_rs_common::resources::componentstatus::*;
 
     #[test]
     fn test_component_status_healthy() {

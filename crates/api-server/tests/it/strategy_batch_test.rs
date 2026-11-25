@@ -10,7 +10,7 @@
 //!   * Selector auto-generation for Jobs when `spec.manualSelector` is unset/false.
 //!   * Status subresource isolation: `/status` PUTs MUST NOT bleed into spec.
 //!
-//! k3rs wires the equivalent logic in
+//! kubernetes-rs wires the equivalent logic in
 //! `crates/api-server/src/handlers/{job,cronjob}.rs` (`apply_*_defaults`,
 //! selector auto-generation, dispatch to the shared `status` subresource
 //! handler). This file exercises that wiring through the live Axum router,
@@ -18,7 +18,7 @@
 //!
 //! ## Test layer
 //!
-//! Layer 3 (`registry/strategy`) of the six-layer k3rs parity plan:
+//! Layer 3 (`registry/strategy`) of the six-layer kubernetes-rs parity plan:
 //!   1. roundtrip serialization (covered elsewhere)
 //!   2. (reserved)
 //!   3. **registry/strategy** ← this file
@@ -32,8 +32,8 @@
 //! and assert both the HTTP response body AND the stored object.
 
 use axum::http::Method;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -275,7 +275,7 @@ async fn test_job_strategy_create_manual_selector_preserved() {
 // ---------------------------------------------------------------------------
 
 /// Upstream `TestJobStrategy_PrepareForUpdate` keeps `spec.parallelism` mutable
-/// (along with `spec.activeDeadlineSeconds`), which the k3rs update
+/// (along with `spec.activeDeadlineSeconds`), which the kubernetes-rs update
 /// handler must accept. We assert the round-trip persists the new value.
 #[tokio::test]
 async fn test_job_strategy_update_allows_parallelism_change() {
@@ -334,7 +334,7 @@ async fn test_job_strategy_update_allows_parallelism_change() {
 /// adding tolerations under feature gates). Mutating any of them should be
 /// rejected by the registry strategy.
 ///
-/// k3rs does not yet implement `ValidateJobUpdate` immutability —
+/// kubernetes-rs does not yet implement `ValidateJobUpdate` immutability —
 /// the update handler today re-applies defaults but does not diff against
 /// the stored object. We pin the upstream semantics here as `#[ignore]`d
 /// so the test becomes the regression gate once immutability lands.

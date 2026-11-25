@@ -2,8 +2,8 @@
 //! (`newNamespaceController`, `cmd/kube-controller-manager/app/core.go:646-647`:
 //! `QPS *= 20`, `Burst *= 100`); every other controller keeps the skeleton's.
 
-use k3rs_client::http::ApiClient;
-use k3rs_controller_manager::controller_client;
+use kubernetes_rs_client::http::ApiClient;
+use kubernetes_rs_controller_manager::controller_client;
 
 fn skeleton() -> ApiClient {
     ApiClient::new("http://127.0.0.1:1", true, None)

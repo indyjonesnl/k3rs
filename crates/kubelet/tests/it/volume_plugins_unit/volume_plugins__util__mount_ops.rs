@@ -8,7 +8,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::volume_plugins::util::mount_ops::*;
+    use kubernetes_rs_kubelet::volume_plugins::util::mount_ops::*;
 
     fn info(attrs: u64, mask: u64, major: u32, minor: u32) -> StatxInfo {
         StatxInfo {

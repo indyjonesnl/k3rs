@@ -1,11 +1,11 @@
 // DaemonSet ControllerRevision Integration Tests
 // Tests the DaemonSet controller's creation and management of ControllerRevisions
 
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::*;
-use k3rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::daemonset::DaemonSetController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::*;
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::daemonset::DaemonSetController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

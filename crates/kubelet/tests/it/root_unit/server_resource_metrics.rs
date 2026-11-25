@@ -1,7 +1,7 @@
 //! Tests for `/metrics/resource` (`resource_metrics.go`).
-use k3rs_cri::v1;
-use k3rs_kubelet::labels::{CONTAINER_NAME_LABEL, POD_NAMESPACE_LABEL, POD_NAME_LABEL};
-use k3rs_kubelet::server_resource_metrics::*;
+use kubernetes_rs_cri::v1;
+use kubernetes_rs_kubelet::labels::{CONTAINER_NAME_LABEL, POD_NAMESPACE_LABEL, POD_NAME_LABEL};
+use kubernetes_rs_kubelet::server_resource_metrics::*;
 use std::collections::HashMap;
 
 fn u(v: u64) -> Option<v1::UInt64Value> {

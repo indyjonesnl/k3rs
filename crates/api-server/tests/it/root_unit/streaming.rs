@@ -9,7 +9,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::streaming::*;
+    use kubernetes_rs_api_server::streaming::*;
 
     #[test]
     fn frame_log_chunk_binary_is_raw_no_channel_prefix() {

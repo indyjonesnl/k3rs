@@ -3,13 +3,13 @@
 
 mod __parent {
     pub use anyhow::Result;
-    pub use k3rs_client::http::ApiClient;
-    pub use k3rs_kubectl::websocket;
+    pub use kubernetes_rs_client::http::ApiClient;
+    pub use kubernetes_rs_kubectl::websocket;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::port_forward::*;
+    use kubernetes_rs_kubectl::commands::port_forward::*;
 
     #[test]
     fn test_parse_port_mapping_local_remote() {

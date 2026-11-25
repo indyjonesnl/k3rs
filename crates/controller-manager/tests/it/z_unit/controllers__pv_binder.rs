@@ -3,17 +3,17 @@
 
 mod __parent {
     pub use anyhow::Result;
-    pub use k3rs_common::resources::service_account::ObjectReference;
-    pub use k3rs_common::resources::volume::{
+    pub use kubernetes_rs_common::resources::service_account::ObjectReference;
+    pub use kubernetes_rs_common::resources::volume::{
         get_default_class, NodeSelectorTerm, PersistentVolumeClaimPhase, PersistentVolumeMode,
         PersistentVolumePhase, PersistentVolumeReclaimPolicy, StorageClass, VolumeBindingMode,
         VolumeNodeAffinity,
     };
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::resources::{
         EventSource, EventType, Node, PersistentVolume, PersistentVolumeClaim,
         PersistentVolumeClaimSpec, PersistentVolumeSpec, PersistentVolumeStatus, Pod,
     };
-    pub use k3rs_storage::{build_key, extract_key, EventRecorder, Storage, WorkQueue};
+    pub use kubernetes_rs_storage::{build_key, extract_key, EventRecorder, Storage, WorkQueue};
     pub use std::sync::Arc;
     pub use std::time::Duration;
     pub use tokio::time;
@@ -22,17 +22,17 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::service_account::ObjectReference;
-    use k3rs_common::resources::volume::{
+    use kubernetes_rs_common::resources::service_account::ObjectReference;
+    use kubernetes_rs_common::resources::volume::{
         PersistentVolumeAccessMode, PersistentVolumeClaimPhase, PersistentVolumeClaimStatus,
         PersistentVolumeMode, ResourceRequirements,
     };
-    use k3rs_common::resources::{
+    use kubernetes_rs_common::resources::{
         PersistentVolumeClaimSpec, PersistentVolumeSpec, PersistentVolumeStatus,
     };
-    use k3rs_common::types::{ObjectMeta, TypeMeta};
-    use k3rs_controller_manager::controllers::pv_binder::*;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+    use kubernetes_rs_controller_manager::controllers::pv_binder::*;
+    use kubernetes_rs_storage::memory::MemoryStorage;
     use std::collections::HashMap;
 
     fn ann_map(kv: &[(&str, &str)]) -> HashMap<String, String> {
@@ -476,8 +476,8 @@ mod tests {
 
     async fn volume_mismatch_events(
         storage: &Arc<MemoryStorage>,
-    ) -> Vec<k3rs_common::resources::Event> {
-        let all: Vec<k3rs_common::resources::Event> =
+    ) -> Vec<kubernetes_rs_common::resources::Event> {
+        let all: Vec<kubernetes_rs_common::resources::Event> =
             storage.list("/registry/events/").await.unwrap();
         all.into_iter()
             .filter(|e| e.reason == "VolumeMismatch")
@@ -523,10 +523,12 @@ mod tests {
         let c = PVBinderController::new(storage.clone());
         let mut pv = bound_pv("pv");
         pv.spec.persistent_volume_reclaim_policy = Some(PersistentVolumeReclaimPolicy::Delete);
-        pv.spec.host_path = Some(k3rs_common::resources::volume::HostPathVolumeSource {
-            path: "/tmp/k3rs-reclaim-test-nonexistent".into(),
-            r#type: None,
-        });
+        pv.spec.host_path = Some(
+            kubernetes_rs_common::resources::volume::HostPathVolumeSource {
+                path: "/tmp/kubernetes-rs-reclaim-test-nonexistent".into(),
+                r#type: None,
+            },
+        );
         put_pv(&storage, &pv).await;
         c.sync_volumes(&WorkQueue::new()).await.unwrap();
         assert!(get_pv(&storage, "pv").await.is_none());
@@ -536,7 +538,7 @@ mod tests {
     /// unique `/tmp/hostpath.<uuid>` so the deleter's `/tmp/.+` guard passes
     /// and no test can touch anything outside its own scratch directory.
     fn host_path_delete_pv(name: &str, path: &str) -> PersistentVolume {
-        use k3rs_common::resources::volume::HostPathVolumeSource;
+        use kubernetes_rs_common::resources::volume::HostPathVolumeSource;
         let mut pv = bound_pv(name);
         pv.spec.persistent_volume_reclaim_policy = Some(PersistentVolumeReclaimPolicy::Delete);
         pv.spec.host_path = Some(HostPathVolumeSource {
@@ -586,7 +588,7 @@ mod tests {
             let want =
                 format!("host_path deleter only supports /tmp/.+ but received provided {path}");
             assert_eq!(status.message.as_deref(), Some(want.as_str()), "{path}");
-            let events: Vec<k3rs_common::resources::Event> =
+            let events: Vec<kubernetes_rs_common::resources::Event> =
                 storage.list("/registry/events/").await.unwrap();
             assert!(
                 events.iter().any(|e| e.reason == "VolumeFailedDelete"),
@@ -651,7 +653,7 @@ mod tests {
             status.message.as_deref(),
             Some("No recycler plugin found for the volume!")
         );
-        let events: Vec<k3rs_common::resources::Event> =
+        let events: Vec<kubernetes_rs_common::resources::Event> =
             storage.list("/registry/events/").await.unwrap();
         let ev: Vec<_> = events
             .iter()
@@ -661,7 +663,7 @@ mod tests {
         // Already Failed: a further sync must not emit another event.
         c.sync_volumes(&WorkQueue::new()).await.unwrap();
         settle(&c).await;
-        let events: Vec<k3rs_common::resources::Event> =
+        let events: Vec<kubernetes_rs_common::resources::Event> =
             storage.list("/registry/events/").await.unwrap();
         assert_eq!(
             events
@@ -689,7 +691,7 @@ mod tests {
     fn fake_kubelet(
         storage: &Arc<MemoryStorage>,
         pv: &str,
-        phase: k3rs_common::types::Phase,
+        phase: kubernetes_rs_common::types::Phase,
         message: Option<&str>,
     ) -> tokio::task::JoinHandle<()> {
         let storage = Arc::clone(storage);
@@ -699,7 +701,7 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(20), async {
                 loop {
                     if let Ok(mut pod) = storage.get::<Pod>(&key).await {
-                        pod.status = Some(k3rs_common::resources::pod::PodStatus {
+                        pod.status = Some(kubernetes_rs_common::resources::pod::PodStatus {
                             phase: Some(phase),
                             message,
                             ..Default::default()
@@ -718,10 +720,12 @@ mod tests {
     fn recycle_pv(name: &str, by_controller: bool) -> PersistentVolume {
         let mut pv = bound_pv(name);
         pv.spec.persistent_volume_reclaim_policy = Some(PersistentVolumeReclaimPolicy::Recycle);
-        pv.spec.host_path = Some(k3rs_common::resources::volume::HostPathVolumeSource {
-            path: "/tmp/recycle-me".into(),
-            r#type: None,
-        });
+        pv.spec.host_path = Some(
+            kubernetes_rs_common::resources::volume::HostPathVolumeSource {
+                path: "/tmp/recycle-me".into(),
+                r#type: None,
+            },
+        );
         if by_controller {
             pv.metadata.annotations = Some(
                 [(ANN_BOUND_BY_CONTROLLER.to_string(), "yes".to_string())]
@@ -740,7 +744,12 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let c = PVBinderController::new(storage.clone());
         put_pv(&storage, &recycle_pv("pv", true)).await;
-        let kubelet = fake_kubelet(&storage, "pv", k3rs_common::types::Phase::Succeeded, None);
+        let kubelet = fake_kubelet(
+            &storage,
+            "pv",
+            kubernetes_rs_common::types::Phase::Succeeded,
+            None,
+        );
         c.sync_volumes(&WorkQueue::new()).await.unwrap();
         settle(&c).await;
         kubelet.await.unwrap();
@@ -764,7 +773,12 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let c = PVBinderController::new(storage.clone());
         put_pv(&storage, &recycle_pv("pv", false)).await;
-        let kubelet = fake_kubelet(&storage, "pv", k3rs_common::types::Phase::Succeeded, None);
+        let kubelet = fake_kubelet(
+            &storage,
+            "pv",
+            kubernetes_rs_common::types::Phase::Succeeded,
+            None,
+        );
         c.sync_volumes(&WorkQueue::new()).await.unwrap();
         settle(&c).await;
         kubelet.await.unwrap();
@@ -786,7 +800,7 @@ mod tests {
         let kubelet = fake_kubelet(
             &storage,
             "pv",
-            k3rs_common::types::Phase::Failed,
+            kubernetes_rs_common::types::Phase::Failed,
             Some("Pod was active on the node longer than specified deadline"),
         );
         c.sync_volumes(&WorkQueue::new()).await.unwrap();
@@ -815,7 +829,12 @@ mod tests {
         let c = PVBinderController::new(storage.clone());
         put_pv(&storage, &recycle_pv("pv", false)).await;
         put_pvc(&storage, &make_pvc("c", "uid-x")).await;
-        let kubelet = fake_kubelet(&storage, "pv", k3rs_common::types::Phase::Succeeded, None);
+        let kubelet = fake_kubelet(
+            &storage,
+            "pv",
+            kubernetes_rs_common::types::Phase::Succeeded,
+            None,
+        );
         c.sync_volumes(&WorkQueue::new()).await.unwrap();
         settle(&c).await;
         kubelet.await.unwrap();
@@ -830,13 +849,18 @@ mod tests {
         let c = PVBinderController::new(storage.clone());
         let mut pv = recycle_pv("pv", true);
         pv.spec.host_path = None;
-        pv.spec.nfs = Some(k3rs_common::resources::volume::NFSVolumeSource {
+        pv.spec.nfs = Some(kubernetes_rs_common::resources::volume::NFSVolumeSource {
             server: "srv".into(),
             path: "/exp".into(),
             read_only: None,
         });
         put_pv(&storage, &pv).await;
-        let kubelet = fake_kubelet(&storage, "pv", k3rs_common::types::Phase::Succeeded, None);
+        let kubelet = fake_kubelet(
+            &storage,
+            "pv",
+            kubernetes_rs_common::types::Phase::Succeeded,
+            None,
+        );
         c.sync_volumes(&WorkQueue::new()).await.unwrap();
         settle(&c).await;
         kubelet.await.unwrap();
@@ -868,7 +892,12 @@ mod tests {
             storage.get::<Pod>(&key).await.is_ok(),
             "second sync must not touch the running recycler pod"
         );
-        let kubelet = fake_kubelet(&storage, "pv", k3rs_common::types::Phase::Succeeded, None);
+        let kubelet = fake_kubelet(
+            &storage,
+            "pv",
+            kubernetes_rs_common::types::Phase::Succeeded,
+            None,
+        );
         settle(&c).await;
         kubelet.await.unwrap();
         let got = get_pv(&storage, "pv").await.unwrap();
@@ -1010,7 +1039,7 @@ mod tests {
             status.message.as_deref(),
             Some("Volume has unrecognized PersistentVolumeReclaimPolicy")
         );
-        let events: Vec<k3rs_common::resources::Event> =
+        let events: Vec<kubernetes_rs_common::resources::Event> =
             storage.list("/registry/events/").await.unwrap();
         assert_eq!(
             events
@@ -1279,8 +1308,8 @@ mod tests {
     async fn events_with_reason(
         storage: &Arc<MemoryStorage>,
         reason: &str,
-    ) -> Vec<k3rs_common::resources::Event> {
-        let all: Vec<k3rs_common::resources::Event> =
+    ) -> Vec<kubernetes_rs_common::resources::Event> {
+        let all: Vec<kubernetes_rs_common::resources::Event> =
             storage.list("/registry/events/").await.unwrap();
         all.into_iter().filter(|e| e.reason == reason).collect()
     }
@@ -1836,7 +1865,7 @@ mod tests {
             sc["metadata"]["annotations"] =
                 serde_json::json!({"storageclass.kubernetes.io/is-default-class": "true"});
         }
-        let sc: k3rs_common::resources::StorageClass = serde_json::from_value(sc).unwrap();
+        let sc: kubernetes_rs_common::resources::StorageClass = serde_json::from_value(sc).unwrap();
         storage
             .create(&build_key("storageclasses", None, name), &sc)
             .await
@@ -1844,7 +1873,7 @@ mod tests {
     }
 
     async fn put_pod(storage: &Arc<MemoryStorage>, name: &str, node: Option<&str>, claim: &str) {
-        let pod: k3rs_common::resources::Pod = serde_json::from_value(serde_json::json!({
+        let pod: kubernetes_rs_common::resources::Pod = serde_json::from_value(serde_json::json!({
             "apiVersion": "v1",
             "kind": "Pod",
             "metadata": {"name": name, "namespace": "sstest"},
@@ -1912,7 +1941,10 @@ mod tests {
             ev[0].message,
             "no persistent volumes available for this claim and no storage class is set"
         );
-        assert_eq!(ev[0].event_type, k3rs_common::resources::EventType::Normal);
+        assert_eq!(
+            ev[0].event_type,
+            kubernetes_rs_common::resources::EventType::Normal
+        );
     }
 
     /// emitEventForUnboundDelayBindingClaim (:306-326), no pod yet.
@@ -2084,10 +2116,12 @@ mod tests {
         let mut pv = bound_pv("pv");
         pv.spec.persistent_volume_reclaim_policy = Some(policy);
         if host_path {
-            pv.spec.host_path = Some(k3rs_common::resources::volume::HostPathVolumeSource {
-                path: "/tmp/x".into(),
-                r#type: None,
-            });
+            pv.spec.host_path = Some(
+                kubernetes_rs_common::resources::volume::HostPathVolumeSource {
+                    path: "/tmp/x".into(),
+                    r#type: None,
+                },
+            );
         }
         if let Some(p) = provisioned_by {
             pv.metadata.annotations = Some(HashMap::from([(
@@ -2101,8 +2135,8 @@ mod tests {
     async fn reason_events(
         storage: &Arc<MemoryStorage>,
         reason: &str,
-    ) -> Vec<k3rs_common::resources::Event> {
-        let all: Vec<k3rs_common::resources::Event> =
+    ) -> Vec<kubernetes_rs_common::resources::Event> {
+        let all: Vec<kubernetes_rs_common::resources::Event> =
             storage.list("/registry/events/").await.unwrap();
         all.into_iter().filter(|e| e.reason == reason).collect()
     }
@@ -2155,7 +2189,7 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let c = PVBinderController::new(storage.clone());
         let mut pv = reclaim_pv(PersistentVolumeReclaimPolicy::Delete, None, false);
-        pv.spec.csi = Some(k3rs_common::resources::volume::CSIVolumeSource {
+        pv.spec.csi = Some(kubernetes_rs_common::resources::volume::CSIVolumeSource {
             driver: "ebs.csi.aws.com".into(),
             volume_handle: Some("vol-1".into()),
             ..Default::default()
@@ -2271,7 +2305,10 @@ mod tests {
         let ev = reason_events(&storage, "VolumeFailedRecycle").await;
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].message, "Volume is used by pods: sstest/p");
-        assert_eq!(ev[0].event_type, k3rs_common::resources::EventType::Normal);
+        assert_eq!(
+            ev[0].event_type,
+            kubernetes_rs_common::resources::EventType::Normal
+        );
         assert!(
             storage
                 .get::<Pod>(&build_key("pods", Some("default"), "recycler-for-pv"))
@@ -2305,7 +2342,12 @@ mod tests {
         let c = PVBinderController::new(storage.clone());
         put_pv(&storage, &recycle_pv("pv", true)).await;
         put_pod_json(&storage, "p", Some("Succeeded")).await;
-        let kubelet = fake_kubelet(&storage, "pv", k3rs_common::types::Phase::Succeeded, None);
+        let kubelet = fake_kubelet(
+            &storage,
+            "pv",
+            kubernetes_rs_common::types::Phase::Succeeded,
+            None,
+        );
         c.sync_volumes(&WorkQueue::new()).await.unwrap();
         settle(&c).await;
         kubelet.await.unwrap();
@@ -2326,7 +2368,12 @@ mod tests {
         put_pv(&storage, &recycle_pv("pv", true)).await;
         put_pod_json(&storage, "p", Some("Running")).await;
         put_pvc(&storage, &make_pvc("c", "other-uid")).await;
-        let kubelet = fake_kubelet(&storage, "pv", k3rs_common::types::Phase::Succeeded, None);
+        let kubelet = fake_kubelet(
+            &storage,
+            "pv",
+            kubernetes_rs_common::types::Phase::Succeeded,
+            None,
+        );
         c.sync_volumes(&WorkQueue::new()).await.unwrap();
         settle(&c).await;
         kubelet.await.unwrap();
@@ -2369,7 +2416,7 @@ mod tests {
         } else if let Some(cr) = current.spec.claim_ref.as_mut() {
             cr.uid = None;
         }
-        current.status = Some(k3rs_common::resources::PersistentVolumeStatus {
+        current.status = Some(kubernetes_rs_common::resources::PersistentVolumeStatus {
             phase: PersistentVolumePhase::Available,
             ..Default::default()
         });

@@ -7,16 +7,16 @@
 //! `fake.NewSimpleClientset`.
 
 use chrono::{TimeZone, Utc};
-use k3rs_common::resources::{Event, Node, NodeCondition, NodeSpec, NodeStatus, Taint};
-use k3rs_controller_manager::cloud_provider::fake::Cloud;
-use k3rs_controller_manager::cloud_provider::node_helpers::{
+use kubernetes_rs_common::resources::{Event, Node, NodeCondition, NodeSpec, NodeStatus, Taint};
+use kubernetes_rs_controller_manager::cloud_provider::fake::Cloud;
+use kubernetes_rs_controller_manager::cloud_provider::node_helpers::{
     delete_taint, remove_taint, taint_exists,
 };
-use k3rs_controller_manager::cloud_provider::{CloudError, Interface};
-use k3rs_controller_manager::controllers::cloud_node_lifecycle::{
+use kubernetes_rs_controller_manager::cloud_provider::{CloudError, Interface};
+use kubernetes_rs_controller_manager::controllers::cloud_node_lifecycle::{
     shutdown_taint, CloudNodeLifecycleController, DELETE_NODE_EVENT,
 };
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;

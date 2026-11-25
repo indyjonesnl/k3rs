@@ -1,5 +1,5 @@
-docker.io/library/k3rs-controller-manager:latest
-docker.io/library/k3rs-scheduler:latest
+docker.io/library/kubernetes-rs-controller-manager:latest
+docker.io/library/kubernetes-rs-scheduler:latest
 docker.io/rancher/helm-controller:v0.17.9
 docker.io/rancher/klipper-helm:v0.13.3-build20260727
 docker.io/rancher/local-path-provisioner:v0.0.37

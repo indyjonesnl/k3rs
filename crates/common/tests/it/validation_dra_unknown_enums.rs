@@ -1,12 +1,12 @@
 //! #2497: DRA closed string-enums decode any string (upstream fields are plain
 //! Go strings) and validation answers `NotSupported` (422), not a decode error.
 
-use k3rs_common::resources::dra::{ResourceClaim, ResourceClaimStatus, ResourceSlice};
-use k3rs_common::validation::field::{Error, ErrorType, Path};
-use k3rs_common::validation::resourceclaim::{
+use kubernetes_rs_common::resources::dra::{ResourceClaim, ResourceClaimStatus, ResourceSlice};
+use kubernetes_rs_common::validation::field::{Error, ErrorType, Path};
+use kubernetes_rs_common::validation::resourceclaim::{
     validate_resource_claim, validate_resource_claim_status_update,
 };
-use k3rs_common::validation::resourceslice::validate_resource_slice;
+use kubernetes_rs_common::validation::resourceslice::validate_resource_slice;
 use serde_json::json;
 
 fn claim(exactly: serde_json::Value) -> ResourceClaim {

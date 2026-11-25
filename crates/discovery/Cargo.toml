@@ -1,17 +1,17 @@
 [package]
-name = "k3rs-discovery"
+name = "kubernetes-rs-discovery"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [lib]
-name = "k3rs_discovery"
+name = "kubernetes_rs_discovery"
 path = "src/lib.rs"
 
 [dependencies]
-k3rs-storage = { path = "../storage" }
-k3rs-common = { path = "../common" }
+kubernetes-rs-storage = { path = "../storage" }
+kubernetes-rs-common = { path = "../common" }
 axum = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true

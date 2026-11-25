@@ -4,8 +4,8 @@
 mod __parent {
     pub use async_trait::async_trait;
     pub use chrono::{DateTime, Utc};
-    pub use k3rs_common::signal::ShutdownContext;
-    pub use k3rs_common::{Error, Result};
+    pub use kubernetes_rs_common::signal::ShutdownContext;
+    pub use kubernetes_rs_common::{Error, Result};
     pub use std::sync::{Arc, Mutex};
     pub use std::time::Duration;
     pub use tracing::{debug, error, info};
@@ -13,7 +13,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::leaderelection::*;
+    use kubernetes_rs_common::leaderelection::*;
 
     /// Scripted in-memory lock recording every API interaction (the fake
     /// clientset of leaderelection_test.go).

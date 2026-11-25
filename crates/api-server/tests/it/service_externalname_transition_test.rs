@@ -10,7 +10,7 @@
 //! `spec.externalName: Forbidden: may not be set for non-ExternalName services`.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::json;
 
 #[tokio::test]

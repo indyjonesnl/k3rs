@@ -1,10 +1,10 @@
-# RBAC Examples for k3rs
+# RBAC Examples for kubernetes-rs
 
-This directory contains example YAML manifests demonstrating Role-Based Access Control (RBAC) in k3rs.
+This directory contains example YAML manifests demonstrating Role-Based Access Control (RBAC) in kubernetes-rs.
 
 ## Overview
 
-k3rs implements Kubernetes-compatible RBAC with the following resources:
+kubernetes-rs implements Kubernetes-compatible RBAC with the following resources:
 - **ServiceAccount**: Identity for pods and applications
 - **Role**: Namespace-scoped permissions
 - **RoleBinding**: Binds roles to subjects within a namespace
@@ -280,5 +280,5 @@ rules:
 ## References
 
 - [Kubernetes RBAC Documentation](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
-- [k3rs PROGRESS.md](../../PROGRESS.md)
-- [k3rs ARCHITECTURE.md](../../ARCHITECTURE.md)
+- [kubernetes-rs PROGRESS.md](../../PROGRESS.md)
+- [kubernetes-rs ARCHITECTURE.md](../../ARCHITECTURE.md)

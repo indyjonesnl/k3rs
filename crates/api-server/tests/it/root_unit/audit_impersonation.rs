@@ -4,10 +4,10 @@
 //! Metadata level up.
 
 use axum::{body::Body, routing::get, Router};
-use k3rs_api_server::audit::{with_audit, AuditConfig, Policy};
-use k3rs_common::audit::{AuditBackend, AuditEvent, AuditStage};
-use k3rs_common::auth::UserInfo;
-use k3rs_middleware::{AuthContext, AuthImpersonator};
+use kubernetes_rs_api_server::audit::{with_audit, AuditConfig, Policy};
+use kubernetes_rs_common::audit::{AuditBackend, AuditEvent, AuditStage};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_middleware::{AuthContext, AuthImpersonator};
 use std::sync::Arc;
 use tower::ServiceExt;
 

@@ -8,9 +8,9 @@ use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
-use k3rs_api_server::negotiated_error::negotiate_error_middleware;
-use k3rs_common::types::{Status, StatusDetails};
-use k3rs_common::Error;
+use kubernetes_rs_api_server::negotiated_error::negotiate_error_middleware;
+use kubernetes_rs_common::types::{Status, StatusDetails};
+use kubernetes_rs_common::Error;
 use tower::ServiceExt;
 
 fn app() -> Router {

@@ -1,6 +1,6 @@
-# k3rs Examples
+# kubernetes-rs Examples
 
-This directory contains example manifests and configurations for testing and demonstrating k3rs functionality.
+This directory contains example manifests and configurations for testing and demonstrating kubernetes-rs functionality.
 
 ## Directory Structure
 

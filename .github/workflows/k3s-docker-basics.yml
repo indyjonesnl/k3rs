@@ -24,7 +24,7 @@ env:
 
 jobs:
   basics:
-    runs-on: arc-runner-set-conformance
+    runs-on: [self-hosted, kubernetes-rs]
     timeout-minutes: 120
     permissions:
       contents: read

@@ -1,8 +1,8 @@
 //! Tests for Node validation (port of upstream ValidateNode taints + podCIDRs).
 
-use k3rs_common::resources::node::{Node, NodeSpec, Taint};
-use k3rs_common::validation::field::ErrorType;
-use k3rs_common::validation::node::validate_node;
+use kubernetes_rs_common::resources::node::{Node, NodeSpec, Taint};
+use kubernetes_rs_common::validation::field::ErrorType;
+use kubernetes_rs_common::validation::node::validate_node;
 
 fn node(spec: NodeSpec) -> Node {
     let mut n = Node {
@@ -44,7 +44,7 @@ fn spec_cidrs(cidrs: Vec<&str>) -> NodeSpec {
     }
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], field: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], field: &str) -> bool {
     errs.iter().any(|e| e.field.contains(field))
 }
 

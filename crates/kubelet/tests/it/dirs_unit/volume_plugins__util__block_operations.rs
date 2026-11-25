@@ -5,17 +5,19 @@
 //! `BlockVolumePathHandler`.
 
 use anyhow::{anyhow, Result};
-use k3rs_common::resources::Pod;
-use k3rs_kubelet::volume_manager::cache::ActualStateOfWorld;
-use k3rs_kubelet::volume_plugins::plugin::OwnedSpec;
-use k3rs_kubelet::volume_plugins::util::block_operations::{
+use kubernetes_rs_common::resources::Pod;
+use kubernetes_rs_kubelet::volume_manager::cache::ActualStateOfWorld;
+use kubernetes_rs_kubelet::volume_plugins::plugin::OwnedSpec;
+use kubernetes_rs_kubelet::volume_plugins::util::block_operations::{
     map_volume_with, unmap_device_with, unmap_volume_with, BlockVolumePathHandler,
 };
-use k3rs_kubelet::volume_plugins::util::get_unique_volume_name_from_spec;
-use k3rs_kubelet::volume_plugins::util::hostutil::HostUtil;
-use k3rs_kubelet::volume_plugins::util::operation_executor::{AttachedVolume, VolumeToMount};
-use k3rs_kubelet::volume_plugins::util::types::{UniquePodName, UniqueVolumeName};
-use k3rs_kubelet::volumes::VolumeManager;
+use kubernetes_rs_kubelet::volume_plugins::util::get_unique_volume_name_from_spec;
+use kubernetes_rs_kubelet::volume_plugins::util::hostutil::HostUtil;
+use kubernetes_rs_kubelet::volume_plugins::util::operation_executor::{
+    AttachedVolume, VolumeToMount,
+};
+use kubernetes_rs_kubelet::volume_plugins::util::types::{UniquePodName, UniqueVolumeName};
+use kubernetes_rs_kubelet::volumes::VolumeManager;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
@@ -90,7 +92,7 @@ fn fx(access_modes: serde_json::Value) -> Fx {
     let vm = VolumeManager::new_with_recording_empty_dir_mounts(
         root.clone(),
         None,
-        k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+        kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
     );
     let pv = serde_json::from_value(json!({
         "metadata": {"name": "pv-block"},
@@ -347,10 +349,10 @@ async fn unmap_device_removes_the_global_map_path() {
 /// a filesystem mount is refused while another pod has the volume mounted.
 #[tokio::test]
 async fn read_write_once_pod_filesystem_mount_in_use_by_another_pod_is_refused() {
-    use k3rs_kubelet::volume_plugins::util::operation_executor::{
+    use kubernetes_rs_kubelet::volume_plugins::util::operation_executor::{
         MarkVolumeOpts, VolumeMountState,
     };
-    use k3rs_kubelet::volume_plugins::util::operation_generator::{
+    use kubernetes_rs_kubelet::volume_plugins::util::operation_generator::{
         mount_volume_with_attributes, MountState,
     };
     let f = fx(json!(["ReadWriteOncePod"]));

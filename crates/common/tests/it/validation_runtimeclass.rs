@@ -1,8 +1,8 @@
 //! Tests for RuntimeClass validation (port of upstream `ValidateRuntimeClass`).
 
-use k3rs_common::resources::runtimeclass::{Overhead, Scheduling};
-use k3rs_common::resources::RuntimeClass;
-use k3rs_common::validation::runtimeclass::validate_runtime_class;
+use kubernetes_rs_common::resources::runtimeclass::{Overhead, Scheduling};
+use kubernetes_rs_common::resources::RuntimeClass;
+use kubernetes_rs_common::validation::runtimeclass::validate_runtime_class;
 use std::collections::HashMap;
 
 fn rc(handler: &str) -> RuntimeClass {
@@ -17,7 +17,7 @@ fn rc(handler: &str) -> RuntimeClass {
     r
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], field_substr: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], field_substr: &str) -> bool {
     errs.iter().any(|e| e.field.contains(field_substr))
 }
 

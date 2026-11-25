@@ -2,15 +2,17 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::admission::resourcequota::config::LimitedResource;
-    pub use k3rs_api_server::admission::resourcequota::evaluator::{status_hard_names, Evaluator};
-    pub use k3rs_api_server::registry::rest::GroupResource;
-    pub use k3rs_common::admission::Operation;
-    pub use k3rs_common::quota::{self, ResourceList};
-    pub use k3rs_common::resources::ResourceQuota;
-    pub use k3rs_common::resources::ScopedResourceSelectorRequirement;
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_storage::{build_key, build_prefix, Storage};
+    pub use kubernetes_rs_api_server::admission::resourcequota::config::LimitedResource;
+    pub use kubernetes_rs_api_server::admission::resourcequota::evaluator::{
+        status_hard_names, Evaluator,
+    };
+    pub use kubernetes_rs_api_server::registry::rest::GroupResource;
+    pub use kubernetes_rs_common::admission::Operation;
+    pub use kubernetes_rs_common::quota::{self, ResourceList};
+    pub use kubernetes_rs_common::resources::ResourceQuota;
+    pub use kubernetes_rs_common::resources::ScopedResourceSelectorRequirement;
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_storage::{build_key, build_prefix, Storage};
     pub use serde_json::Value;
     pub use std::collections::{BTreeSet, HashMap};
 }
@@ -22,18 +24,18 @@ mod tests {
 
     use std::collections::HashMap;
 
-    use k3rs_common::admission::Operation;
-    use k3rs_common::resources::{ResourceQuota, ResourceQuotaStatus};
-    use k3rs_storage::{build_key, MemoryStorage, Storage};
+    use kubernetes_rs_common::admission::Operation;
+    use kubernetes_rs_common::resources::{ResourceQuota, ResourceQuotaStatus};
+    use kubernetes_rs_storage::{build_key, MemoryStorage, Storage};
     use serde_json::{json, Value};
 
-    use k3rs_api_server::admission::resourcequota::evaluator::{
+    use kubernetes_rs_api_server::admission::resourcequota::evaluator::{
         evaluator_for, Evaluator, ObjectCountEvaluator, PodEvaluator, ServiceEvaluator,
     };
-    use k3rs_api_server::admission::resourcequota::{
+    use kubernetes_rs_api_server::admission::resourcequota::{
         check_request, evaluate, Attributes, QuotaError,
     };
-    use k3rs_api_server::registry::rest::GroupResource;
+    use kubernetes_rs_api_server::registry::rest::GroupResource;
 
     fn list(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
@@ -372,7 +374,7 @@ mod tests {
 
         let cm = configmap();
         let ev = evaluator_for(&GroupResource::new("", "configmaps")).unwrap();
-        k3rs_api_server::admission::resourcequota::check_quotas(
+        kubernetes_rs_api_server::admission::resourcequota::check_quotas(
             &storage,
             vec![first],
             &attrs(Operation::Create, &cm, None),
@@ -410,7 +412,8 @@ mod tests {
         )
     }
 
-    fn pvc_evaluator() -> Box<dyn k3rs_api_server::admission::resourcequota::evaluator::Evaluator> {
+    fn pvc_evaluator(
+    ) -> Box<dyn kubernetes_rs_api_server::admission::resourcequota::evaluator::Evaluator> {
         evaluator_for(&GroupResource::new("", "persistentvolumeclaims")).unwrap()
     }
 
@@ -766,7 +769,7 @@ mod tests {
     /// `TestPersistentVolumeClaimEvaluatorMatchingScopes` through the trait.
     #[test]
     fn pvc_evaluator_matching_scopes_and_uncovered() {
-        use k3rs_common::resources::ScopedResourceSelectorRequirement as Sel;
+        use kubernetes_rs_common::resources::ScopedResourceSelectorRequirement as Sel;
         let ev = pvc_evaluator();
         let sel = |op: &str, v: &[&str]| Sel {
             scope_name: "VolumeAttributesClass".into(),
@@ -887,7 +890,7 @@ mod tests {
     /// `TestPodEvaluatorMatchingScopes`, a representative slice.
     #[test]
     fn pod_evaluator_matching_scopes() {
-        use k3rs_common::resources::ScopedResourceSelectorRequirement as S;
+        use kubernetes_rs_common::resources::ScopedResourceSelectorRequirement as S;
         let sel = |name: &str, op: &str, values: Option<Vec<&str>>| S {
             scope_name: name.to_string(),
             operator: op.to_string(),
@@ -1063,11 +1066,11 @@ mod tests {
     // AllowDecrease}UsageWithoutCoveringQuota (plugin/pkg/admission/resourcequota)
     // ---------------------------------------------------------------------
 
-    use k3rs_api_server::admission::resourcequota::config::{
+    use kubernetes_rs_api_server::admission::resourcequota::config::{
         from_admission_configuration, load_configuration,
     };
-    use k3rs_api_server::admission::resourcequota::{evaluate_with, LimitedResource};
-    use k3rs_common::resources::ScopedResourceSelectorRequirement;
+    use kubernetes_rs_api_server::admission::resourcequota::{evaluate_with, LimitedResource};
+    use kubernetes_rs_common::resources::ScopedResourceSelectorRequirement;
 
     fn limited(resource: &str, contains: &[&str]) -> LimitedResource {
         LimitedResource {

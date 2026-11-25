@@ -14,9 +14,9 @@
 //!   equivalent: there is no cache layer between this code and `Storage`, so
 //!   every read is the fresh read the retry path would have used.
 
-use k3rs_common::resources::{Node, NodeSpec, Taint};
-use k3rs_common::Error;
-use k3rs_storage::{build_key, Storage};
+use kubernetes_rs_common::resources::{Node, NodeSpec, Taint};
+use kubernetes_rs_common::Error;
+use kubernetes_rs_storage::{build_key, Storage};
 use std::time::Duration;
 
 /// `updateTaintBackoff` (taints.go:43-47): `Steps: 5, Duration: 100ms,

@@ -18,11 +18,13 @@
 
 use std::time::Instant;
 
-use k3rs_common::admission::AdmissionRequest;
-use k3rs_common::cel::CELEvaluator;
-use k3rs_common::cel_cost::{charge_budget, CostOptions, RUNTIME_CEL_COST_BUDGET_MATCH_CONDITIONS};
-use k3rs_common::resources::admission_webhook::MatchCondition;
-use k3rs_common::resources::FailurePolicy;
+use kubernetes_rs_common::admission::AdmissionRequest;
+use kubernetes_rs_common::cel::CELEvaluator;
+use kubernetes_rs_common::cel_cost::{
+    charge_budget, CostOptions, RUNTIME_CEL_COST_BUDGET_MATCH_CONDITIONS,
+};
+use kubernetes_rs_common::resources::admission_webhook::MatchCondition;
+use kubernetes_rs_common::resources::FailurePolicy;
 
 use crate::admission_metrics::{
     observe_match_condition_eval_error, observe_match_condition_evaluation_time,
@@ -225,7 +227,7 @@ fn match_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use k3rs_common::admission::{GroupVersionKind, UserInfo};
+    use kubernetes_rs_common::admission::{GroupVersionKind, UserInfo};
 
     #[test]
     fn forbidden_message_matches_new_forbidden() {
@@ -248,7 +250,7 @@ mod tests {
 
     fn request() -> AdmissionRequest {
         crate::build_admission_request_for_match(
-            &k3rs_common::admission::Operation::Create,
+            &kubernetes_rs_common::admission::Operation::Create,
             &GroupVersionKind {
                 group: String::new(),
                 version: "v1".into(),

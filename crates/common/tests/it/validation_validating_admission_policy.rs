@@ -5,10 +5,10 @@
 //! (parameterNotFoundAction); checks at validation.go:785, :1058, :894, :931,
 //! :1231, :547.
 
-use k3rs_common::resources::validating_admission_policy::{
+use kubernetes_rs_common::resources::validating_admission_policy::{
     ValidatingAdmissionPolicy, ValidatingAdmissionPolicyBinding,
 };
-use k3rs_common::validation::validating_admission_policy::{
+use kubernetes_rs_common::validation::validating_admission_policy::{
     set_defaults_validating_admission_policy, validate_validating_admission_policy,
     validate_validating_admission_policy_binding,
 };

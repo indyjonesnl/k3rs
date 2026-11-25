@@ -10,12 +10,12 @@
 # they differ, i.e. `:main` has not caught up and the run tests old binaries.
 # Warn-only (always exits 0): provenance must never redden a conformance run.
 #
-# No upstream Kubernetes equivalent (k3rs-only CI concern).
+# No upstream Kubernetes equivalent (kubernetes-rs-only CI concern).
 set -uo pipefail
 
 TAG="${1:?usage: image-provenance.sh <image-tag> <expected-main-sha>}"
 EXPECTED_SHA="${2:?usage: image-provenance.sh <image-tag> <expected-main-sha>}"
-IMAGE="${PROVENANCE_IMAGE:-ghcr.io/indyjonesnl/k3rs/api-server}"
+IMAGE="${PROVENANCE_IMAGE:-ghcr.io/indyjonesnl/kubernetes-rs/api-server}"
 # Overridable so the test can stub the registry round-trip.
 # (default assigned separately: the literal `}}` would close ${...:-} early)
 if [ -z "${IMAGETOOLS:-}" ]; then

@@ -19,8 +19,8 @@
 
 use super::events::*;
 use crate::volume_binding::{pod_volumes, volume_pvc_name};
-use k3rs_common::quantity::Quantity;
-use k3rs_common::resources::{
+use kubernetes_rs_common::quantity::Quantity;
+use kubernetes_rs_common::resources::{
     CSIDriver, CSINode, CSIStorageCapacity, PersistentVolumeClaim, Pod, StorageClass,
 };
 use tracing::debug;

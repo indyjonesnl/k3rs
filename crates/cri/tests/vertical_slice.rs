@@ -3,30 +3,30 @@
 //!
 //! This is the sub-project 2 milestone — one pod running entirely through CRI,
 //! with no bollard/Docker API involved. It is **socket-gated**: it does nothing
-//! unless `K3RS_CRI_SOCKET` points at a real CRI runtime (e.g.
+//! unless `KUBERNETES_RS_CRI_SOCKET` points at a real CRI runtime (e.g.
 //! `/run/containerd/containerd.sock`), so `cargo test` stays green on machines
-//! without one. Optionally set `K3RS_CRI_RUNTIME_HANDLER` to select a
+//! without one. Optionally set `KUBERNETES_RS_CRI_RUNTIME_HANDLER` to select a
 //! runtime class (e.g. the crun handler); it defaults to the runtime default.
 //!
 //! Run it against a live runtime with:
 //!
 //! ```bash
-//! K3RS_CRI_SOCKET=/run/containerd/containerd.sock \
-//!   cargo test -p k3rs-cri --test vertical_slice -- --nocapture
+//! KUBERNETES_RS_CRI_SOCKET=/run/containerd/containerd.sock \
+//!   cargo test -p kubernetes-rs-cri --test vertical_slice -- --nocapture
 //! ```
 
 use std::time::Duration;
 
-use k3rs_cri::{v1, CriClient};
+use kubernetes_rs_cri::{v1, CriClient};
 
 const IMAGE: &str = "docker.io/library/busybox:latest";
 
 fn socket() -> Option<String> {
-    std::env::var("K3RS_CRI_SOCKET").ok()
+    std::env::var("KUBERNETES_RS_CRI_SOCKET").ok()
 }
 
 fn runtime_handler() -> String {
-    std::env::var("K3RS_CRI_RUNTIME_HANDLER").unwrap_or_default()
+    std::env::var("KUBERNETES_RS_CRI_RUNTIME_HANDLER").unwrap_or_default()
 }
 
 /// Minimal sandbox config for a single test pod. containerd requires
@@ -78,12 +78,12 @@ fn container_config() -> v1::ContainerConfig {
 #[tokio::test]
 async fn pod_runs_via_cri() {
     let Some(socket) = socket() else {
-        eprintln!("K3RS_CRI_SOCKET unset; skipping CRI vertical-slice e2e");
+        eprintln!("KUBERNETES_RS_CRI_SOCKET unset; skipping CRI vertical-slice e2e");
         return;
     };
     let handler = runtime_handler();
 
-    let log_dir = std::env::temp_dir().join("k3rs-cri-slice");
+    let log_dir = std::env::temp_dir().join("kubernetes-rs-cri-slice");
     std::fs::create_dir_all(&log_dir).expect("create log dir");
     let log_dir = log_dir.to_string_lossy().to_string();
 

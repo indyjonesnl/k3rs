@@ -1,6 +1,6 @@
 //! Port of component-base/configz/configz_test.go:38-105.
 use axum::{body::Body, http::Request};
-use k3rs_kube_proxy::serve_metrics::{metrics_router_with_config, ConfigRegistry};
+use kubernetes_rs_kube_proxy::serve_metrics::{metrics_router_with_config, ConfigRegistry};
 use std::sync::Arc;
 use tower::ServiceExt;
 

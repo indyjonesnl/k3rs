@@ -1,5 +1,5 @@
 use anyhow::Result;
-use k3rs_client::http::ApiClient;
+use kubernetes_rs_client::http::ApiClient;
 
 /// Display cluster information
 pub async fn execute(client: &ApiClient, dump: bool) -> Result<()> {

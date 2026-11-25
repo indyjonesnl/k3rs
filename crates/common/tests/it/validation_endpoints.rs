@@ -3,9 +3,9 @@
 //! Mirrors the core of upstream `validateEndpointSubsets` / `ValidateEndpointIP`
 //! (`pkg/apis/core/validation/validation.go`, release-1.35).
 
-use k3rs_common::resources::endpoints::Endpoints;
-use k3rs_common::validation::endpoints::validate_endpoints_create;
-use k3rs_common::validation::field::{Error, ErrorType};
+use kubernetes_rs_common::resources::endpoints::Endpoints;
+use kubernetes_rs_common::validation::endpoints::validate_endpoints_create;
+use kubernetes_rs_common::validation::field::{Error, ErrorType};
 use serde_json::json;
 
 fn ep(subsets: serde_json::Value) -> Endpoints {

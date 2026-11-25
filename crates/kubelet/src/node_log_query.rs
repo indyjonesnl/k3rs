@@ -22,7 +22,7 @@
 //!   grammars.
 
 use chrono::{DateTime, FixedOffset, SecondsFormat};
-use k3rs_common::validation::field::{Error as FieldError, ErrorList, Path};
+use kubernetes_rs_common::validation::field::{Error as FieldError, ErrorList, Path};
 use regex::Regex;
 use std::fs::File;
 use std::io::{self, Read, Write};

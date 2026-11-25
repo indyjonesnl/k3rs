@@ -5,12 +5,12 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k3rs_common::auth::UserInfo;
-use k3rs_common::resources::{
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::resources::{
     ClusterRole, ClusterRoleBinding, PolicyRule, Role, RoleBinding, RoleRef, Subject,
 };
-use k3rs_common::{Error, Result};
-use k3rs_storage::{build_key, build_prefix, Storage};
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::{build_key, build_prefix, Storage};
 
 use super::policy_compact::{compact_rules, compact_string, quote_strings};
 use super::policy_comparator::covers;

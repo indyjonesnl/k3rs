@@ -9,7 +9,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::latency_trackers::*;
+    use kubernetes_rs_common::latency_trackers::*;
 
     /// `TestLatencyTrackersFrom` (webhook_duration_test.go:27-77).
     #[test]

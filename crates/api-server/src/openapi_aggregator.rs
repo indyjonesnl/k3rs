@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use k3rs_common::resources::APIService;
+use kubernetes_rs_common::resources::APIService;
 use serde_json::Value;
 use sha2::{Digest, Sha512};
 use tokio::sync::watch;

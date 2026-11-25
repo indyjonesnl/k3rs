@@ -60,7 +60,7 @@ export function Sidebar() {
         <img src="/console/favicon.svg" alt="" className="h-7 w-7 shrink-0" />
         {!collapsed && (
           <span className="font-retro text-lg tracking-tight text-walle-yellow">
-            k3rs
+            kubernetes-rs
           </span>
         )}
       </div>

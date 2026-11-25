@@ -10,10 +10,10 @@
 //! Upstream reference: `kubernetes/test/e2e/storage/storage_class.go`.
 
 use anyhow::Result;
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::resources::volume::{
     PersistentVolume, PersistentVolumeReclaimPolicy, StorageClass,
 };
-use k3rs_storage::{build_key, Storage};
+use kubernetes_rs_storage::{build_key, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -130,7 +130,7 @@ impl<S: Storage + 'static> StorageClassController<S> {
 
         // Select the single default upstream would honor (GetDefaultClass,
         // pkg/volume/util/storageclass.go): newest creationTimestamp, tie-broken
-        // by name ascending. We then demote the losers (k3rs-specific;
+        // by name ascending. We then demote the losers (kubernetes-rs-specific;
         // upstream tolerates multiple and only picks).
         let mut defaults: Vec<&StorageClass> = classes.iter().filter(|sc| is_default(sc)).collect();
         defaults.sort_by(|a, b| {

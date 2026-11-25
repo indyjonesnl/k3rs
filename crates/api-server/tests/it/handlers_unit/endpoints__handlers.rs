@@ -2,26 +2,28 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::endpoints::handlers::create::create_resource;
-    pub use k3rs_api_server::endpoints::handlers::delete::{delete_collection, delete_resource};
-    pub use k3rs_api_server::endpoints::handlers::get::get_resource;
-    pub use k3rs_api_server::endpoints::handlers::patch::patch_resource;
-    pub use k3rs_api_server::endpoints::handlers::rest::{authorize, is_dry_run, respond};
-    pub use k3rs_api_server::endpoints::handlers::rest::{
+    pub use kubernetes_rs_api_server::endpoints::handlers::create::create_resource;
+    pub use kubernetes_rs_api_server::endpoints::handlers::delete::{
+        delete_collection, delete_resource,
+    };
+    pub use kubernetes_rs_api_server::endpoints::handlers::get::get_resource;
+    pub use kubernetes_rs_api_server::endpoints::handlers::patch::patch_resource;
+    pub use kubernetes_rs_api_server::endpoints::handlers::rest::{authorize, is_dry_run, respond};
+    pub use kubernetes_rs_api_server::endpoints::handlers::rest::{
         negotiate, RequestScope, RequestVersionConversion,
     };
-    pub use k3rs_api_server::endpoints::handlers::update::update_resource;
+    pub use kubernetes_rs_api_server::endpoints::handlers::update::update_resource;
 }
 
 mod tests {
     use std::collections::HashMap;
 
-    use k3rs_common::resources::ConfigMap;
-    use k3rs_common::types::{DeletionPropagation, ObjectMeta};
-    use k3rs_common::Error;
+    use kubernetes_rs_common::resources::ConfigMap;
+    use kubernetes_rs_common::types::{DeletionPropagation, ObjectMeta};
+    use kubernetes_rs_common::Error;
 
-    use k3rs_api_server::endpoints::handlers::delete::decode_delete_options;
-    use k3rs_api_server::endpoints::handlers::rest::check_name;
+    use kubernetes_rs_api_server::endpoints::handlers::delete::decode_delete_options;
+    use kubernetes_rs_api_server::endpoints::handlers::rest::check_name;
 
     fn cm(name: &str, namespace: Option<&str>) -> ConfigMap {
         ConfigMap {
@@ -37,7 +39,7 @@ mod tests {
         }
     }
 
-    fn bad_request(r: k3rs_common::Result<()>) -> String {
+    fn bad_request(r: kubernetes_rs_common::Result<()>) -> String {
         match r {
             Err(Error::BadRequest(msg)) => msg,
             other => panic!("expected BadRequest, got {other:?}"),
@@ -70,7 +72,7 @@ mod tests {
     /// `resourceVersion` reaches the Store.
     #[test]
     fn decode_get_options_matches_get_resource() {
-        use k3rs_api_server::endpoints::handlers::get::decode_get_options;
+        use kubernetes_rs_api_server::endpoints::handlers::get::decode_get_options;
 
         assert_eq!(decode_get_options(&q(&[])).unwrap().resource_version, "");
         assert_eq!(
@@ -148,7 +150,7 @@ mod tests {
     }
 
     fn list_option_errors(pairs: &[(&str, &str)]) -> Vec<String> {
-        k3rs_api_server::handlers::list_options::validate_list_options(&q(pairs))
+        kubernetes_rs_api_server::handlers::list_options::validate_list_options(&q(pairs))
             .iter()
             .map(|e| e.to_string())
             .collect()
@@ -233,8 +235,8 @@ mod tests {
         );
     }
 
-    fn owner(uid: &str, controller: Option<bool>) -> k3rs_common::types::OwnerReference {
-        k3rs_common::types::OwnerReference {
+    fn owner(uid: &str, controller: Option<bool>) -> kubernetes_rs_common::types::OwnerReference {
+        kubernetes_rs_common::types::OwnerReference {
             api_version: "v1".into(),
             kind: "Kind".into(),
             name: "name".into(),
@@ -249,7 +251,7 @@ mod tests {
     /// is kept.
     #[test]
     fn dedup_owner_references_matches_upstream() {
-        use k3rs_api_server::endpoints::handlers::rest::dedup_owner_references;
+        use kubernetes_rs_api_server::endpoints::handlers::rest::dedup_owner_references;
 
         let refs = vec![owner("1", None), owner("2", None), owner("1", None)];
         let (deduped, dups) = dedup_owner_references(&refs);
@@ -266,8 +268,8 @@ mod tests {
     /// recorded; the text differs after mutating admission.
     #[test]
     fn dedup_owner_references_and_add_warning_matches_upstream() {
-        use k3rs_api_server::endpoints::handlers::rest::dedup_owner_references_and_add_warning;
-        use k3rs_api_server::registry::rest::RequestContext;
+        use kubernetes_rs_api_server::endpoints::handlers::rest::dedup_owner_references_and_add_warning;
+        use kubernetes_rs_api_server::registry::rest::RequestContext;
 
         for (after, needle) in [
             (
@@ -302,8 +304,8 @@ mod tests {
     /// is retried exactly once, with managedFields stripped; any other error, and
     /// a second too-large error, are returned as they are.
     mod too_large_retry {
-        use k3rs_api_server::endpoints::handlers::rest::retry_without_managed_fields_if_too_large;
-        use k3rs_common::Error;
+        use kubernetes_rs_api_server::endpoints::handlers::rest::retry_without_managed_fields_if_too_large;
+        use kubernetes_rs_common::Error;
 
         fn too_large() -> Error {
             Error::StorageTooLarge("etcdserver: request is too large".into())
@@ -341,11 +343,12 @@ mod tests {
         #[tokio::test]
         async fn other_errors_are_not_retried() {
             let mut calls = 0;
-            let out: k3rs_common::Result<()> = retry_without_managed_fields_if_too_large(|_| {
-                calls += 1;
-                async { Err(Error::Storage("etcdserver: leader changed".into())) }
-            })
-            .await;
+            let out: kubernetes_rs_common::Result<()> =
+                retry_without_managed_fields_if_too_large(|_| {
+                    calls += 1;
+                    async { Err(Error::Storage("etcdserver: leader changed".into())) }
+                })
+                .await;
             assert!(matches!(out, Err(Error::Storage(_))));
             assert_eq!(calls, 1);
         }
@@ -353,11 +356,12 @@ mod tests {
         #[tokio::test]
         async fn a_second_too_large_error_is_returned() {
             let mut calls = 0;
-            let out: k3rs_common::Result<()> = retry_without_managed_fields_if_too_large(|_| {
-                calls += 1;
-                async { Err(too_large()) }
-            })
-            .await;
+            let out: kubernetes_rs_common::Result<()> =
+                retry_without_managed_fields_if_too_large(|_| {
+                    calls += 1;
+                    async { Err(too_large()) }
+                })
+                .await;
             assert!(out.unwrap_err().is_too_large_error());
             assert_eq!(calls, 2);
         }
@@ -371,16 +375,16 @@ mod tests {
     mod admission_plugin_selection {
         use std::sync::Arc;
 
-        use k3rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
-        use k3rs_common::auth::{TokenManager, UserInfo};
-        use k3rs_common::authz::{AlwaysAllowAuthorizer, Authorizer};
-        use k3rs_common::observability::MetricsRegistry;
-        use k3rs_common::resources::Pod;
-        use k3rs_storage::StorageBackend;
+        use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
+        use kubernetes_rs_common::auth::{TokenManager, UserInfo};
+        use kubernetes_rs_common::authz::{AlwaysAllowAuthorizer, Authorizer};
+        use kubernetes_rs_common::observability::MetricsRegistry;
+        use kubernetes_rs_common::resources::Pod;
+        use kubernetes_rs_storage::StorageBackend;
 
-        use k3rs_api_server::admission::plugins::EnabledForTest;
-        use k3rs_api_server::endpoints::handlers::admission::Admission;
-        use k3rs_api_server::state::ApiServerState;
+        use kubernetes_rs_api_server::admission::plugins::EnabledForTest;
+        use kubernetes_rs_api_server::endpoints::handlers::admission::Admission;
+        use kubernetes_rs_api_server::state::ApiServerState;
 
         fn state() -> ApiServerState {
             ApiServerState::new(
@@ -392,10 +396,13 @@ mod tests {
             )
         }
 
-        async fn user_creates_plain_pod(username: &str) -> k3rs_common::Result<Pod> {
+        async fn user_creates_plain_pod(username: &str) -> kubernetes_rs_common::Result<Pod> {
             let state = state();
-            k3rs_test_support::harness::seed_default_service_account(&*state.storage, "default")
-                .await;
+            kubernetes_rs_test_support::harness::seed_default_service_account(
+                &*state.storage,
+                "default",
+            )
+            .await;
             let kind = GroupVersionKind {
                 group: String::new(),
                 version: "v1".into(),
@@ -435,7 +442,7 @@ mod tests {
             admission.admit(Operation::Create, pod, None).await
         }
 
-        async fn node_creates_plain_pod() -> k3rs_common::Result<Pod> {
+        async fn node_creates_plain_pod() -> kubernetes_rs_common::Result<Pod> {
             user_creates_plain_pod("system:node:node-1").await
         }
 
@@ -475,9 +482,9 @@ mod tests {
     /// `<Kind>.<group> "" is invalid: ` prefix and `details.kind/group`.
     mod options_new_invalid {
         use super::*;
-        use k3rs_common::Error;
+        use kubernetes_rs_common::Error;
 
-        fn status(err: Error) -> Box<k3rs_common::types::Status> {
+        fn status(err: Error) -> Box<kubernetes_rs_common::types::Status> {
             match err {
                 Error::Status(s) => s,
                 other => panic!("expected a NewInvalid Status, got {other:?}"),
@@ -511,9 +518,9 @@ mod tests {
         #[test]
         fn create_options() {
             let err =
-                k3rs_api_server::endpoints::handlers::create::checked_create_options(&q(&[(
-                    "dryRun", "Maybe",
-                )]))
+                kubernetes_rs_api_server::endpoints::handlers::create::checked_create_options(&q(
+                    &[("dryRun", "Maybe")],
+                ))
                 .unwrap_err();
             assert_meta_invalid(err, "CreateOptions", "dryRun");
         }
@@ -521,16 +528,16 @@ mod tests {
         #[test]
         fn update_options() {
             let err =
-                k3rs_api_server::endpoints::handlers::update::checked_update_options(&q(&[(
-                    "dryRun", "Maybe",
-                )]))
+                kubernetes_rs_api_server::endpoints::handlers::update::checked_update_options(&q(
+                    &[("dryRun", "Maybe")],
+                ))
                 .unwrap_err();
             assert_meta_invalid(err, "UpdateOptions", "dryRun");
         }
 
         #[test]
         fn patch_options() {
-            let err = k3rs_api_server::endpoints::handlers::patch::checked_patch_options(
+            let err = kubernetes_rs_api_server::endpoints::handlers::patch::checked_patch_options(
                 &q(&[("dryRun", "Maybe")]),
                 "application/merge-patch+json",
             )
@@ -542,10 +549,12 @@ mod tests {
         /// message has an empty qualified kind: ` "" is invalid: patch: ...`.
         #[test]
         fn patch_decode_failure() {
-            let st = status(k3rs_api_server::endpoints::handlers::patch::patch_invalid(
-                "{}".into(),
-                "boom".into(),
-            ));
+            let st = status(
+                kubernetes_rs_api_server::endpoints::handlers::patch::patch_invalid(
+                    "{}".into(),
+                    "boom".into(),
+                ),
+            );
             assert_eq!(
                 st.message.as_deref(),
                 Some(r#" "" is invalid: patch: Invalid value: "{}": boom"#)

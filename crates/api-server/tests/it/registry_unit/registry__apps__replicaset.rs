@@ -2,28 +2,30 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GarbageCollectionPolicy, GroupResource, NamespaceScopedStrategy, RequestContext,
         RestCreateStrategy, RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_api_server::registry::scale::{Scalable, ScaleRest};
-    pub use k3rs_api_server::ssa::ResetFields;
-    pub use k3rs_common::equality::semantic_equal;
-    pub use k3rs_common::resources::{ReplicaSet, ReplicaSetStatus, Scale, ScaleSpec, ScaleStatus};
-    pub use k3rs_common::types::{ObjectMeta, TypeMeta};
-    pub use k3rs_common::validation::apps::{
+    pub use kubernetes_rs_api_server::registry::scale::{Scalable, ScaleRest};
+    pub use kubernetes_rs_api_server::ssa::ResetFields;
+    pub use kubernetes_rs_common::equality::semantic_equal;
+    pub use kubernetes_rs_common::resources::{
+        ReplicaSet, ReplicaSetStatus, Scale, ScaleSpec, ScaleStatus,
+    };
+    pub use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+    pub use kubernetes_rs_common::validation::apps::{
         validate_replicaset, validate_replicaset_status_update, validate_replicaset_update,
     };
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_common::validation::metav1::is_dns1123_label;
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_common::validation::metav1::is_dns1123_label;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::apps::replicaset::*;
+    use kubernetes_rs_api_server::registry::apps::replicaset::*;
     use std::collections::HashMap;
 
     fn replica_set() -> ReplicaSet {
@@ -126,7 +128,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn status_drops_terminating_replicas_when_gate_off() {
-        use k3rs_common::feature_gates::{self, Feature};
+        use kubernetes_rs_common::feature_gates::{self, Feature};
         let _gate =
             feature_gates::with_feature(Feature::DeploymentReplicaSetTerminatingReplicas, false);
         let old = replica_set();

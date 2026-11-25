@@ -24,9 +24,9 @@
 //! requiresUpdate = kl.reconcileExtendedResource(node, existingNode) || requiresUpdate
 //! ```
 
-use k3rs_kubelet::kubelet::reconcile_existing_node;
+use kubernetes_rs_kubelet::kubelet::reconcile_existing_node;
 
-use k3rs_common::resources::Node;
+use kubernetes_rs_common::resources::Node;
 
 fn node_from_json(v: serde_json::Value) -> Node {
     serde_json::from_value(v).expect("node fixture must decode")

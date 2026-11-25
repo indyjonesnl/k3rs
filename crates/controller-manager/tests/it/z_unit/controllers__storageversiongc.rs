@@ -4,13 +4,13 @@
 mod __parent {
     pub use anyhow::Result;
     pub use futures::StreamExt;
-    pub use k3rs_common::feature_gates::{enabled, Feature};
-    pub use k3rs_common::resources::storageversion::{
+    pub use kubernetes_rs_common::feature_gates::{enabled, Feature};
+    pub use kubernetes_rs_common::resources::storageversion::{
         set_common_encoding_version, ServerStorageVersion, StorageVersion,
     };
-    pub use k3rs_common::resources::Lease;
-    pub use k3rs_common::Error;
-    pub use k3rs_storage::{build_key, build_prefix, Storage, WatchEvent, WorkQueue};
+    pub use kubernetes_rs_common::resources::Lease;
+    pub use kubernetes_rs_common::Error;
+    pub use kubernetes_rs_storage::{build_key, build_prefix, Storage, WatchEvent, WorkQueue};
     pub use std::sync::Arc;
     pub use std::time::Duration;
     pub use tracing::{debug, error, info, warn};
@@ -19,9 +19,9 @@ mod __parent {
 mod tests {
     //! Ports of `pkg/controller/storageversiongc/gc_controller_test.go`.
     use super::__parent::*;
-    use k3rs_common::resources::storageversion::StorageVersionStatus;
-    use k3rs_controller_manager::controllers::storageversiongc::*;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_common::resources::storageversion::StorageVersionStatus;
+    use kubernetes_rs_controller_manager::controllers::storageversiongc::*;
+    use kubernetes_rs_storage::memory::MemoryStorage;
     use std::collections::HashMap;
 
     fn lease(name: &str) -> Lease {

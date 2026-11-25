@@ -4,18 +4,20 @@
 
 use std::sync::Arc;
 
-use k3rs_api_server::admission::plugins::EnabledForTest;
-use k3rs_api_server::admission::runtime_class::{set_overhead, set_scheduling, validate_overhead};
-use k3rs_api_server::endpoints::handlers::admission::Admission;
-use k3rs_api_server::registry::rest::RequestContext;
-use k3rs_api_server::state::ApiServerState;
-use k3rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
-use k3rs_common::auth::{TokenManager, UserInfo};
-use k3rs_common::authz::{AlwaysAllowAuthorizer, Authorizer};
-use k3rs_common::observability::MetricsRegistry;
-use k3rs_common::resources::{Pod, RuntimeClass};
-use k3rs_common::{Error, Result};
-use k3rs_storage::{Storage, StorageBackend};
+use kubernetes_rs_api_server::admission::plugins::EnabledForTest;
+use kubernetes_rs_api_server::admission::runtime_class::{
+    set_overhead, set_scheduling, validate_overhead,
+};
+use kubernetes_rs_api_server::endpoints::handlers::admission::Admission;
+use kubernetes_rs_api_server::registry::rest::RequestContext;
+use kubernetes_rs_api_server::state::ApiServerState;
+use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
+use kubernetes_rs_common::auth::{TokenManager, UserInfo};
+use kubernetes_rs_common::authz::{AlwaysAllowAuthorizer, Authorizer};
+use kubernetes_rs_common::observability::MetricsRegistry;
+use kubernetes_rs_common::resources::{Pod, RuntimeClass};
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::{Storage, StorageBackend};
 use serde_json::{json, Value};
 
 fn rc(v: Value) -> RuntimeClass {

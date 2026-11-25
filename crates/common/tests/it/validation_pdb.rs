@@ -3,12 +3,12 @@
 //! Mirrors upstream `ValidatePodDisruptionBudgetSpec`
 //! (`pkg/apis/policy/validation/validation.go`, release-1.35).
 
-use k3rs_common::resources::policy::PodDisruptionBudget;
-use k3rs_common::resources::policy::{IntOrString, PodDisruptionBudgetSpec};
-use k3rs_common::types::LabelSelector;
-use k3rs_common::validation::field::Path;
-use k3rs_common::validation::field::{BadValue, Error, ErrorType};
-use k3rs_common::validation::pdb::{
+use kubernetes_rs_common::resources::policy::PodDisruptionBudget;
+use kubernetes_rs_common::resources::policy::{IntOrString, PodDisruptionBudgetSpec};
+use kubernetes_rs_common::types::LabelSelector;
+use kubernetes_rs_common::validation::field::Path;
+use kubernetes_rs_common::validation::field::{BadValue, Error, ErrorType};
+use kubernetes_rs_common::validation::pdb::{
     validate_pod_disruption_budget, validate_pod_disruption_budget_spec,
     PodDisruptionBudgetValidationOptions,
 };

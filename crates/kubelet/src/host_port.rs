@@ -16,8 +16,8 @@
 //! allocation (upstream `HostPortInfo.Add` skips it), so two pods that both
 //! leave `hostPort` unset must not be treated as conflicting.
 
-use k3rs_common::resources::pod::Pod;
-use k3rs_common::types::Phase;
+use kubernetes_rs_common::resources::pod::Pod;
+use kubernetes_rs_common::types::Phase;
 
 /// A single host-port allocation extracted from a container port spec.
 #[derive(Debug, Clone, PartialEq, Eq)]

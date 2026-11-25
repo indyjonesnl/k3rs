@@ -3,7 +3,7 @@
 
 mod __parent {
     pub use axum::http::{HeaderMap, HeaderName};
-    pub use k3rs_common::auth::UserInfo;
+    pub use kubernetes_rs_common::auth::UserInfo;
     pub use std::collections::HashMap;
     pub use std::sync::Arc;
 }
@@ -11,7 +11,7 @@ mod __parent {
 mod tests {
     use super::__parent::*;
     use axum::http::{HeaderName, HeaderValue};
-    use k3rs_middleware::request_header::*;
+    use kubernetes_rs_middleware::request_header::*;
 
     fn s(v: &[&str]) -> Vec<String> {
         v.iter().map(|x| x.to_string()).collect()

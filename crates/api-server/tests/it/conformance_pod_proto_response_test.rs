@@ -13,7 +13,7 @@
 //! Clients dispatch on the envelope's `typeMeta { apiVersion, kind }`
 //! before fully decoding the body.
 //!
-//! k3rs' Pod encoder (post-2026-05-24) emits real native protobuf
+//! kubernetes-rs' Pod encoder (post-2026-05-24) emits real native protobuf
 //! bytes via `crate::protobuf::PROTO_REGISTRY.encode_message("Pod", …)`
 //! and wraps them in the Unknown envelope. The relevant code paths:
 //!
@@ -42,10 +42,10 @@
 //! 7. WATCH requests (Accept stream=watch) do NOT get protobuf-wrapped.
 
 use axum::http::{Method, StatusCode};
-use k3rs_api_server::protobuf::PROTO_REGISTRY;
-use k3rs_common::protobuf::{is_protobuf, Unknown, PROTOBUF_MAGIC};
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_api_server::protobuf::PROTO_REGISTRY;
+use kubernetes_rs_common::protobuf::{is_protobuf, Unknown, PROTOBUF_MAGIC};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 

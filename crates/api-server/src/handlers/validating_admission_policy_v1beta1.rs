@@ -33,13 +33,13 @@ use axum::{
     response::{IntoResponse, Response},
     Extension,
 };
-use k3rs_common::{
+use kubernetes_rs_common::{
     admission::{GroupVersionKind, GroupVersionResource},
     authz::{Decision, RequestAttributes},
     resources::{ValidatingAdmissionPolicy, ValidatingAdmissionPolicyBinding},
     Error, List, Result,
 };
-use k3rs_storage::build_prefix;
+use kubernetes_rs_storage::build_prefix;
 use std::collections::HashMap;
 use std::sync::Arc;
 

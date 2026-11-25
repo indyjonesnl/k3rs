@@ -2,7 +2,7 @@ services:
   # etcd - distributed key-value store for cluster state
   etcd:
     image: quay.io/coreos/etcd:v3.5.17
-    container_name: k3rs-etcd
+    container_name: kubernetes-rs-etcd
     command:
       - /usr/local/bin/etcd
       - --name=etcd
@@ -20,7 +20,7 @@ services:
     volumes:
       - etcd-data:/etcd-data
     networks:
-      - k3rs-net
+      - kubernetes-rs-net
     healthcheck:
       test: ["CMD", "/usr/local/bin/etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
       interval: 10s
@@ -35,19 +35,19 @@ services:
       context: .
       dockerfile: services.Dockerfile
       target: api-server
-    container_name: k3rs-api-server
+    container_name: kubernetes-rs-api-server
     ports:
       - "6443:6443"
     depends_on:
       etcd:
         condition: service_healthy
     networks:
-      k3rs-net:
+      kubernetes-rs-net:
         aliases:
           - api-server
     volumes:
       # Mount persistent TLS certificates
-      - ./.k3rs/certs:/etc/kubernetes/pki:ro
+      - ./.kubernetes-rs/certs:/etc/kubernetes/pki:ro
       # Docker socket for exec/attach via bollard (shares same daemon as kubelet)
       - /var/run/docker.sock:/var/run/docker.sock:rw
     environment:
@@ -91,12 +91,12 @@ services:
       context: .
       dockerfile: services.Dockerfile
       target: scheduler
-    container_name: k3rs-scheduler
+    container_name: kubernetes-rs-scheduler
     depends_on:
       - etcd
       - api-server
     networks:
-      - k3rs-net
+      - kubernetes-rs-net
     environment:
       - RUST_LOG=info
     command: ["--etcd-servers", "http://etcd:2379", "--interval", "1"]
@@ -107,15 +107,15 @@ services:
       context: .
       dockerfile: services.Dockerfile
       target: controller-manager
-    container_name: k3rs-controller-manager
+    container_name: kubernetes-rs-controller-manager
     depends_on:
       - etcd
       - api-server
     networks:
-      - k3rs-net
+      - kubernetes-rs-net
     volumes:
       # Mount CA certificate so the namespace controller can create kube-root-ca.crt ConfigMaps
-      - ./.k3rs/certs:/etc/kubernetes/pki:ro
+      - ./.kubernetes-rs/certs:/etc/kubernetes/pki:ro
     environment:
       - RUST_LOG=info
     command: ["--etcd-servers", "http://etcd:2379", "--sync-interval", "3"]
@@ -126,13 +126,13 @@ services:
       context: .
       dockerfile: services.Dockerfile
       target: kubelet
-    container_name: k3rs-kubelet
+    container_name: kubernetes-rs-kubelet
     privileged: true
     depends_on:
       - etcd
       - api-server
     networks:
-      - k3rs-net
+      - kubernetes-rs-net
     volumes:
       # Docker socket
       - /var/run/docker.sock:/var/run/docker.sock:rw
@@ -148,10 +148,10 @@ services:
       #   3. Environment variable: KUBELET_VOLUMES_PATH (legacy, for backward compatibility)
       #   4. Default: ./volumes (development) or /var/lib/kubelet/volumes (production)
       # IMPORTANT: KUBELET_VOLUMES_PATH must be set to an absolute path. Example:
-      #   export KUBELET_VOLUMES_PATH=$(pwd)/.k3rs/volumes
+      #   export KUBELET_VOLUMES_PATH=$(pwd)/.kubernetes-rs/volumes
       - ${KUBELET_VOLUMES_PATH}:${KUBELET_VOLUMES_PATH}:rw
       # Mount TLS certificates so kubelet can inject CA cert into service account volumes
-      - ./.k3rs/certs:/root/.k3rs/certs:ro
+      - ./.kubernetes-rs/certs:/root/.kubernetes-rs/certs:ro
       # NOTE: CNI is fully implemented and included in the kubelet container.
       # However, in Podman Machine on macOS, CNI cannot work due to network namespace
       # isolation between containers. The kubelet automatically detects this and falls
@@ -181,17 +181,17 @@ services:
       context: .
       dockerfile: services.Dockerfile
       target: kubelet
-    container_name: k3rs-kubelet2
+    container_name: kubernetes-rs-kubelet2
     privileged: true
     depends_on:
       - etcd
       - api-server
     networks:
-      - k3rs-net
+      - kubernetes-rs-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ${KUBELET_VOLUMES_PATH}:${KUBELET_VOLUMES_PATH}:rw
-      - ./.k3rs/certs:/root/.k3rs/certs:ro
+      - ./.kubernetes-rs/certs:/root/.kubernetes-rs/certs:ro
     environment:
       - RUST_LOG=info
       - DOCKER_HOST=unix:///var/run/docker.sock
@@ -208,7 +208,7 @@ services:
       context: .
       dockerfile: services.Dockerfile
       target: kube-proxy
-    container_name: k3rs-kube-proxy
+    container_name: kubernetes-rs-kube-proxy
     privileged: true
     network_mode: host
     user: "0:0"
@@ -224,10 +224,10 @@ services:
     command: ["--node-name", "node-1", "--etcd-servers", "http://localhost:2379"]
 
 networks:
-  k3rs-net:
+  kubernetes-rs-net:
     driver: bridge
-    name: k3rs-network
+    name: kubernetes-rs-network
 
 volumes:
   etcd-data:
-    name: k3rs-etcd-data
+    name: kubernetes-rs-etcd-data

@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Once, RwLock};
 use std::time::{Duration, Instant};
 
-use k3rs_common::ephemeral::volume_claim_name;
-use k3rs_common::resources::{Pod, Volume};
+use kubernetes_rs_common::ephemeral::volume_claim_name;
+use kubernetes_rs_common::resources::{Pod, Volume};
 use rand::Rng;
 use serde::Serialize;
 use tokio::sync::watch;
@@ -278,7 +278,8 @@ impl VolumeStatCalculator {
                 persistent_stats.push(volume_stats);
             }
 
-            if k3rs_common::feature_gates::gate_enabled("CSIVolumeHealth").unwrap_or(false) {
+            if kubernetes_rs_common::feature_gates::gate_enabled("CSIVolumeHealth").unwrap_or(false)
+            {
                 if let (Some(true), Some(message)) = (metric.abnormal, metric.message.as_ref()) {
                     self.event_recorder.warning(
                         &self.pod,
@@ -303,8 +304,9 @@ pub fn parse_pod_volume_stats(
     pvc_ref: Option<PvcReference>,
     metric: &Metrics,
 ) -> VolumeStats {
-    let v =
-        |q: &Option<k3rs_common::quantity::Quantity>| q.as_ref().map_or(0u64, |q| q.value() as u64);
+    let v = |q: &Option<kubernetes_rs_common::quantity::Quantity>| {
+        q.as_ref().map_or(0u64, |q| q.value() as u64)
+    };
     VolumeStats {
         name: pod_name.to_string(),
         pvc_ref,
@@ -457,7 +459,7 @@ impl StatsProvider for KubeletStatsProvider {
 
 /// `record.EventRecorder` against the pod, as the kubelet's recorder.
 pub struct StoragePodEvents {
-    pub recorder: k3rs_storage::EventRecorder<k3rs_storage::StorageBackend>,
+    pub recorder: kubernetes_rs_storage::EventRecorder<kubernetes_rs_storage::StorageBackend>,
     pub node_name: String,
 }
 
@@ -465,7 +467,7 @@ impl PodEventSink for StoragePodEvents {
     fn warning(&self, pod: &Pod, reason: &str, message: &str) {
         let recorder = self.recorder.clone();
         let involved = crate::events::pod_object_reference(pod);
-        let source = k3rs_common::resources::EventSource {
+        let source = kubernetes_rs_common::resources::EventSource {
             component: crate::events::KUBELET_COMPONENT.to_string(),
             host: Some(self.node_name.clone()),
         };
@@ -475,7 +477,7 @@ impl PodEventSink for StoragePodEvents {
                 .event(
                     &involved,
                     &source,
-                    k3rs_common::resources::EventType::Warning,
+                    kubernetes_rs_common::resources::EventType::Warning,
                     &reason,
                     &message,
                 )

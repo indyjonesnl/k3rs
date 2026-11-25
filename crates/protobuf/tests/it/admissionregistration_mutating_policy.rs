@@ -3,7 +3,7 @@
 //! (crates/api-server/proto/upstream/v1.35/k8s.io/api/admissionregistration/
 //! v1beta1/generated.proto). Refs #3057.
 
-use k3rs_protobuf::{FieldType, ProtoRegistry};
+use kubernetes_rs_protobuf::{FieldType, ProtoRegistry};
 use serde_json::json;
 
 fn field(reg: &ProtoRegistry, msg: &str, num: u32) -> (String, FieldType) {

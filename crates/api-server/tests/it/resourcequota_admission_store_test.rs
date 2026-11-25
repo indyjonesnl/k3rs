@@ -8,9 +8,9 @@
 //! generic Store.
 
 use axum::http::StatusCode;
-use k3rs_common::resources::{ResourceQuota, ResourceQuotaStatus};
-use k3rs_storage::Storage;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::resources::{ResourceQuota, ResourceQuotaStatus};
+use kubernetes_rs_storage::Storage;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 

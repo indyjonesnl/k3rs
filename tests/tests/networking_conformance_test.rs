@@ -1,9 +1,9 @@
 // Networking Conformance Test
-// This test verifies that k3rs networking behaves like Kubernetes
+// This test verifies that kubernetes-rs networking behaves like Kubernetes
 
-use k3rs_common::resources::*;
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::*;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

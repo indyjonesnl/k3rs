@@ -1,5 +1,5 @@
 [package]
-name = "k3rs-streamproxy"
+name = "kubernetes-rs-streamproxy"
 version = "0.1.0"
 edition = "2021"
 

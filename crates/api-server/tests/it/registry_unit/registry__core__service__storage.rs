@@ -3,31 +3,33 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_api_server::registry::core::service::alloc::{
+    pub use kubernetes_rs_api_server::registry::core::service::alloc::{
         self, ClusterIpAllocators, ClusterIpTxn,
     };
-    pub use k3rs_api_server::registry::core::service::portallocator::operation::PortAllocationOperation;
-    pub use k3rs_api_server::registry::core::service::portallocator::PortAllocator;
-    pub use k3rs_api_server::registry::core::service::strategy::{StatusStrategy, Strategy};
-    pub use k3rs_api_server::registry::generic::store::{
+    pub use kubernetes_rs_api_server::registry::core::service::portallocator::operation::PortAllocationOperation;
+    pub use kubernetes_rs_api_server::registry::core::service::portallocator::PortAllocator;
+    pub use kubernetes_rs_api_server::registry::core::service::strategy::{
+        StatusStrategy, Strategy,
+    };
+    pub use kubernetes_rs_api_server::registry::generic::store::{
         AfterDelete, BeginCreate, BeginUpdate, CreateOptions, Finish, UpdateOptions,
     };
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{GroupResource, RequestContext};
-    pub use k3rs_common::deletion::DeleteOptions;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{GroupResource, RequestContext};
+    pub use kubernetes_rs_common::deletion::DeleteOptions;
+    pub use kubernetes_rs_common::resources::{
         Endpoints, IPFamily, IPFamilyPolicy, Service, ServiceExternalTrafficPolicy, ServiceType,
     };
-    pub use k3rs_common::validation::service::parse_ip_sloppy;
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::service::parse_ip_sloppy;
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::collections::{HashMap, HashSet};
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::core::service::storage::*;
+    use kubernetes_rs_api_server::registry::core::service::storage::*;
 
     fn svc(cluster_ip: &str, cluster_ips: Option<&[&str]>) -> Service {
         let mut s: Service = serde_json::from_value(serde_json::json!({

@@ -13,12 +13,12 @@
 //!    must produce at most one quota re-enqueue per affected quota in
 //!    a debounce window.
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     Container, Pod, PodSpec, PodStatus, ResourceQuota, ResourceQuotaSpec,
 };
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage, WatchEvent};
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage, WatchEvent};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,7 +71,7 @@ fn make_quota(namespace: &str) -> ResourceQuota {
             scope_selector: None,
         },
     );
-    q.status = Some(k3rs_common::resources::ResourceQuotaStatus {
+    q.status = Some(kubernetes_rs_common::resources::ResourceQuotaStatus {
         hard: Some(hard),
         used: Some(used),
     });

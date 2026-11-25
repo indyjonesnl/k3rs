@@ -8,12 +8,14 @@
 //! tests use plain HTTP, the transport is not what they pin.
 
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
-use k3rs_api_server::authorization_webhook::{
+use kubernetes_rs_api_server::authorization_webhook::{
     parse_go_duration, validate_webhook_args, AuthorizationWebhookArgs, Backoff, FailurePolicy,
     WebhookAuthorizer, WebhookClientConfig,
 };
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes, UnionAuthorizer};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{
+    Authorizer, Decision, Opinion, RequestAttributes, UnionAuthorizer,
+};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -509,7 +511,7 @@ async fn explicit_deny_stops_the_union() {
         Duration::ZERO,
         FailurePolicy::NoOpinion,
     ));
-    let allow: Arc<dyn Authorizer> = Arc::new(k3rs_common::authz::AlwaysAllowAuthorizer);
+    let allow: Arc<dyn Authorizer> = Arc::new(kubernetes_rs_common::authz::AlwaysAllowAuthorizer);
     let u = UnionAuthorizer::new(vec![wh.clone(), allow.clone()]);
     assert_eq!(
         u.authorize(&resource("a")).await.unwrap(),
@@ -624,11 +626,14 @@ async fn sends_resource_attributes_version() {
 // GetAuthorizerAttributes (filters/authorization.go:119-120) takes
 // APIGroup/APIVersion from the request's RequestInfo; handlers here build
 // attributes without a version, so the request's RequestInfo supplies it (#3159).
-async fn version_sent(info: k3rs_api_server::audit::Attributes, a: RequestAttributes) -> Value {
+async fn version_sent(
+    info: kubernetes_rs_api_server::audit::Attributes,
+    a: RequestAttributes,
+) -> Value {
     let mock = allowing_mock();
     let url = serve(mock.clone()).await;
     let wh = authorizer(&url, "v1", Duration::ZERO, FailurePolicy::NoOpinion);
-    k3rs_api_server::request_scope::with_request_info(info, async {
+    kubernetes_rs_api_server::request_scope::with_request_info(info, async {
         wh.authorize_opinion(&a).await.unwrap()
     })
     .await;
@@ -636,8 +641,8 @@ async fn version_sent(info: k3rs_api_server::audit::Attributes, a: RequestAttrib
     got["spec"]["resourceAttributes"]["version"].clone()
 }
 
-fn pods_info() -> k3rs_api_server::audit::Attributes {
-    k3rs_api_server::audit::request_info(
+fn pods_info() -> kubernetes_rs_api_server::audit::Attributes {
+    kubernetes_rs_api_server::audit::request_info(
         &axum::http::Method::GET,
         "/api/v1/namespaces/kittensandponies/pods/p",
         None,
@@ -695,7 +700,7 @@ async fn request_info_middleware_reaches_webhook_spec() {
             }),
         )
         .layer(axum::middleware::from_fn(
-            k3rs_api_server::request_scope::request_info_middleware,
+            kubernetes_rs_api_server::request_scope::request_info_middleware,
         ));
     let resp = app
         .oneshot(
@@ -740,7 +745,7 @@ async fn request_selectors_reach_webhook_spec_via_middleware() {
             }),
         )
         .layer(axum::middleware::from_fn(
-            k3rs_api_server::request_scope::request_info_middleware,
+            kubernetes_rs_api_server::request_scope::request_info_middleware,
         ));
     let resp = app
         .oneshot(
@@ -772,7 +777,7 @@ async fn request_selectors_ignored_for_a_different_resource() {
     let mock = allowing_mock();
     let url = serve(mock.clone()).await;
     let wh = authorizer(&url, "v1", Duration::ZERO, FailurePolicy::NoOpinion);
-    let info = k3rs_api_server::audit::request_info(
+    let info = kubernetes_rs_api_server::audit::request_info(
         &axum::http::Method::GET,
         "/api/v1/namespaces/kittensandponies/pods",
         Some("labelSelector=app%3Dweb"),
@@ -781,7 +786,7 @@ async fn request_selectors_ignored_for_a_different_resource() {
         verb: "list".into(),
         ..RequestAttributes::new(user("jane"), "list", "secrets")
     };
-    k3rs_api_server::request_scope::with_request_info(info, async {
+    kubernetes_rs_api_server::request_scope::with_request_info(info, async {
         wh.authorize_opinion(&a).await.unwrap()
     })
     .await;
@@ -797,11 +802,11 @@ async fn request_selectors_ignored_for_a_different_resource() {
 // SelfSubjectRulesReview's `incomplete` / `evaluationError`.
 #[tokio::test]
 async fn rules_for_is_incomplete_through_union_and_instrumentation() {
-    use k3rs_common::authz::UnionAuthorizer;
+    use kubernetes_rs_common::authz::UnionAuthorizer;
     let url = serve(allowing_mock()).await;
     let wh = authorizer(&url, "v1", Duration::ZERO, FailurePolicy::NoOpinion);
     let chain: Arc<dyn Authorizer> = Arc::new(UnionAuthorizer::new(vec![
-        k3rs_api_server::authorization_metrics::instrumented_authorizer(
+        kubernetes_rs_api_server::authorization_metrics::instrumented_authorizer(
             "Webhook",
             "wh",
             Arc::new(wh),

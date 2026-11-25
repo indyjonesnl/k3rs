@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::Lease;
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::lease::validate_lease;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::resources::Lease;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::lease::validate_lease;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

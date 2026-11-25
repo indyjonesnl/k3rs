@@ -4,23 +4,23 @@
 mod __parent {
     pub use anyhow::{anyhow, Context, Result};
     pub use async_trait::async_trait;
-    pub use k3rs_common::resources::csi::FSGroupPolicy;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::resources::csi::FSGroupPolicy;
+    pub use kubernetes_rs_common::resources::{
         CSIDriver, PersistentVolume, PersistentVolumeAccessMode, Pod, Secret, VolumeAttachment,
     };
-    pub use k3rs_kubelet::server_metrics::collect_volume_stat_cal_duration;
-    pub use k3rs_kubelet::volume_plugins::csi::*;
-    pub use k3rs_kubelet::volume_plugins::csi_client::CSI_TIMEOUT;
-    pub use k3rs_kubelet::volume_plugins::csi_client::{CsiDriverClient, CsiError};
-    pub use k3rs_kubelet::volume_plugins::plugin::{
+    pub use kubernetes_rs_kubelet::server_metrics::collect_volume_stat_cal_duration;
+    pub use kubernetes_rs_kubelet::volume_plugins::csi::*;
+    pub use kubernetes_rs_kubelet::volume_plugins::csi_client::CSI_TIMEOUT;
+    pub use kubernetes_rs_kubelet::volume_plugins::csi_client::{CsiDriverClient, CsiError};
+    pub use kubernetes_rs_kubelet::volume_plugins::plugin::{
         DeviceMountableVolumePlugin, DeviceMounter, DeviceMounterArgs, DeviceUnmounter,
     };
-    pub use k3rs_kubelet::volume_plugins::plugin::{Metrics, MetricsProvider};
-    pub use k3rs_kubelet::volume_plugins::util::metrics::new_not_supported_error_with_driver_name;
-    pub use k3rs_kubelet::volume_plugins::{
+    pub use kubernetes_rs_kubelet::volume_plugins::plugin::{Metrics, MetricsProvider};
+    pub use kubernetes_rs_kubelet::volume_plugins::util::metrics::new_not_supported_error_with_driver_name;
+    pub use kubernetes_rs_kubelet::volume_plugins::{
         Attributes, Mounter, ReconstructedVolume, Spec, Unmounter, VolumeHost, VolumePlugin,
     };
-    pub use k3rs_storage::{build_key, Storage, StorageBackend};
+    pub use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
     pub use sha2::{Digest, Sha256};
     pub use std::collections::HashMap;
     pub use std::path::{Path, PathBuf};
@@ -42,14 +42,14 @@ mod tests {
 
     use super::__parent::*;
     use crate::csi_fake::{serve, FakeDriver};
-    use k3rs_common::feature_gates::{reset_to_defaults, set_from_str};
-    use k3rs_kubelet::volume_plugins::csi::metrics::*;
-    use k3rs_kubelet::volume_plugins::csi_client::proto::node_service_capability::rpc::Type as Cap;
-    use k3rs_kubelet::volume_plugins::csi_client::proto::{
+    use kubernetes_rs_common::feature_gates::{reset_to_defaults, set_from_str};
+    use kubernetes_rs_kubelet::volume_plugins::csi::metrics::*;
+    use kubernetes_rs_kubelet::volume_plugins::csi_client::proto::node_service_capability::rpc::Type as Cap;
+    use kubernetes_rs_kubelet::volume_plugins::csi_client::proto::{
         volume_usage::Unit, NodeGetVolumeStatsResponse, VolumeCondition, VolumeUsage,
     };
-    use k3rs_kubelet::volume_plugins::csi_drivers_store::{csi_drivers, Driver};
-    use k3rs_kubelet::volume_plugins::util::metrics::is_not_supported;
+    use kubernetes_rs_kubelet::volume_plugins::csi_drivers_store::{csi_drivers, Driver};
+    use kubernetes_rs_kubelet::volume_plugins::util::metrics::is_not_supported;
     use serial_test::serial;
 
     struct Fx {
@@ -102,7 +102,7 @@ mod tests {
         }
     }
 
-    fn val(q: &Option<k3rs_common::quantity::Quantity>) -> i128 {
+    fn val(q: &Option<kubernetes_rs_common::quantity::Quantity>) -> i128 {
         q.as_ref().expect("quantity reported").value()
     }
 
@@ -293,7 +293,7 @@ mod tests {
     async fn get_metrics_observes_volume_stat_duration_by_driver() {
         let driver = "durationmetrics.csi.example.com";
         let _ = new_metrics_csi("foobar", "/mnt/foo", driver).get_metrics();
-        let body = k3rs_common::observability::MetricsRegistry::new().gather();
+        let body = kubernetes_rs_common::observability::MetricsRegistry::new().gather();
         assert!(
             body.contains(&format!(
                 "kubelet_volume_metric_collection_duration_seconds_count{{metric_source=\"{driver}\"}}"

@@ -2,31 +2,31 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_api_server::ssa::ResetFields;
-    pub use k3rs_common::equality::semantic_equal;
-    pub use k3rs_common::resources::{PodDisruptionBudget, PodDisruptionBudgetStatus};
-    pub use k3rs_common::types::{LabelSelector, LabelSelectorRequirement};
-    pub use k3rs_common::validation::field::{ErrorList, Path};
-    pub use k3rs_common::validation::metav1::{
+    pub use kubernetes_rs_api_server::ssa::ResetFields;
+    pub use kubernetes_rs_common::equality::semantic_equal;
+    pub use kubernetes_rs_common::resources::{PodDisruptionBudget, PodDisruptionBudgetStatus};
+    pub use kubernetes_rs_common::types::{LabelSelector, LabelSelectorRequirement};
+    pub use kubernetes_rs_common::validation::field::{ErrorList, Path};
+    pub use kubernetes_rs_common::validation::metav1::{
         validate_label_selector, LabelSelectorValidationOptions,
     };
-    pub use k3rs_common::validation::pdb::{
+    pub use kubernetes_rs_common::validation::pdb::{
         validate_pod_disruption_budget, validate_pod_disruption_budget_status_update,
         PodDisruptionBudgetValidationOptions,
     };
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::policy::poddisruptionbudget::*;
-    use k3rs_common::resources::IntOrString;
+    use kubernetes_rs_api_server::registry::policy::poddisruptionbudget::*;
+    use kubernetes_rs_common::resources::IntOrString;
 
     fn pdb(spec: serde_json::Value) -> PodDisruptionBudget {
         serde_json::from_value(serde_json::json!({

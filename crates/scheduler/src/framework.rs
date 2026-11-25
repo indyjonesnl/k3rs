@@ -18,7 +18,7 @@
 //! Reference: https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/
 
 use async_trait::async_trait;
-use k3rs_common::resources::{Node, Pod};
+use kubernetes_rs_common::resources::{Node, Pod};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;

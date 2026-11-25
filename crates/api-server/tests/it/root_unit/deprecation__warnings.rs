@@ -6,14 +6,14 @@ mod __parent {
     pub use axum::http::{header, HeaderValue};
     pub use axum::middleware::Next;
     pub use axum::response::Response;
-    pub use k3rs_api_server::deprecation::{
+    pub use kubernetes_rs_api_server::deprecation::{
         is_deprecated, lookup, should_serve_for_version, warning_message, CURRENT_MAJOR_MINOR,
     };
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::deprecation::warnings::*;
+    use kubernetes_rs_api_server::deprecation::warnings::*;
 
     fn run(args: &[(&str, &str)]) -> Vec<String> {
         let mut r = Recorder::new();
@@ -106,7 +106,8 @@ mod tests {
 
     #[test]
     fn parses_what_the_handlers_write() {
-        let h = k3rs_api_server::handlers::validation::format_warning_header(r#"a "b" \c"#);
+        let h =
+            kubernetes_rs_api_server::handlers::validation::format_warning_header(r#"a "b" \c"#);
         assert_eq!(
             parse_warning_header(&h),
             Some(("-".to_string(), r#"a "b" \c"#.to_string()))
@@ -125,7 +126,7 @@ mod tests {
                         r.headers_mut().append(
                             header::WARNING,
                             HeaderValue::from_str(
-                                &k3rs_api_server::handlers::validation::format_warning_header(w),
+                                &kubernetes_rs_api_server::handlers::validation::format_warning_header(w),
                             )
                             .unwrap(),
                         );

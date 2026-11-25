@@ -39,10 +39,10 @@ use axum::middleware::{from_fn, Next};
 use axum::response::Response;
 use axum::Router;
 use futures::FutureExt;
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, Decision, RequestAttributes};
-use k3rs_common::error::Error;
-use k3rs_common::types::Status;
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Authorizer, Decision, RequestAttributes};
+use kubernetes_rs_common::error::Error;
+use kubernetes_rs_common::types::Status;
 use std::collections::HashMap;
 use std::sync::Arc;
 

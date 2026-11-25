@@ -90,7 +90,7 @@ pub mod volume_expansion;
 pub mod volume_snapshot;
 pub mod vpa;
 // Shared with the api-server, which runs them in-process (as upstream does).
-pub use k3rs_controller_core::{apiservice, clusterrole_aggregation};
+pub use kubernetes_rs_controller_core::{apiservice, clusterrole_aggregation};
 pub mod worker_pool;
 
 /// Propagate the pod's ServiceAccount `imagePullSecrets` onto a
@@ -101,18 +101,18 @@ pub mod worker_pool;
 /// Resolves the SA named by the spec (default `"default"`) and applies the
 /// same semantics as admission (PR #1083): copy only when the pod declares no
 /// secrets of its own, regardless of automount. A missing SA is a no-op.
-pub async fn propagate_sa_image_pull_secrets<S: k3rs_storage::Storage>(
+pub async fn propagate_sa_image_pull_secrets<S: kubernetes_rs_storage::Storage>(
     storage: &S,
     namespace: &str,
-    spec: &mut k3rs_common::resources::PodSpec,
+    spec: &mut kubernetes_rs_common::resources::PodSpec,
 ) {
     let sa_name = spec.service_account_name.as_deref().unwrap_or("default");
     let sa_key = format!("/registry/serviceaccounts/{}/{}", namespace, sa_name);
     if let Ok(sa) = storage
-        .get::<k3rs_common::resources::ServiceAccount>(&sa_key)
+        .get::<kubernetes_rs_common::resources::ServiceAccount>(&sa_key)
         .await
     {
-        k3rs_common::serviceaccount::propagate_image_pull_secrets(
+        kubernetes_rs_common::serviceaccount::propagate_image_pull_secrets(
             spec,
             sa.image_pull_secrets.as_deref(),
         );
@@ -147,14 +147,14 @@ pub fn gather_metrics() -> String {
 /// is the typed reason, never the message text. Storage backends map their
 /// create-conflict to `Error::AlreadyExists` (memory.rs, etcd.rs, rhino.rs
 /// `KeyExists`, api_storage.rs `map_write_err`).
-pub fn is_already_exists(e: &k3rs_common::Error) -> bool {
-    matches!(e, k3rs_common::Error::AlreadyExists(_))
+pub fn is_already_exists(e: &kubernetes_rs_common::Error) -> bool {
+    matches!(e, kubernetes_rs_common::Error::AlreadyExists(_))
 }
 
 /// [`is_already_exists`] for an `anyhow::Error` carrying a storage error
 /// (`create_pod` helpers return `anyhow::Result`).
 /// Like `errors.As`, `downcast_ref` sees through `.context(..)` wrappers.
 pub fn is_already_exists_anyhow(e: &anyhow::Error) -> bool {
-    e.downcast_ref::<k3rs_common::Error>()
+    e.downcast_ref::<kubernetes_rs_common::Error>()
         .is_some_and(is_already_exists)
 }

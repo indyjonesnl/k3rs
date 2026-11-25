@@ -8,7 +8,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::go_selinux_label::*;
+    use kubernetes_rs_kubelet::go_selinux_label::*;
 
     const LXC: &str = "process = \"system_u:system_r:container_t:s0\"\n\
         content = \"system_u:object_r:virt_var_lib_t:s0\"\n\

@@ -1,5 +1,5 @@
 [package]
-name = "k3rs-common"
+name = "kubernetes-rs-common"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -48,7 +48,7 @@ chrono-tz = "0.10"
 sha2 = "0.10.9"
 reqwest = { workspace = true }
 cel.workspace = true
-k3rs-cel-checker = { path = "../cel-checker" }
+kubernetes-rs-cel-checker = { path = "../cel-checker" }
 prost.workspace = true
 # PodCertificateRequest proof-of-possession verification (upstream
 # ValidatePodCertificateRequestCreate: ed25519 / ECDSA P-256,384,521 / RSA-PSS).

@@ -3,10 +3,10 @@ use crate::controllers::trigger_time_tracker::{format_rfc3339_nano, TriggerTimeT
 use crate::controllers::worker_pool::spawn_workers;
 use anyhow::Result;
 use futures::StreamExt;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     EndpointAddress, EndpointPort, EndpointReference, EndpointSubset, Endpoints, Pod, Service,
 };
-use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
+use kubernetes_rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error};
@@ -314,7 +314,11 @@ impl<S: Storage + 'static> EndpointsController<S> {
 
     /// When a pod changes, find services in the same namespace whose selector
     /// matches the pod and enqueue them for reconciliation.
-    async fn enqueue_services_for_pod(&self, queue: &WorkQueue, event: &k3rs_storage::WatchEvent) {
+    async fn enqueue_services_for_pod(
+        &self,
+        queue: &WorkQueue,
+        event: &kubernetes_rs_storage::WatchEvent,
+    ) {
         let pod_key = extract_key(event);
         // Parse pod key: "pods/{namespace}/{name}"
         let parts: Vec<&str> = pod_key.splitn(3, '/').collect();
@@ -492,7 +496,7 @@ impl<S: Storage + 'static> EndpointsController<S> {
         // there is no Endpoints object to publish even when a selector is set.
         if matches!(
             service.spec.service_type,
-            Some(k3rs_common::resources::ServiceType::ExternalName)
+            Some(kubernetes_rs_common::resources::ServiceType::ExternalName)
         ) {
             debug!(
                 "Service {}/{} is ExternalName, skipping endpoint creation",
@@ -550,7 +554,7 @@ impl<S: Storage + 'static> EndpointsController<S> {
         // subset mixes addresses from more than one node.
         if matches!(
             service.spec.internal_traffic_policy,
-            Some(k3rs_common::resources::ServiceInternalTrafficPolicy::Local)
+            Some(kubernetes_rs_common::resources::ServiceInternalTrafficPolicy::Local)
         ) {
             subsets = split_subsets_by_node(subsets);
         }
@@ -606,11 +610,11 @@ impl<S: Storage + 'static> EndpointsController<S> {
         // annotations (endpoints_controller.go:469-499). Upstream sets no
         // ownerReferences on the Endpoints it creates.
         let mut endpoints = existing.clone().unwrap_or_else(|| Endpoints {
-            type_meta: k3rs_common::types::TypeMeta {
+            type_meta: kubernetes_rs_common::types::TypeMeta {
                 kind: "Endpoints".to_string(),
                 api_version: "v1".to_string(),
             },
-            metadata: k3rs_common::types::ObjectMeta::new(service_name.clone())
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(service_name.clone())
                 .with_namespace(namespace.clone()),
             subsets: Vec::new(),
         });
@@ -700,7 +704,7 @@ impl<S: Storage + 'static> EndpointsController<S> {
     fn build_endpoint_subsets(
         &self,
         pods: &[&Pod],
-        service_ports: &[k3rs_common::resources::ServicePort],
+        service_ports: &[kubernetes_rs_common::resources::ServicePort],
         publish_not_ready: bool,
     ) -> Vec<EndpointSubset> {
         // Separate pods by readiness
@@ -716,8 +720,8 @@ impl<S: Storage + 'static> EndpointsController<S> {
             let phase = pod.status.as_ref().and_then(|s| s.phase.as_ref());
             if matches!(
                 phase,
-                Some(k3rs_common::types::Phase::Succeeded)
-                    | Some(k3rs_common::types::Phase::Failed)
+                Some(kubernetes_rs_common::types::Phase::Succeeded)
+                    | Some(kubernetes_rs_common::types::Phase::Failed)
             ) {
                 continue; // Terminal pods are never in endpoints
             }
@@ -775,7 +779,7 @@ impl<S: Storage + 'static> EndpointsController<S> {
             };
 
             // Check if pod is ready — if publishNotReadyAddresses, all go to ready
-            if publish_not_ready || k3rs_common::podutil::is_pod_ready(pod) {
+            if publish_not_ready || kubernetes_rs_common::podutil::is_pod_ready(pod) {
                 ready_addresses.push(address);
             } else {
                 not_ready_addresses.push(address);
@@ -785,7 +789,7 @@ impl<S: Storage + 'static> EndpointsController<S> {
         // Check if any service port uses a named targetPort — if so, we need to
         // resolve per-pod and group by resolved port tuple to create separate subsets.
         let has_named_target_port = service_ports.iter().any(|sp| {
-            matches!(&sp.target_port, Some(k3rs_common::resources::IntOrString::String(s)) if s.parse::<u16>().is_err())
+            matches!(&sp.target_port, Some(kubernetes_rs_common::resources::IntOrString::String(s)) if s.parse::<u16>().is_err())
         });
 
         if has_named_target_port {
@@ -810,8 +814,8 @@ impl<S: Storage + 'static> EndpointsController<S> {
                     .iter()
                     .map(|sp| {
                         match &sp.target_port {
-                            Some(k3rs_common::resources::IntOrString::Int(p)) => *p as u16,
-                            Some(k3rs_common::resources::IntOrString::String(s)) => {
+                            Some(kubernetes_rs_common::resources::IntOrString::Int(p)) => *p as u16,
+                            Some(kubernetes_rs_common::resources::IntOrString::String(s)) => {
                                 if let Ok(p) = s.parse::<u16>() {
                                     p
                                 } else {
@@ -847,7 +851,7 @@ impl<S: Storage + 'static> EndpointsController<S> {
                 let entry = port_groups
                     .entry(resolved_ports)
                     .or_insert_with(|| (Vec::new(), Vec::new()));
-                if k3rs_common::podutil::is_pod_ready(pod) {
+                if kubernetes_rs_common::podutil::is_pod_ready(pod) {
                     entry.0.push(address);
                 } else {
                     entry.1.push(address);
@@ -892,7 +896,7 @@ impl<S: Storage + 'static> EndpointsController<S> {
                 .map(|sp| EndpointPort {
                     name: sp.name.clone(),
                     port: match &sp.target_port {
-                        Some(k3rs_common::resources::IntOrString::Int(p)) => *p as u16,
+                        Some(kubernetes_rs_common::resources::IntOrString::Int(p)) => *p as u16,
                         None => sp.port,
                         _ => sp.port,
                     },

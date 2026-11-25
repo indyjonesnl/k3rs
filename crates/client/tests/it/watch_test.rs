@@ -1,4 +1,4 @@
-use k3rs_client::watch::{parse_watch_line, WatchEvent};
+use kubernetes_rs_client::watch::{parse_watch_line, WatchEvent};
 
 #[test]
 fn parses_added_modified_deleted_bookmark() {

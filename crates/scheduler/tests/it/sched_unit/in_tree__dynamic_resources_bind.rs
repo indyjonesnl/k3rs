@@ -2,12 +2,12 @@
 //! plugin object (`dynamicresources.go:919-1066`, `:1068-1144`, `bindClaim`
 //! `:1146-1244`), for already allocated claims.
 use async_trait::async_trait;
-use k3rs_common::resources::{Pod, ResourceClaim};
-use k3rs_scheduler::fwk::{
+use kubernetes_rs_common::resources::{Pod, ResourceClaim};
+use kubernetes_rs_scheduler::fwk::{
     ClaimWriteError, Code, CycleState, Handle, NoHandle, PreBindPlugin, PreFilterPlugin,
     ReservePlugin,
 };
-use k3rs_scheduler::in_tree::DynamicResources;
+use kubernetes_rs_scheduler::in_tree::DynamicResources;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::Mutex;

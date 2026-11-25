@@ -3,32 +3,34 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_api_server::registry::generic::{CreateOptions, Deleted, Store, UpdateOptions};
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::{
+        CreateOptions, Deleted, Store, UpdateOptions,
+    };
+    pub use kubernetes_rs_api_server::registry::rest::{
         DeletedCollection, GarbageCollectionPolicy, GroupResource, NamespaceScopedStrategy,
         RequestContext, RestCreateStrategy, RestDeleteStrategy, RestStorage, RestUpdateStrategy,
         UpdatedObjectInfo, ValidateObject, ValidateObjectUpdate,
     };
-    pub use k3rs_api_server::ssa::ResetFields;
-    pub use k3rs_common::deletion::DeleteOptions;
-    pub use k3rs_common::equality::semantic_equal;
-    pub use k3rs_common::resources::{Job, JobSpec, JobStatus};
-    pub use k3rs_common::types::LabelSelector;
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_common::validation::job::{
+    pub use kubernetes_rs_api_server::ssa::ResetFields;
+    pub use kubernetes_rs_common::deletion::DeleteOptions;
+    pub use kubernetes_rs_common::equality::semantic_equal;
+    pub use kubernetes_rs_common::resources::{Job, JobSpec, JobStatus};
+    pub use kubernetes_rs_common::types::LabelSelector;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_common::validation::job::{
         get_status_validation_options, validate_job, validate_job_update,
         validate_job_update_status, JobValidationOptions,
     };
-    pub use k3rs_common::validation::metav1::is_dns1123_label;
-    pub use k3rs_common::Result;
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::metav1::is_dns1123_label;
+    pub use kubernetes_rs_common::Result;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::batch::job::*;
-    use k3rs_common::resources::JobStatus;
+    use kubernetes_rs_api_server::registry::batch::job::*;
+    use kubernetes_rs_common::resources::JobStatus;
 
     fn job() -> Job {
         let mut job: Job = serde_json::from_value(serde_json::json!({

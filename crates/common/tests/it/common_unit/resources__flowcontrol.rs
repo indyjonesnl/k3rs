@@ -2,13 +2,13 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_common::types::ObjectMeta;
     pub use serde::{Deserialize, Serialize};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::flowcontrol::*;
+    use kubernetes_rs_common::resources::flowcontrol::*;
 
     /// FlowSchema nonResourceRules without nonResourceURLs must decode.
     /// Reproduces sig-api-machinery FlowControl 422 "missing field `nonResourceURLs`"

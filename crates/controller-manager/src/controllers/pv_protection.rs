@@ -8,9 +8,9 @@
 
 use super::pvc_protection::{is_deletion_candidate, need_to_add_finalizer, update_or_reap};
 use anyhow::Result;
-use k3rs_common::resources::volume::{PersistentVolumePhase, PV_PROTECTION_FINALIZER};
-use k3rs_common::resources::PersistentVolume;
-use k3rs_storage::{build_key, Storage, WorkQueue};
+use kubernetes_rs_common::resources::volume::{PersistentVolumePhase, PV_PROTECTION_FINALIZER};
+use kubernetes_rs_common::resources::PersistentVolume;
+use kubernetes_rs_storage::{build_key, Storage, WorkQueue};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
@@ -38,7 +38,7 @@ impl<S: Storage + 'static> PvProtectionController<S> {
         let key = build_key("persistentvolumes", None, name);
         let mut pv: PersistentVolume = match self.storage.get(&key).await {
             Ok(p) => p,
-            Err(k3rs_common::Error::NotFound(_)) => return Ok(()),
+            Err(kubernetes_rs_common::Error::NotFound(_)) => return Ok(()),
             Err(e) => return Err(e.into()),
         };
         if is_deletion_candidate(&pv.metadata, PV_PROTECTION_FINALIZER) && !is_being_used(&pv) {
@@ -60,7 +60,7 @@ impl<S: Storage + 'static> PvProtectionController<S> {
     }
 
     async fn enqueue_all(&self, queue: &WorkQueue) {
-        let prefix = k3rs_storage::build_prefix("persistentvolumes", None);
+        let prefix = kubernetes_rs_storage::build_prefix("persistentvolumes", None);
         match self.storage.list::<PersistentVolume>(&prefix).await {
             Ok(pvs) => {
                 for v in pvs {
@@ -97,7 +97,7 @@ impl<S: Storage + 'static> PvProtectionController<S> {
 
         loop {
             self.enqueue_all(&queue).await;
-            let prefix = k3rs_storage::build_prefix("persistentvolumes", None);
+            let prefix = kubernetes_rs_storage::build_prefix("persistentvolumes", None);
             let mut watch = match self.storage.watch(&prefix).await {
                 Ok(w) => w,
                 Err(e) => {

@@ -921,7 +921,7 @@ mod tests {
         assert_eq!(got[2], "[2001:db8::1]:53".parse().unwrap());
         assert_eq!(got[3], "[2001:db8::2]:53".parse().unwrap());
 
-        let dir = std::env::temp_dir().join(format!("k3rs-dns-fwd-{}", random_u64()));
+        let dir = std::env::temp_dir().join(format!("kubernetes-rs-dns-fwd-{}", random_u64()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("resolv.conf");
         std::fs::write(

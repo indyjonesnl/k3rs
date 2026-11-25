@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use k3rs_client::http::ApiClient;
+use kubernetes_rs_client::http::ApiClient;
 
 /// Cascade strategy for delete operations, matching Kubernetes propagation policies.
 #[derive(Debug, Clone, PartialEq)]

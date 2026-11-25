@@ -24,15 +24,15 @@ use axum::{
     response::Response,
     Extension, Json,
 };
-use k3rs_common::admission::{GroupVersionKind, GroupVersionResource};
-use k3rs_common::validation::crd::is_crd_condition_true;
-use k3rs_common::{
+use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource};
+use kubernetes_rs_common::validation::crd::is_crd_condition_true;
+use kubernetes_rs_common::{
     authz::{Decision, RequestAttributes},
     resources::{CustomResource, CustomResourceDefinition, Scale},
     schema_validation::SchemaValidator,
     List, Result,
 };
-use k3rs_storage::{build_key, build_prefix, Storage};
+use kubernetes_rs_storage::{build_key, build_prefix, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -55,8 +55,10 @@ async fn serving_crd(
     Ok(Arc::new(crd))
 }
 
-fn serving_not_found() -> k3rs_common::Error {
-    k3rs_common::Error::NotFound("the server could not find the requested resource".to_string())
+fn serving_not_found() -> kubernetes_rs_common::Error {
+    kubernetes_rs_common::Error::NotFound(
+        "the server could not find the requested resource".to_string(),
+    )
 }
 
 /// The version/subresource/condition gates of `crdHandler.ServeHTTP`
@@ -291,7 +293,7 @@ async fn table_response(
     let (parts, body) = resp.into_parts();
     let bytes = axum::body::to_bytes(body, usize::MAX)
         .await
-        .map_err(|e| k3rs_common::Error::Internal(e.to_string()))?;
+        .map_err(|e| kubernetes_rs_common::Error::Internal(e.to_string()))?;
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
         return Ok(Response::from_parts(parts, axum::body::Body::from(bytes)));
     };
@@ -309,7 +311,7 @@ async fn table_response(
     }
     let no_headers = params
         .get("noHeaders")
-        .is_some_and(|v| k3rs_common::query::k8s_query_bool(v));
+        .is_some_and(|v| kubernetes_rs_common::query::k8s_query_bool(v));
     let table = convertor.convert_to_table(&value, no_headers);
     let mut out = Json(table).into_response();
     for (k, v) in parts.headers.iter() {
@@ -345,7 +347,7 @@ pub async fn list_custom_resources(
     match state.authorizer.authorize(&attrs).await? {
         Decision::Allow => {}
         Decision::Deny(reason) => {
-            return Err(k3rs_common::Error::Forbidden(reason));
+            return Err(kubernetes_rs_common::Error::Forbidden(reason));
         }
     }
 
@@ -378,9 +380,9 @@ pub async fn list_custom_resources(
     .into_iter()
     .map(|mut value| {
         crate::registry::apiextensions::customresource::drop_invalid_root_metadata(&mut value);
-        serde_json::from_value(value).map_err(k3rs_common::Error::Serialization)
+        serde_json::from_value(value).map_err(kubernetes_rs_common::Error::Serialization)
     })
-    .collect::<k3rs_common::Result<_>>()?;
+    .collect::<kubernetes_rs_common::Result<_>>()?;
 
     // Apply schema defaults on read (K8s "defaulting on read")
     let strategy = crate::registry::apiextensions::customresource::Strategy::new(
@@ -600,15 +602,17 @@ pub fn validate_field_selector_paths(
         })
         .unwrap_or_default();
 
-    let parsed = k3rs_common::field_selector::FieldSelector::parse(field_selector)
-        .map_err(|e| k3rs_common::Error::InvalidResource(format!("Invalid field selector: {e}")))?;
+    let parsed = kubernetes_rs_common::field_selector::FieldSelector::parse(field_selector)
+        .map_err(|e| {
+            kubernetes_rs_common::Error::InvalidResource(format!("Invalid field selector: {e}"))
+        })?;
 
     for requirement in parsed.requirements() {
         let path = requirement.field();
         if BUILTIN.contains(&path) || selectable.contains(&path) {
             continue;
         }
-        return Err(k3rs_common::Error::InvalidResource(format!(
+        return Err(kubernetes_rs_common::Error::InvalidResource(format!(
             "field label not supported: {path}"
         )));
     }
@@ -648,9 +652,9 @@ async fn patch_request(
     req: axum::extract::Request,
 ) -> Result<(HashMap<String, String>, String, Bytes)> {
     let (parts, body) = req.into_parts();
-    let body = axum::body::to_bytes(body, usize::MAX)
-        .await
-        .map_err(|e| k3rs_common::Error::BadRequest(format!("Failed to read patch body: {e}")))?;
+    let body = axum::body::to_bytes(body, usize::MAX).await.map_err(|e| {
+        kubernetes_rs_common::Error::BadRequest(format!("Failed to read patch body: {e}"))
+    })?;
     Ok((
         query_params(&parts.uri),
         patch_content_type(&parts.headers),
@@ -774,7 +778,7 @@ async fn get_crd_for_resource(
 pub fn serving_structural_schema(
     crd: &CustomResourceDefinition,
     version: &str,
-) -> Option<k3rs_common::validation::structural::Structural> {
+) -> Option<kubernetes_rs_common::validation::structural::Structural> {
     let schema = crd
         .spec
         .versions
@@ -784,11 +788,13 @@ pub fn serving_structural_schema(
         .as_ref()?
         .open_apiv3_schema
         .as_ref()?;
-    let mut structural = k3rs_common::validation::structural::new_structural(schema).ok()?;
+    let mut structural =
+        kubernetes_rs_common::validation::structural::new_structural(schema).ok()?;
     if crd.spec.preserve_unknown_fields != Some(true) {
         // "This should never happen" upstream: validation has rejected a CRD
         // whose defaults cannot be pruned.
-        k3rs_common::validation::structural::defaulting::prune_defaults(&mut structural).ok()?;
+        kubernetes_rs_common::validation::structural::defaulting::prune_defaults(&mut structural)
+            .ok()?;
     }
     Some(structural)
 }
@@ -807,7 +813,10 @@ pub fn apply_schema_defaults(
     let Ok(mut value) = serde_json::to_value(&*cr) else {
         return;
     };
-    k3rs_common::validation::structural::defaulting::default(&mut value, Some(&structural));
+    kubernetes_rs_common::validation::structural::defaulting::default(
+        &mut value,
+        Some(&structural),
+    );
     if let Ok(defaulted) = serde_json::from_value(value) {
         *cr = defaulted;
     }
@@ -911,16 +920,16 @@ fn validate_custom_resource_with_ratcheting(
 ) -> Result<()> {
     use crate::handlers::cel_validation::evaluate_cr_rules_with_paths;
     use crate::handlers::ratcheting::is_ratcheted;
-    use k3rs_common::schema_validation::ValidationIssue;
+    use kubernetes_rs_common::schema_validation::ValidationIssue;
 
     let Some(crd_version) = crd.spec.versions.iter().find(|v| v.name == version) else {
-        return Err(k3rs_common::Error::InvalidResource(format!(
+        return Err(kubernetes_rs_common::Error::InvalidResource(format!(
             "Version {} not found in CRD",
             version
         )));
     };
     if !crd_version.served {
-        return Err(k3rs_common::Error::InvalidResource(format!(
+        return Err(kubernetes_rs_common::Error::InvalidResource(format!(
             "Version {} is not served",
             version
         )));
@@ -951,7 +960,7 @@ fn validate_custom_resource_with_ratcheting(
         old_cr.extra.iter().map(|(k, v)| (k.as_str(), v)).collect();
     // One `celconfig.RuntimeCELCostBudget` for the whole custom resource
     // (strategy.go:309), spent across every top-level property below.
-    let mut remaining_budget = k3rs_common::cel_cost::RUNTIME_CEL_COST_BUDGET;
+    let mut remaining_budget = kubernetes_rs_common::cel_cost::RUNTIME_CEL_COST_BUDGET;
 
     let mut unratcheted_cel: Vec<String> = Vec::new();
     for (key, prop_schema) in properties {
@@ -980,10 +989,9 @@ fn validate_custom_resource_with_ratcheting(
                 None => false,
             };
             if !ratcheted {
-                return Err(k3rs_common::Error::InvalidResource(render_issue_message(
-                    &issue.path,
-                    &issue.message,
-                )));
+                return Err(kubernetes_rs_common::Error::InvalidResource(
+                    render_issue_message(&issue.path, &issue.message),
+                ));
             }
         }
 
@@ -1019,10 +1027,10 @@ fn validate_custom_resource_with_ratcheting(
     // test/e2e/apimachinery/crd_validation_ratcheting.go:807-816.
     match unratcheted_cel.len() {
         0 => Ok(()),
-        1 => Err(k3rs_common::Error::InvalidResource(
+        1 => Err(kubernetes_rs_common::Error::InvalidResource(
             unratcheted_cel.remove(0),
         )),
-        _ => Err(k3rs_common::Error::InvalidResource(format!(
+        _ => Err(kubernetes_rs_common::Error::InvalidResource(format!(
             "[{}]",
             unratcheted_cel.join(", ")
         ))),
@@ -1034,17 +1042,17 @@ fn validate_custom_resource_with_ratcheting(
 /// messages; we render every key with dot notation since paths are
 /// structural and the K8s test only matches substrings (`field`,
 /// `list[0].field`, etc.).
-fn render_full_path(path: &[k3rs_common::schema_validation::PathSeg]) -> String {
+fn render_full_path(path: &[kubernetes_rs_common::schema_validation::PathSeg]) -> String {
     let mut out = String::new();
     for seg in path {
         match seg {
-            k3rs_common::schema_validation::PathSeg::Key(k) => {
+            kubernetes_rs_common::schema_validation::PathSeg::Key(k) => {
                 if !out.is_empty() {
                     out.push('.');
                 }
                 out.push_str(k);
             }
-            k3rs_common::schema_validation::PathSeg::Index(i) => {
+            kubernetes_rs_common::schema_validation::PathSeg::Index(i) => {
                 out.push_str(&format!("[{}]", i));
             }
         }
@@ -1056,10 +1064,10 @@ fn render_full_path(path: &[k3rs_common::schema_validation::PathSeg]) -> String 
 /// `map[key]` (k8s.io/apimachinery field.Path.Key), as the ratcheting e2e
 /// asserts `map[foo].field` (crd_validation_ratcheting.go:807-816).
 fn render_path_with_map_keys(
-    path: &[k3rs_common::schema_validation::PathSeg],
+    path: &[kubernetes_rs_common::schema_validation::PathSeg],
     map_key_positions: &[usize],
 ) -> String {
-    use k3rs_common::schema_validation::PathSeg;
+    use kubernetes_rs_common::schema_validation::PathSeg;
     let mut out = String::new();
     for (i, seg) in path.iter().enumerate() {
         match seg {
@@ -1078,7 +1086,10 @@ fn render_path_with_map_keys(
     out
 }
 
-fn render_issue_message(path: &[k3rs_common::schema_validation::PathSeg], msg: &str) -> String {
+fn render_issue_message(
+    path: &[kubernetes_rs_common::schema_validation::PathSeg],
+    msg: &str,
+) -> String {
     let p = render_full_path(path);
     if p.is_empty() || msg.starts_with(&p) {
         msg.to_string()
@@ -1101,13 +1112,16 @@ fn validate_custom_resource_schema(
         .iter()
         .find(|v| v.name == version)
         .ok_or_else(|| {
-            k3rs_common::Error::InvalidResource(format!("Version {} not found in CRD", version))
+            kubernetes_rs_common::Error::InvalidResource(format!(
+                "Version {} not found in CRD",
+                version
+            ))
         })?;
 
     // Check if version is served
     if !crd_version.served {
         warn!("Version {} is not served", version);
-        return Err(k3rs_common::Error::InvalidResource(format!(
+        return Err(kubernetes_rs_common::Error::InvalidResource(format!(
             "Version {} is not served",
             version
         )));
@@ -1247,7 +1261,9 @@ fn scale_scope(
     version: &str,
 ) -> Result<RequestScope<Scale>> {
     let store = new_scale_rest(state.storage.clone(), crd.clone(), version).ok_or_else(|| {
-        k3rs_common::Error::NotFound("the server could not find the requested resource".to_string())
+        kubernetes_rs_common::Error::NotFound(
+            "the server could not find the requested resource".to_string(),
+        )
     })?;
     Ok(RequestScope {
         kind: GroupVersionKind {

@@ -2,13 +2,13 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_kubelet::volume_plugins::util::mount_interface::MountInterface;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::mount_interface::MountInterface;
     pub use std::io;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::volume_plugins::util::mount_list::*;
+    use kubernetes_rs_kubelet::volume_plugins::util::mount_list::*;
 
     /// `TestListProcMounts` (`mount_linux_test.go`) shape: six fields per line,
     /// comma-split options.

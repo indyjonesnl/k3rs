@@ -5,7 +5,7 @@ mod __parent {}
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::flow_control_conc_alloc::*;
+    use kubernetes_rs_api_server::flow_control_conc_alloc::*;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TDD test for the single-module guard (FR-003 / SC-002):
-#   - vs_count_k3rs_images counts k3rs image refs
+#   - vs_count_kubernetes_rs_images counts kubernetes-rs image refs
 #   - vs_guard_recipe rejects a module resolving to >1 entry (exit 3)
 #   - vs_guard_recipe accepts exactly one entry
 # Pure logic — no cluster required. Run: bash scripts/vanilla-swap-guard-test.sh
@@ -16,21 +16,21 @@ ok()  { printf 'ok   - %s\n' "$1"; }
 bad() { printf 'FAIL - %s\n' "$1"; fails=$((fails+1)); }
 
 # --- image counting -------------------------------------------------------
-count() { printf '%s\n' "$1" | vs_count_k3rs_images; }
+count() { printf '%s\n' "$1" | vs_count_kubernetes_rs_images; }
 
 n="$(printf '%s\n' \
   'registry.k8s.io/kube-apiserver:v1.35.0' \
-  'ghcr.io/indyjonesnl/k3rs/kubelet:main' \
-  'registry.k8s.io/pause:3.10' | vs_count_k3rs_images)"
-[ "$n" = "1" ] && ok "counts exactly one k3rs image" || bad "expected 1 k3rs image, got '$n'"
+  'ghcr.io/indyjonesnl/kubernetes-rs/kubelet:main' \
+  'registry.k8s.io/pause:3.10' | vs_count_kubernetes_rs_images)"
+[ "$n" = "1" ] && ok "counts exactly one kubernetes-rs image" || bad "expected 1 kubernetes-rs image, got '$n'"
 
 n="$(printf '%s\n' \
-  'ghcr.io/indyjonesnl/k3rs/kubelet:main' \
-  'k3rs-scheduler:latest' | vs_count_k3rs_images)"
-[ "$n" = "2" ] && ok "counts two k3rs images (guard would reject)" || bad "expected 2, got '$n'"
+  'ghcr.io/indyjonesnl/kubernetes-rs/kubelet:main' \
+  'kubernetes-rs-scheduler:latest' | vs_count_kubernetes_rs_images)"
+[ "$n" = "2" ] && ok "counts two kubernetes-rs images (guard would reject)" || bad "expected 2, got '$n'"
 
-n="$(printf '%s\n' 'registry.k8s.io/kube-proxy:v1.35.0' | vs_count_k3rs_images)"
-[ "$n" = "0" ] && ok "counts zero k3rs images" || bad "expected 0, got '$n'"
+n="$(printf '%s\n' 'registry.k8s.io/kube-proxy:v1.35.0' | vs_count_kubernetes_rs_images)"
+[ "$n" = "0" ] && ok "counts zero kubernetes-rs images" || bad "expected 0, got '$n'"
 
 # --- vs_guard_recipe: >1 entry for a module is rejected (exit 3) -----------
 DUP="$TMP/dup.json"

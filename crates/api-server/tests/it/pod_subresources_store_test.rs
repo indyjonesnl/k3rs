@@ -5,8 +5,8 @@
 //! `ResizeREST.Update`.
 
 use axum::http::StatusCode;
-use k3rs_storage::{build_key, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_storage::{build_key, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const PODS: &str = "/api/v1/namespaces/default/pods";

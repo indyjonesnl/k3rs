@@ -10,7 +10,7 @@
 //! VolumeSnapshotContent, none on VolumeSnapshotClass.
 //!
 //! The schema rules (`required:`, `x-kubernetes-validations`) are in
-//! `k3rs_common::validation::volumesnapshot`.
+//! `kubernetes_rs_common::validation::volumesnapshot`.
 
 pub mod volumesnapshot;
 pub mod volumesnapshotclass;

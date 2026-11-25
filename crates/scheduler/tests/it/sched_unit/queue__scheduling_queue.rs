@@ -2,11 +2,13 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::Pod;
-    pub use k3rs_scheduler::profile::pod_scheduler_name;
-    pub use k3rs_scheduler::queue::events::*;
-    pub use k3rs_scheduler::queue::heap::Heap;
-    pub use k3rs_scheduler::queue::nominator::{NominatingInfo, Nominator, PodLister, PodRef};
+    pub use kubernetes_rs_common::resources::Pod;
+    pub use kubernetes_rs_scheduler::profile::pod_scheduler_name;
+    pub use kubernetes_rs_scheduler::queue::events::*;
+    pub use kubernetes_rs_scheduler::queue::heap::Heap;
+    pub use kubernetes_rs_scheduler::queue::nominator::{
+        NominatingInfo, Nominator, PodLister, PodRef,
+    };
     pub use std::collections::{HashMap, HashSet, VecDeque};
     pub use std::sync::{Arc, Mutex};
     pub use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -16,7 +18,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_scheduler::queue::scheduling_queue::*;
+    use kubernetes_rs_scheduler::queue::scheduling_queue::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn mk_pod(name: &str, ns: &str, uid: &str) -> Pod {
@@ -35,7 +37,7 @@ mod tests {
         .unwrap()
     }
 
-    fn mk_node() -> k3rs_common::resources::Node {
+    fn mk_node() -> kubernetes_rs_common::resources::Node {
         serde_json::from_value(serde_json::json!({"metadata": {"name": "node"}})).unwrap()
     }
 
@@ -84,7 +86,7 @@ mod tests {
                 }));
         }
         HashMap::from([(
-            k3rs_scheduler::profile::DEFAULT_SCHEDULER_NAME.to_string(),
+            kubernetes_rs_scheduler::profile::DEFAULT_SCHEDULER_NAME.to_string(),
             m,
         )])
     }
@@ -522,13 +524,13 @@ mod tests {
         fn name(&self) -> &str {
             self.name
         }
-        fn pre_enqueue(&self, pod: &Pod) -> k3rs_scheduler::fwk::Status {
+        fn pre_enqueue(&self, pod: &Pod) -> kubernetes_rs_scheduler::fwk::Status {
             let labels = pod.metadata.labels.clone().unwrap_or_default();
             if self.allow.iter().any(|a| labels.contains_key(*a)) {
-                k3rs_scheduler::fwk::Status::success()
+                kubernetes_rs_scheduler::fwk::Status::success()
             } else {
-                k3rs_scheduler::fwk::Status::new(
-                    k3rs_scheduler::fwk::Code::Unschedulable,
+                kubernetes_rs_scheduler::fwk::Status::new(
+                    kubernetes_rs_scheduler::fwk::Code::Unschedulable,
                     vec![format!("pod is gated by {}", self.name)],
                 )
             }
@@ -579,7 +581,7 @@ mod tests {
                 ),
             ]);
             let pre_enqueue: PreEnqueuePluginMap = HashMap::from([(
-                k3rs_scheduler::profile::DEFAULT_SCHEDULER_NAME.to_string(),
+                kubernetes_rs_scheduler::profile::DEFAULT_SCHEDULER_NAME.to_string(),
                 vec![Arc::new(AllowlistGate {
                     name: gate,
                     allow: &["allow"],
@@ -618,11 +620,11 @@ mod tests {
             EVENT_UNSCHEDULED_POD_UPDATE,
             vec![(
                 "gate",
-                k3rs_scheduler::queue::hints::default_queueing_hint_fn(),
+                kubernetes_rs_scheduler::queue::hints::default_queueing_hint_fn(),
             )],
         )]);
         let pre_enqueue: PreEnqueuePluginMap = HashMap::from([(
-            k3rs_scheduler::profile::DEFAULT_SCHEDULER_NAME.to_string(),
+            kubernetes_rs_scheduler::profile::DEFAULT_SCHEDULER_NAME.to_string(),
             vec![Arc::new(AllowlistGate {
                 name: "gate",
                 allow: &["allow"],

@@ -22,14 +22,14 @@
 //! pattern used by `crates/controller-manager/tests/node_controller_test.rs`.
 
 use chrono::{Duration, Utc};
-use k3rs_common::resources::pod::Toleration;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::pod::Toleration;
+use kubernetes_rs_common::resources::{
     Container, Node, NodeCondition, NodeSpec, NodeStatus, Pod, PodSpec, PodStatus, Taint,
 };
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::node::NodeController;
-use k3rs_controller_manager::controllers::taint_eviction::TaintEvictionController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::node::NodeController;
+use kubernetes_rs_controller_manager::controllers::taint_eviction::TaintEvictionController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::sync::Arc;
 
 /// Build a minimal Ready node living in "zone1/region1" with no taints.

@@ -21,12 +21,14 @@
 
 use super::ephemeral_volume_metrics;
 use anyhow::{anyhow, Result};
-use k3rs_common::resources::service_account::ObjectReference;
-use k3rs_common::resources::volume::PersistentVolumeClaim;
-use k3rs_common::resources::{EventSource, EventType, Pod, Volume};
-use k3rs_common::types::{ObjectMeta, OwnerReference, TypeMeta};
-use k3rs_common::Error;
-use k3rs_storage::{build_key, build_prefix, extract_key, EventRecorder, Storage, WorkQueue};
+use kubernetes_rs_common::resources::service_account::ObjectReference;
+use kubernetes_rs_common::resources::volume::PersistentVolumeClaim;
+use kubernetes_rs_common::resources::{EventSource, EventType, Pod, Volume};
+use kubernetes_rs_common::types::{ObjectMeta, OwnerReference, TypeMeta};
+use kubernetes_rs_common::Error;
+use kubernetes_rs_storage::{
+    build_key, build_prefix, extract_key, EventRecorder, Storage, WorkQueue,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
@@ -35,7 +37,7 @@ use tracing::{debug, error, info, warn};
 /// `events.FailedBinding` (`pkg/controller/volume/events/event.go:21`).
 pub const FAILED_BINDING: &str = "FailedBinding";
 
-pub use k3rs_common::ephemeral::{volume_claim_name, volume_is_for_pod};
+pub use kubernetes_rs_common::ephemeral::{volume_claim_name, volume_is_for_pod};
 
 fn has_ephemeral_volume(pod: &Pod) -> bool {
     pod.spec

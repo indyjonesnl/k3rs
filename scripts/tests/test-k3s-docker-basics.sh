@@ -69,7 +69,7 @@ cat > "$TMP/stub/nodes.json" <<'EOF'
  {"metadata":{"name":"node-2"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}
 EOF
 echo '{"status":{"containerStatuses":[{"name":"volume-test","ready":true}]}}' > "$TMP/stub/pod.json"
-for c in k3rs-kubelet k3rs-containerd k3rs-kubelet2 k3rs-containerd2; do
+for c in kubernetes-rs-kubelet kubernetes-rs-containerd kubernetes-rs-kubelet2 kubernetes-rs-containerd2; do
   for b in kubectl ctr crictl; do echo "$c $b" >> "$TMP/stub/binaries"; done
 done
 echo "Client Version: v1.35.0" > "$TMP/stub/out-kubectl"
@@ -112,7 +112,7 @@ grep -q 'invalid version string found in ctr' <<<"$out" && ok "version regex cat
 grep -q 'airgap image list .* does not exist' <<<"$out" && ok "airgap fails with reason" || bad "airgap reason: $out"
 grep -q 'should validate local storage volume" result=PASS' <<<"$out" && ok "later specs still run" || bad "later specs skipped"
 grep -q '^\[k3s-docker-basics\] passed=2 failed=3$' <<<"$out" && ok "failing: summary 2/3" || bad "failing summary: $(grep passed= <<<"$out")"
-grep -q 'docker logs for node k3rs-kubelet2' <<<"$out" && ok "diagnostics dump node logs" || bad "no diagnostics"
+grep -q 'docker logs for node kubernetes-rs-kubelet2' <<<"$out" && ok "diagnostics dump node logs" || bad "no diagnostics"
 
 # Scenario 3: NodesReady set-equality and not-ready.
 echo '{"items":[{"metadata":{"name":"node-1"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}' > "$TMP/stub/nodes.json"

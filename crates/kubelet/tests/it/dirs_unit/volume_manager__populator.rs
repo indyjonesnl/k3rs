@@ -6,14 +6,16 @@
 //! standing in for the fake plugin's PV and an in-memory storage backend for
 //! the fake clientset.
 
-use k3rs_common::resources::Pod;
-use k3rs_kubelet::podcertificate::PodManager;
-use k3rs_kubelet::volume_manager::cache::{ActualStateOfWorld, DesiredStateOfWorld};
-use k3rs_kubelet::volume_manager::populator::{DesiredStateOfWorldPopulator, PodStateProvider};
-use k3rs_kubelet::volume_plugins::util::get_unique_pod_name;
-use k3rs_kubelet::volume_plugins::util::operation_executor::MarkVolumeOpts;
-use k3rs_kubelet::volume_plugins::util::selinux::Translator;
-use k3rs_storage::{build_key, Storage, StorageBackend};
+use kubernetes_rs_common::resources::Pod;
+use kubernetes_rs_kubelet::podcertificate::PodManager;
+use kubernetes_rs_kubelet::volume_manager::cache::{ActualStateOfWorld, DesiredStateOfWorld};
+use kubernetes_rs_kubelet::volume_manager::populator::{
+    DesiredStateOfWorldPopulator, PodStateProvider,
+};
+use kubernetes_rs_kubelet::volume_plugins::util::get_unique_pod_name;
+use kubernetes_rs_kubelet::volume_plugins::util::operation_executor::MarkVolumeOpts;
+use kubernetes_rs_kubelet::volume_plugins::util::selinux::Translator;
+use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
 use serde_json::json;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -118,10 +120,10 @@ fn pvc_json() -> serde_json::Value {
 async fn fixture(pv: serde_json::Value, pvc: Option<serde_json::Value>) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let storage = Arc::new(StorageBackend::new_memory());
-    let spec_factory = Arc::new(k3rs_kubelet::volumes::VolumeManager::new(
+    let spec_factory = Arc::new(kubernetes_rs_kubelet::volumes::VolumeManager::new(
         dir.path().display().to_string(),
         Some(storage.clone()),
-        k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+        kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
     ));
     storage
         .create(
@@ -214,7 +216,7 @@ async fn omit_pvc_and_pv(f: &Fixture) {
 async fn prepare_with_pod_pv() -> (
     Fixture,
     Pod,
-    k3rs_kubelet::volume_plugins::util::types::UniqueVolumeName,
+    kubernetes_rs_kubelet::volume_plugins::util::types::UniqueVolumeName,
 ) {
     let f = fixture(pv_json("Filesystem"), Some(pvc_json())).await;
     let pod = pod_with_volume(
@@ -250,7 +252,7 @@ fn reconcile_asw(f: &Fixture) {
                 block_volume_mapper: None,
                 volume_gid_volume: String::new(),
                 volume_spec: v.volume_spec.clone(),
-                volume_mount_state: k3rs_kubelet::volume_plugins::util::operation_executor::VolumeMountState::VolumeMounted,
+                volume_mount_state: kubernetes_rs_kubelet::volume_plugins::util::operation_executor::VolumeMountState::VolumeMounted,
                 selinux_mount_context: String::new(),
             })
             .unwrap();
@@ -461,7 +463,7 @@ async fn find_and_remove_deleted_pods_with_uncertain() {
             block_volume_mapper: None,
             volume_gid_volume: String::new(),
             volume_spec: v.volume_spec.clone(),
-            volume_mount_state: k3rs_kubelet::volume_plugins::util::operation_executor::VolumeMountState::VolumeMountUncertain,
+            volume_mount_state: kubernetes_rs_kubelet::volume_plugins::util::operation_executor::VolumeMountState::VolumeMountUncertain,
             selinux_mount_context: String::new(),
         })
         .unwrap();
@@ -627,7 +629,7 @@ async fn check_volume_fs_resize_records_sizes() {
 /// The kubelet's `PodStateProvider` (`pod_workers.go:685-707`).
 mod kubelet_pod_state_provider {
     use super::*;
-    use k3rs_kubelet::kubelet::{KubeletPodStateProvider, PodWorkerState};
+    use kubernetes_rs_kubelet::kubelet::{KubeletPodStateProvider, PodWorkerState};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, Ordering};
 

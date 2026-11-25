@@ -2,7 +2,7 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::resources::{
         Node, NodeSelector, NodeSelectorRequirement, NodeSelectorTerm, Pod,
     };
     pub use tracing::debug;
@@ -10,10 +10,10 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::affinity::*;
-    use k3rs_common::resources::{Affinity, Node, Pod};
-    use k3rs_common::resources::{PodAffinity, PodAffinityTerm, PodSpec, PodStatus};
-    use k3rs_common::types::{LabelSelector, Phase};
+    use kubernetes_rs_common::affinity::*;
+    use kubernetes_rs_common::resources::{Affinity, Node, Pod};
+    use kubernetes_rs_common::resources::{PodAffinity, PodAffinityTerm, PodSpec, PodStatus};
+    use kubernetes_rs_common::types::{LabelSelector, Phase};
     use std::collections::HashMap;
 
     /// Build a node carrying a single topology label.

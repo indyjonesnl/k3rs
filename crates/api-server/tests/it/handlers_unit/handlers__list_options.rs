@@ -2,16 +2,16 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::validation::field::{Error as FieldError, Path};
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_storage::Storage;
+    pub use kubernetes_rs_common::validation::field::{Error as FieldError, Path};
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_storage::Storage;
     pub use std::collections::HashMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::list_options::*;
-    use k3rs_storage::{MemoryStorage, StorageBackend};
+    use kubernetes_rs_api_server::handlers::list_options::*;
+    use kubernetes_rs_storage::{MemoryStorage, StorageBackend};
 
     /// #3078: items and the collection RV must come from one read. A write
     /// landing between `list_items` and `list_resource_version` is absent from

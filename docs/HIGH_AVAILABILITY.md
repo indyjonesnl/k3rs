@@ -1,12 +1,12 @@
-# High Availability (HA) in k3rs
+# High Availability (HA) in kubernetes-rs
 
 
 > **Tip:** The web console deploys on all API server instances in HA mode. Access it via any API server or the HAProxy load balancer.
-This document describes the High Availability features implemented in k3rs, providing production-grade reliability and fault tolerance.
+This document describes the High Availability features implemented in kubernetes-rs, providing production-grade reliability and fault tolerance.
 
 ## Overview
 
-k3rs supports full HA deployment with:
+kubernetes-rs supports full HA deployment with:
 
 - **Multi-node etcd cluster** (3-5 nodes with quorum)
 - **Multi-master API servers** behind a load balancer
@@ -148,7 +148,7 @@ kubectl -n kube-system get lease kube-controller-manager -o jsonpath='{.spec.hol
 scheduler \
   --enable-leader-election \
   --leader-election-identity=scheduler-1 \
-  --leader-election-lock-key=/k3rs/scheduler/leader \
+  --leader-election-lock-key=/kubernetes-rs/scheduler/leader \
   --leader-election-lease-duration=15
 ```
 
@@ -176,7 +176,7 @@ Leader election is implemented using etcd's lease and transaction primitives:
 ```rust
 LeaderElectionConfig {
     identity: "unique-instance-id",
-    lock_key: "/k3rs/component/leader",
+    lock_key: "/kubernetes-rs/component/leader",
     lease_duration: 15,      // How long lease is valid (seconds)
     renew_interval: 5,       // How often to renew (seconds)
     retry_interval: 2,       // How often followers check (seconds)
@@ -262,13 +262,13 @@ Example response:
 
 ```bash
 # Check endpoint health
-docker exec k3rs-etcd-1 etcdctl endpoint health
+docker exec kubernetes-rs-etcd-1 etcdctl endpoint health
 
 # Check cluster status
-docker exec k3rs-etcd-1 etcdctl endpoint status --cluster -w table
+docker exec kubernetes-rs-etcd-1 etcdctl endpoint status --cluster -w table
 
 # Check member list
-docker exec k3rs-etcd-1 etcdctl member list
+docker exec kubernetes-rs-etcd-1 etcdctl member list
 ```
 
 ### HAProxy Health
@@ -278,7 +278,7 @@ docker exec k3rs-etcd-1 etcdctl member list
 curl http://localhost:8404/stats
 
 # Check backend status
-docker exec k3rs-haproxy cat /proc/$(pidof haproxy)/status
+docker exec kubernetes-rs-haproxy cat /proc/$(pidof haproxy)/status
 ```
 
 ## Failure Scenarios & Recovery
@@ -294,13 +294,13 @@ docker exec k3rs-haproxy cat /proc/$(pidof haproxy)/status
 
 ```bash
 # Simulate failure
-docker stop k3rs-etcd-2
+docker stop kubernetes-rs-etcd-2
 
 # Verify cluster still healthy
-docker exec k3rs-etcd-1 etcdctl endpoint health --cluster
+docker exec kubernetes-rs-etcd-1 etcdctl endpoint health --cluster
 
 # Recover
-docker start k3rs-etcd-2
+docker start kubernetes-rs-etcd-2
 ```
 
 ### Scenario 2: API Server Failure
@@ -314,13 +314,13 @@ docker start k3rs-etcd-2
 
 ```bash
 # Simulate failure
-docker stop k3rs-api-server-1
+docker stop kubernetes-rs-api-server-1
 
 # Check HAProxy stats
 curl http://localhost:8404/stats | grep api-server
 
 # Recover
-docker start k3rs-api-server-1
+docker start kubernetes-rs-api-server-1
 ```
 
 ### Scenario 3: Controller Manager Leader Failure
@@ -334,13 +334,13 @@ docker start k3rs-api-server-1
 
 ```bash
 # Check current leader
-docker exec k3rs-etcd-1 etcdctl get /k3rs/controller-manager/leader
+docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/controller-manager/leader
 
 # Simulate failure
-docker stop k3rs-controller-manager-1
+docker stop kubernetes-rs-controller-manager-1
 
 # Watch re-election (should complete in ~15 seconds)
-docker logs -f k3rs-controller-manager-2
+docker logs -f kubernetes-rs-controller-manager-2
 ```
 
 ### Scenario 4: Scheduler Leader Failure
@@ -456,13 +456,13 @@ environment:
 
 ```bash
 # Check cluster status
-docker exec k3rs-etcd-1 etcdctl endpoint health --cluster
+docker exec kubernetes-rs-etcd-1 etcdctl endpoint health --cluster
 
 # Check for disk latency
-docker exec k3rs-etcd-1 etcdctl check perf
+docker exec kubernetes-rs-etcd-1 etcdctl check perf
 
 # View member list
-docker exec k3rs-etcd-1 etcdctl member list
+docker exec kubernetes-rs-etcd-1 etcdctl member list
 ```
 
 **Problem**: Split brain / multiple leaders
@@ -470,7 +470,7 @@ docker exec k3rs-etcd-1 etcdctl member list
 ```bash
 # This should not happen with proper quorum
 # Check if cluster has proper odd number of nodes
-docker exec k3rs-etcd-1 etcdctl member list
+docker exec kubernetes-rs-etcd-1 etcdctl member list
 
 # Check for network partitions
 # Ensure all nodes can communicate
@@ -482,13 +482,13 @@ docker exec k3rs-etcd-1 etcdctl member list
 
 ```bash
 # Check etcd connectivity
-docker exec k3rs-controller-manager-1 cat /proc/net/tcp
+docker exec kubernetes-rs-controller-manager-1 cat /proc/net/tcp
 
 # Check logs
-docker logs k3rs-controller-manager-1 | grep -i leader
+docker logs kubernetes-rs-controller-manager-1 | grep -i leader
 
 # Manually check lock key
-docker exec k3rs-etcd-1 etcdctl get /k3rs/controller-manager/leader
+docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/controller-manager/leader
 ```
 
 **Problem**: Frequent leader changes
@@ -499,7 +499,7 @@ docker exec k3rs-etcd-1 etcdctl get /k3rs/controller-manager/leader
 # Increase lease duration if necessary
 
 # View leader election history
-docker logs k3rs-controller-manager-1 | grep "leadership"
+docker logs kubernetes-rs-controller-manager-1 | grep "leadership"
 ```
 
 ### API Server Issues
@@ -516,7 +516,7 @@ for i in 1 2 3; do
 done
 
 # Check etcd connectivity
-docker logs k3rs-api-server-1 | grep -i etcd
+docker logs kubernetes-rs-api-server-1 | grep -i etcd
 ```
 
 ## Performance Tuning

@@ -7,20 +7,20 @@
 //! plugin narrows that to the node's own mirror pods
 //! (`plugin/pkg/admission/noderestriction/admission.go:252-340`).
 //!
-//! k3rs had neither half, so a real kubelet against our api-server
+//! kubernetes-rs had neither half, so a real kubelet against our api-server
 //! looped on `Failed deleting a mirror pod: Node "…" is not authorized to
 //! delete pods in namespace kube-system`. These tests cover the admission half;
 //! the authorization half is in `crates/common/tests/it/authz_rbac_node.rs`.
 
-use k3rs_api_server::handlers::node_restriction::{
+use kubernetes_rs_api_server::handlers::node_restriction::{
     admit_pod_create, admit_pod_delete, MIRROR_POD_ANNOTATION_KEY,
 };
-use k3rs_common::auth::UserInfo;
-use k3rs_common::resources::{Node, Pod};
-use k3rs_common::types::ObjectMeta;
-use k3rs_common::Error;
-use k3rs_middleware::AuthContext;
-use k3rs_storage::{build_key, MemoryStorage, Storage};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_common::types::ObjectMeta;
+use kubernetes_rs_common::Error;
+use kubernetes_rs_middleware::AuthContext;
+use kubernetes_rs_storage::{build_key, MemoryStorage, Storage};
 use serde_json::json;
 use std::collections::HashMap;
 

@@ -3,19 +3,19 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::rest::{
         before_create, before_delete, before_update, check_generated_name_error,
         fill_object_meta_system_fields, with_group_kind, zero_delete_options, DeletedCollection,
         GarbageCollectionPolicy, GroupResource, Object, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestUpdateStrategy, TransformFunc, UpdatedObjectInfo, ValidateObject,
         ValidateObjectUpdate,
     };
-    pub use k3rs_common::deletion::{DeleteOptions, Preconditions};
-    pub use k3rs_common::types::{ObjectMeta, StatusDetails};
-    pub use k3rs_common::validation::field::{Error as FieldError, Path};
-    pub use k3rs_common::validation::objectmeta::is_valid_path_segment_name;
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_storage::{build_key, Storage};
+    pub use kubernetes_rs_common::deletion::{DeleteOptions, Preconditions};
+    pub use kubernetes_rs_common::types::{ObjectMeta, StatusDetails};
+    pub use kubernetes_rs_common::validation::field::{Error as FieldError, Path};
+    pub use kubernetes_rs_common::validation::objectmeta::is_valid_path_segment_name;
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_storage::{build_key, Storage};
     pub use std::sync::Arc;
     pub use tracing::debug;
 }
@@ -26,15 +26,15 @@ mod tests {
 
     use super::__parent::*;
     use async_trait::async_trait;
-    use k3rs_api_server::registry::generic::store::*;
-    use k3rs_api_server::registry::rest::{
+    use kubernetes_rs_api_server::registry::generic::store::*;
+    use kubernetes_rs_api_server::registry::rest::{
         zero_delete_options, DefaultUpdatedObjectInfo, NamespaceScopedStrategy,
         RestGracefulDeleteStrategy, TransformFunc,
     };
-    use k3rs_common::resources::ConfigMap;
-    use k3rs_common::types::DeletionPropagation;
-    use k3rs_common::validation::field::ErrorList;
-    use k3rs_storage::MemoryStorage;
+    use kubernetes_rs_common::resources::ConfigMap;
+    use kubernetes_rs_common::types::DeletionPropagation;
+    use kubernetes_rs_common::validation::field::ErrorList;
+    use kubernetes_rs_storage::MemoryStorage;
 
     /// `testRESTStrategy` (store_test.go:103-140): labels the object in
     /// `PrepareForCreate` so tests can see the strategy ran.
@@ -1566,7 +1566,7 @@ mod tests {
     /// it is returned. Without a limit every match goes.
     #[tokio::test]
     async fn delete_collection_honours_the_limit() {
-        use k3rs_api_server::registry::rest::{zero_delete_options, RestStorage};
+        use kubernetes_rs_api_server::registry::rest::{zero_delete_options, RestStorage};
         use std::collections::HashMap;
         let registry = store(TestStrategy::default());
         for name in ["a", "b", "c"] {
@@ -1605,7 +1605,7 @@ mod tests {
     /// still resumes after the first page is gone.
     #[tokio::test]
     async fn delete_collection_returns_continue_and_resumes() {
-        use k3rs_api_server::registry::rest::{zero_delete_options, RestStorage};
+        use kubernetes_rs_api_server::registry::rest::{zero_delete_options, RestStorage};
         use std::collections::HashMap;
         let registry = store(TestStrategy::default());
         for name in ["a", "b", "c", "d", "e"] {
@@ -1646,7 +1646,7 @@ mod tests {
     /// (continue.go:111-117), but `continue` is still returned.
     #[tokio::test]
     async fn delete_collection_with_a_selector_has_no_remaining_count() {
-        use k3rs_api_server::registry::rest::{zero_delete_options, RestStorage};
+        use kubernetes_rs_api_server::registry::rest::{zero_delete_options, RestStorage};
         use std::collections::HashMap;
         let registry = store(TestStrategy::default());
         for name in ["a", "b", "c"] {
@@ -1670,7 +1670,7 @@ mod tests {
     /// A malformed `continue` is a 400, as for a List.
     #[tokio::test]
     async fn delete_collection_rejects_a_malformed_continue() {
-        use k3rs_api_server::registry::rest::{zero_delete_options, RestStorage};
+        use kubernetes_rs_api_server::registry::rest::{zero_delete_options, RestStorage};
         use std::collections::HashMap;
         let registry = store(TestStrategy::default());
         let q: HashMap<String, String> = [("continue".to_string(), "garbage".to_string())].into();
@@ -1687,7 +1687,7 @@ mod tests {
     /// the status carries a fresh `rv=-1` token that resumes at the same key.
     #[tokio::test]
     async fn delete_collection_compacted_continue_is_a_resumable_410() {
-        use k3rs_api_server::registry::rest::{zero_delete_options, RestStorage};
+        use kubernetes_rs_api_server::registry::rest::{zero_delete_options, RestStorage};
         use std::collections::HashMap;
         let registry = store(TestStrategy::default());
         for name in ["a", "b", "c", "d"] {
@@ -1707,9 +1707,12 @@ mod tests {
         let Error::GoneWithContinue { continue_token, .. } = err else {
             panic!("want GoneWithContinue, got {err:?}");
         };
-        let d = k3rs_storage::decode_default_token(&continue_token).unwrap();
+        let d = kubernetes_rs_storage::decode_default_token(&continue_token).unwrap();
         assert_eq!(d.start_key, "test/c");
-        assert_eq!(d.compacted_at, Some(k3rs_storage::INCONSISTENT_CONTINUE_RV));
+        assert_eq!(
+            d.compacted_at,
+            Some(kubernetes_rs_storage::INCONSISTENT_CONTINUE_RV)
+        );
 
         // The fresh token resumes at the latest revision and finishes the walk.
         q.insert("continue".to_string(), continue_token);

@@ -1,4 +1,4 @@
-// k3rs Documentation Search
+// kubernetes-rs Documentation Search
 // Pure vanilla JS — no dependencies
 (function() {
   'use strict';

@@ -1,12 +1,12 @@
 use crate::controllers::worker_pool::spawn_workers;
 use anyhow::Result;
 use futures::StreamExt;
-use k3rs_common::resources::workloads::{
+use kubernetes_rs_common::resources::workloads::{
     Job, JobCondition, JobStatus, SuccessPolicy, UncountedTerminatedPods,
 };
-use k3rs_common::resources::{Pod, PodStatus};
-use k3rs_common::types::{OwnerReference, Phase};
-use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
+use kubernetes_rs_common::resources::{Pod, PodStatus};
+use kubernetes_rs_common::types::{OwnerReference, Phase};
+use kubernetes_rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
 
 use super::controller_utils::{is_pod_ready, sort_active_pods};
 use super::expectations::ControllerExpectations;
@@ -419,7 +419,7 @@ impl<S: Storage + 'static> PodEventTarget for JobController<S> {
         let matching: Vec<String> = jobs
             .into_iter()
             .filter(|job| {
-                k3rs_common::types::label_selector_as_selector(job.spec.selector.as_ref())
+                kubernetes_rs_common::types::label_selector_as_selector(job.spec.selector.as_ref())
                     .is_ok_and(|selector| selector.matches(Some(pod_labels)))
             })
             .map(|job| job.metadata.name)
@@ -531,7 +531,7 @@ impl<S: Storage + 'static> JobController<S> {
         let results = futures::future::join_all(pods.iter().zip(&pod_keys).map(
             |(pod, observed)| async move {
                 let pod_key = build_key("pods", Some(namespace), &pod.metadata.name);
-                let fail = |e: k3rs_common::Error| {
+                let fail = |e: kubernetes_rs_common::Error| {
                     self.expectations.deletion_observed_of(exp_key, observed);
                     e
                 };
@@ -569,7 +569,7 @@ impl<S: Storage + 'static> JobController<S> {
                 ready += 1;
             }
             if let Some(e) = err {
-                if !matches!(e, k3rs_common::Error::NotFound(_)) {
+                if !matches!(e, kubernetes_rs_common::Error::NotFound(_)) {
                     warn!("Failed to delete Job pod {}: {}", pod.metadata.name, e);
                     removed -= 1;
                     first_err.get_or_insert(e.into());
@@ -1083,7 +1083,7 @@ impl<S: Storage + 'static> JobController<S> {
                     event = watch.next() => {
                         match event {
                             Some(Ok(ev)) => {
-                                if let k3rs_storage::WatchEvent::Deleted(_, prev) = &ev {
+                                if let kubernetes_rs_storage::WatchEvent::Deleted(_, prev) = &ev {
                                     if let Ok(job) = serde_json::from_str::<Job>(prev) {
                                         self.release_orphans_of_deleted_job(&job).await;
                                     }
@@ -1178,7 +1178,7 @@ impl<S: Storage + 'static> JobController<S> {
             .await
         {
             Ok(pod) => self.handle_single_orphan_pod(&pod).await,
-            Err(k3rs_common::Error::NotFound(_)) => Ok(()),
+            Err(kubernetes_rs_common::Error::NotFound(_)) => Ok(()),
             Err(e) => Err(e.into()),
         }
     }
@@ -1247,7 +1247,8 @@ impl<S: Storage + 'static> JobController<S> {
         let Some(selector) = job.spec.selector.as_ref() else {
             return;
         };
-        let Ok(selector) = k3rs_common::types::label_selector_as_selector(Some(selector)) else {
+        let Ok(selector) = kubernetes_rs_common::types::label_selector_as_selector(Some(selector))
+        else {
             return;
         };
         let Ok(pods) = self
@@ -1354,7 +1355,7 @@ impl<S: Storage + 'static> JobController<S> {
                 );
                 Ok(())
             }
-            Err(k3rs_common::Error::NotFound(_)) => Ok(()),
+            Err(kubernetes_rs_common::Error::NotFound(_)) => Ok(()),
             Err(e) => Err(e.into()),
         }
     }
@@ -1526,7 +1527,7 @@ impl<S: Storage + 'static> JobController<S> {
         let pod_prefix = format!("/registry/pods/{}/", namespace);
         let all_pods: Vec<Pod> = self.storage.list(&pod_prefix).await?;
 
-        // k3rs deviation (no upstream equivalent; same intent as the
+        // kubernetes-rs deviation (no upstream equivalent; same intent as the
         // DaemonSet/ReplicaSet settle-from-observation step): a pod this Job
         // is still waiting to see created that the fresh listing already
         // shows, or deleted that it shows gone or terminating, HAS been
@@ -1678,7 +1679,7 @@ impl<S: Storage + 'static> JobController<S> {
                 continue;
             }
             let mut adopted_pod = slot.clone();
-            let owner_ref = k3rs_common::types::OwnerReference {
+            let owner_ref = kubernetes_rs_common::types::OwnerReference {
                 api_version: "batch/v1".to_string(),
                 kind: "Job".to_string(),
                 name: name.to_string(),
@@ -1754,9 +1755,9 @@ impl<S: Storage + 'static> JobController<S> {
                         .map(|cs| {
                             cs.iter()
                                 .filter_map(|c| match &c.state {
-                                    Some(k3rs_common::resources::ContainerState {
+                                    Some(kubernetes_rs_common::resources::ContainerState {
                                         terminated:
-                                            Some(k3rs_common::resources::ContainerStateTerminated {
+                                            Some(kubernetes_rs_common::resources::ContainerStateTerminated {
                                                 exit_code,
                                                 ..
                                             }),
@@ -1849,7 +1850,7 @@ impl<S: Storage + 'static> JobController<S> {
                     .and_then(|s| s.completed_indexes.as_deref())
                     .unwrap_or(""),
             );
-            // k3rs deviation (no upstream equivalent): once
+            // kubernetes-rs deviation (no upstream equivalent): once
             // SuccessCriteriaMet is published, a pod this controller already
             // deleted (`deleteActivePods`, job_controller.go:1001) that then
             // exits 0 before the kubelet kills it must not add an index.
@@ -2677,7 +2678,7 @@ impl<S: Storage + 'static> JobController<S> {
                                 active -= 1;
                                 // Typed `apierrors.IsAlreadyExists` (errors.go:542-544);
                                 // upstream pods use generateName so it never
-                                // branches here — a k3rs-only benign case.
+                                // branches here — a kubernetes-rs-only benign case.
                                 if super::is_already_exists_anyhow(&e) {
                                     debug!(
                                         "Pod already exists for Job {}/{}, skipping",
@@ -2879,7 +2880,7 @@ impl<S: Storage + 'static> JobController<S> {
             for container in &mut spec.containers {
                 let env = container.env.get_or_insert_with(Vec::new);
                 if !env.iter().any(|e| e.name == "JOB_COMPLETION_INDEX") {
-                    env.push(k3rs_common::resources::EnvVar {
+                    env.push(kubernetes_rs_common::resources::EnvVar {
                         name: "JOB_COMPLETION_INDEX".to_string(),
                         value: Some(index.to_string()),
                         value_from: None,
@@ -2894,14 +2895,14 @@ impl<S: Storage + 'static> JobController<S> {
 
         // DefaultTolerationSeconds admission (#442): controllers bypass the
         // api-server admission path that adds these NoExecute tolerations.
-        k3rs_common::tolerations::add_default_tolerations(&mut spec);
+        kubernetes_rs_common::tolerations::add_default_tolerations(&mut spec);
 
         let pod = Pod {
-            type_meta: k3rs_common::types::TypeMeta {
+            type_meta: kubernetes_rs_common::types::TypeMeta {
                 kind: "Pod".to_string(),
                 api_version: "v1".to_string(),
             },
-            metadata: k3rs_common::types::ObjectMeta {
+            metadata: kubernetes_rs_common::types::ObjectMeta {
                 name: pod_name.clone(),
                 generate_name: None,
                 generation: None,
@@ -2965,7 +2966,7 @@ impl<S: Storage + 'static> JobController<S> {
             let key = build_key("pods", Some(namespace), &attempt_name);
             match self.storage.create(&key, &pod).await {
                 Ok(_) => return Ok(attempt_name),
-                Err(k3rs_common::Error::AlreadyExists(_))
+                Err(kubernetes_rs_common::Error::AlreadyExists(_))
                     if attempt + 1 < MAX_NAME_GENERATION_CREATE_ATTEMPTS =>
                 {
                     attempt_name = generate_pod_name(job_name);
@@ -2974,7 +2975,7 @@ impl<S: Storage + 'static> JobController<S> {
             }
         }
 
-        Err(k3rs_common::Error::AlreadyExists(format!(
+        Err(kubernetes_rs_common::Error::AlreadyExists(format!(
             "could not generate a free pod name for {}/{} after {} attempts",
             namespace, job_name, MAX_NAME_GENERATION_CREATE_ATTEMPTS
         ))
@@ -3216,10 +3217,10 @@ pub fn pod_finished_time(pod: &Pod) -> chrono::DateTime<chrono::Utc> {
 /// finish time, makes the whole lookup yield `None`.
 fn latest_finish_time(
     prev: Option<chrono::DateTime<chrono::Utc>>,
-    statuses: &[k3rs_common::resources::pod::ContainerStatus],
-    check: impl Fn(&k3rs_common::resources::pod::ContainerStatus) -> bool,
+    statuses: &[kubernetes_rs_common::resources::pod::ContainerStatus],
+    check: impl Fn(&kubernetes_rs_common::resources::pod::ContainerStatus) -> bool,
 ) -> Option<chrono::DateTime<chrono::Utc>> {
-    use k3rs_common::resources::pod::{ContainerState, ContainerStateTerminated};
+    use kubernetes_rs_common::resources::pod::{ContainerState, ContainerStateTerminated};
     let mut finish = prev;
     for cs in statuses.iter().filter(|c| check(c)) {
         let Some(ContainerState {

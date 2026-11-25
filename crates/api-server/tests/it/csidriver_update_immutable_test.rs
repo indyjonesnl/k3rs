@@ -2,7 +2,7 @@
 //! (upstream ValidateCSIDriverUpdate).
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 fn uri() -> &'static str {

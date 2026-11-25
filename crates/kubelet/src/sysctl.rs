@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 
-use k3rs_common::resources::pod::Pod;
+use kubernetes_rs_common::resources::pod::Pod;
 
 /// Reason set on a pod rejected by sysctl admission (upstream `ForbiddenReason`).
 pub const FORBIDDEN_REASON: &str = "SysctlForbidden";

@@ -10,13 +10,13 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::audit_webhook::*;
-    use k3rs_api_server::egress_selector::{
+    use kubernetes_rs_api_server::audit_webhook::*;
+    use kubernetes_rs_api_server::egress_selector::{
         set_egress_selector, Conn, Dialer, DialerCreator, EgressSelector, EgressType,
         MetricsOptions, Proxier, ProxyServerConnector,
     };
-    use k3rs_common::audit::{AuditEvent, AuditLevel, AuditStage, UserInfo};
-    use k3rs_common::wait::Backoff;
+    use kubernetes_rs_common::audit::{AuditEvent, AuditLevel, AuditStage, UserInfo};
+    use kubernetes_rs_common::wait::Backoff;
     use std::collections::HashMap;
     use std::time::Duration;
 

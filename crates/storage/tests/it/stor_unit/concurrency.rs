@@ -2,12 +2,12 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::Error;
+    pub use kubernetes_rs_common::Error;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_storage::concurrency::*;
+    use kubernetes_rs_storage::concurrency::*;
     use serde_json::json;
 
     #[test]

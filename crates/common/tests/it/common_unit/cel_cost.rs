@@ -14,8 +14,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::cel::{CELContext, CELEvaluator};
-    use k3rs_common::cel_cost::*;
+    use kubernetes_rs_common::cel::{CELContext, CELEvaluator};
+    use kubernetes_rs_common::cel_cost::*;
     use serde_json::json;
     use std::sync::Arc;
 

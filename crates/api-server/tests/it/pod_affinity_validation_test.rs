@@ -12,7 +12,7 @@
 //! `ValidatePreferredSchedulingTerms` (`:5114`) and `validatePodAffinityTerm`
 //! (`:5152`).
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 fn containers() -> Value {

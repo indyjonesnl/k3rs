@@ -1,4 +1,4 @@
-//! k3rs API client (client-go-lite): HTTP ops, kubeconfig and
+//! kubernetes-rs API client (client-go-lite): HTTP ops, kubeconfig and
 //! in-cluster auth, typed watch, reflector/informer.
 
 pub mod api_status;

@@ -6,7 +6,7 @@ mod __parent {
     pub use axum_server::tls_rustls::RustlsConfig;
     pub use futures::StreamExt;
     pub use inotify::{EventMask, Inotify, WatchMask};
-    pub use k3rs_common::tls::{client_cert_verifier_for_ca_bundle, TlsConfig};
+    pub use kubernetes_rs_common::tls::{client_cert_verifier_for_ca_bundle, TlsConfig};
     pub use rustls::server::danger::ClientCertVerifier;
     pub use std::sync::atomic::{AtomicU32, Ordering};
     pub use std::sync::{Arc, Mutex, RwLock};
@@ -18,7 +18,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::dynamic_certificates::*;
+    use kubernetes_rs_api_server::dynamic_certificates::*;
     use std::sync::atomic::AtomicUsize;
 
     fn ca_pem(cn: &str) -> String {

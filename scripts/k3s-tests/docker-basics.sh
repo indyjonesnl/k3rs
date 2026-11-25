@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# k3s Docker "basics" functional suite, ported to k3rs.
+# k3s Docker "basics" functional suite, ported to kubernetes-rs.
 #
 # Ports: k3s tests/docker/basics/basics_test.go (Test_DockerBasic, the
 #   "Basic Tests" Ordered container, plus VerifyAirgapImages), with the helpers
@@ -10,18 +10,18 @@
 #   a verbatim copy of tests/docker/resources/volume-test.yaml. See also
 #   tests/TESTING.md "Docker Tests".
 #
-# Mapping of k3s "server" / "agent" onto the existing k3rs bring-up
+# Mapping of k3s "server" / "agent" onto the existing kubernetes-rs bring-up
 # (ci/actions/bring-up-cluster, compose.sqlite.yml; this script does NOT bring
 # the cluster up, that is the caller's job, exactly like
 # scripts/conformance-target-run.sh):
-#   server  = node-1: containers k3rs-kubelet + k3rs-containerd + k3rs-kube-proxy
+#   server  = node-1: containers kubernetes-rs-kubelet + kubernetes-rs-containerd + kubernetes-rs-kube-proxy
 #             (one shared netns), together with the control-plane containers
-#             k3rs-api-server and k3rs-rhino (the datastore).
-#   agent   = node-2: containers k3rs-kubelet2 + k3rs-containerd2 + k3rs-kube-proxy2.
+#             kubernetes-rs-api-server and kubernetes-rs-rhino (the datastore).
+#   agent   = node-2: containers kubernetes-rs-kubelet2 + kubernetes-rs-containerd2 + kubernetes-rs-kube-proxy2.
 #   ProvisionServers(1)/ProvisionAgents(1) => done by the bring-up action; the
 #   provisioning spec here asserts those containers are running.
 #   GetNodeNames() => node-1 node-2 (the kubelet --hostname-override values).
-#   The k3s server container holds kubectl, ctr and crictl in one place. A k3rs
+#   The k3s server container holds kubectl, ctr and crictl in one place. A kubernetes-rs
 #   node is several containers, so a binary is run in the first server-node
 #   container that has it (kubelet, containerd, kube-proxy); if none has it,
 #   the check fails.
@@ -51,10 +51,10 @@ SERVERS=(node-1)
 AGENTS=(node-2)
 # node name -> containers making up that node
 declare -A NODE_CONTAINERS=(
-  [node-1]="k3rs-kubelet k3rs-containerd k3rs-kube-proxy"
-  [node-2]="k3rs-kubelet2 k3rs-containerd2 k3rs-kube-proxy2"
+  [node-1]="kubernetes-rs-kubelet kubernetes-rs-containerd kubernetes-rs-kube-proxy"
+  [node-2]="kubernetes-rs-kubelet2 kubernetes-rs-containerd2 kubernetes-rs-kube-proxy2"
 )
-CONTROL_PLANE_CONTAINERS=(k3rs-api-server k3rs-rhino)
+CONTROL_PLANE_CONTAINERS=(kubernetes-rs-api-server kubernetes-rs-rhino)
 
 kc() { "$KUBECTL" --kubeconfig "$KUBECONFIG" "$@"; }
 log() { echo "[k3s-docker-basics] $*"; }
@@ -165,7 +165,7 @@ verify_airgap_images() {
     images+="$(jq -r '.images[].repoTags[0] | select(. != null)' <<<"$out")"$'\n'
   done
   if [ ! -f "$AIRGAP_IMAGE_LIST" ]; then
-    echo "airgap image list ${AIRGAP_IMAGE_LIST#"$REPO_ROOT"/} does not exist: k3rs has no build-time generated airgap image list yet (k3s generates scripts/airgap/image-list.txt during build packaging), so the installed images cannot be verified"
+    echo "airgap image list ${AIRGAP_IMAGE_LIST#"$REPO_ROOT"/} does not exist: kubernetes-rs has no build-time generated airgap image list yet (k3s generates scripts/airgap/image-list.txt during build packaging), so the installed images cannot be verified"
     echo "images found on the nodes (generate the list with scripts/airgap/generate-list.sh):"
     printf '%s' "$images" | grep -v '^$' | sort -u | sed 's/^/  /'
     return 1

@@ -1,6 +1,6 @@
 # Resource Management Examples
 
-This directory contains examples demonstrating advanced resource management features in k3rs.
+This directory contains examples demonstrating advanced resource management features in kubernetes-rs.
 
 ## Features Covered
 

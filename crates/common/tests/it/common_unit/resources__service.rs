@@ -2,16 +2,16 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::policy::IntOrString;
-    pub use k3rs_common::resources::serde_helpers::empty_string_as_none;
-    pub use k3rs_common::types::{Condition, ObjectMeta, TypeMeta};
+    pub use kubernetes_rs_common::resources::policy::IntOrString;
+    pub use kubernetes_rs_common::resources::serde_helpers::empty_string_as_none;
+    pub use kubernetes_rs_common::types::{Condition, ObjectMeta, TypeMeta};
     pub use serde::{Deserialize, Serialize};
     pub use std::collections::HashMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::service::*;
+    use kubernetes_rs_common::resources::service::*;
 
     #[test]
     fn test_service_port_with_int_target_port() {

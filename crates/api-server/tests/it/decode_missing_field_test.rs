@@ -18,7 +18,7 @@
 //! Harness mirrors `tests/decoder_strict_fields_test.rs`.
 
 use axum::http::{Method, StatusCode};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 fn spawn_router() -> TestApiServer {

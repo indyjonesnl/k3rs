@@ -11,15 +11,15 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     IPFamily, IPFamilyPolicy, Service, ServiceExternalTrafficPolicy, ServiceType,
 };
-use k3rs_common::validation::field;
-use k3rs_common::validation::service::{
+use kubernetes_rs_common::validation::field;
+use kubernetes_rs_common::validation::service::{
     parse_ip_sloppy, validate_service_cluster_ips_related_fields,
 };
-use k3rs_common::{Error, Result};
-use k3rs_storage::Storage;
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::Storage;
 use std::net::IpAddr;
 
 use super::ipallocator::cidr::MetaAllocator;

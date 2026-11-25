@@ -2,7 +2,7 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::pod::SELinuxOptions;
+    pub use kubernetes_rs_common::resources::pod::SELinuxOptions;
 }
 
 mod tests {
@@ -10,7 +10,7 @@ mod tests {
     //! `TestLabelsConflict`; `internal/parse/selinux_label_test.go`
     //! `TestParseSELinuxLabel`.
     use super::__parent::*;
-    use k3rs_controller_manager::controllers::selinux_warning::translator::*;
+    use kubernetes_rs_controller_manager::controllers::selinux_warning::translator::*;
 
     fn opts(user: &str, role: &str, ty: &str, level: &str) -> SELinuxOptions {
         let s = |v: &str| (!v.is_empty()).then(|| v.to_string());

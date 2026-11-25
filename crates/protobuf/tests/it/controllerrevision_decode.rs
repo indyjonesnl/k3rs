@@ -9,7 +9,7 @@
 //! (the DaemonSet) as the top-level object, so `data` was absent and the
 //! apiserver rejected it with "data: Required value" — the DaemonSet controller
 //! then never created kindnet/kube-proxy pods (no CNI) on a swapped api-server.
-use k3rs_protobuf::PROTO_REGISTRY;
+use kubernetes_rs_protobuf::PROTO_REGISTRY;
 
 #[test]
 fn controllerrevision_post_decodes_with_data_wrapper() {

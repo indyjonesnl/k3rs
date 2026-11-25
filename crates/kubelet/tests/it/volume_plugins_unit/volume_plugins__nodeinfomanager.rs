@@ -3,11 +3,11 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::resources::{
         CSINode, CSINodeDriver, CSINodeSpec, Node, VolumeNodeResources,
     };
-    pub use k3rs_common::types::{ObjectMeta, OwnerReference, TypeMeta};
-    pub use k3rs_storage::{build_key, Storage};
+    pub use kubernetes_rs_common::types::{ObjectMeta, OwnerReference, TypeMeta};
+    pub use kubernetes_rs_storage::{build_key, Storage};
     pub use sha1::{Digest, Sha1};
     pub use std::collections::{BTreeMap, BTreeSet, HashMap};
     pub use std::sync::Arc;
@@ -15,8 +15,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::volume_plugins::nodeinfomanager::*;
-    use k3rs_storage::MemoryStorage;
+    use kubernetes_rs_kubelet::volume_plugins::nodeinfomanager::*;
+    use kubernetes_rs_storage::MemoryStorage;
 
     const DRIVER1: &str = "com.example.csi.driver1";
 
@@ -44,7 +44,7 @@ mod tests {
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect();
-            n.status = Some(k3rs_common::resources::NodeStatus {
+            n.status = Some(kubernetes_rs_common::resources::NodeStatus {
                 capacity: Some(c.clone()),
                 allocatable: Some(c),
                 ..Default::default()

@@ -1,4 +1,4 @@
-//! Shared test fixtures for the k3rs workspace.
+//! Shared test fixtures for the kubernetes-rs workspace.
 //!
 //! This crate consolidates fixtures that test files across crates were
 //! duplicating, and provides the substrate for porting upstream Kubernetes Go

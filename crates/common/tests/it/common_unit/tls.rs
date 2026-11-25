@@ -11,7 +11,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::tls::*;
+    use kubernetes_rs_common::tls::*;
 
     fn pem_pair(key: &rcgen::KeyPair) -> (String, String) {
         let cert = CertificateParams::new(vec!["example.com".to_string()])
@@ -92,10 +92,10 @@ mod tests {
     #[test]
     fn test_cert_with_multiple_sans() {
         let tls_config = TlsConfig::generate_self_signed(
-            "k3rs-api",
+            "kubernetes-rs-api",
             vec![
                 "localhost".to_string(),
-                "api.k3rs.local".to_string(),
+                "api.kubernetes-rs.local".to_string(),
                 "127.0.0.1".to_string(),
                 "::1".to_string(),
             ],

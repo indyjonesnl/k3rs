@@ -2,12 +2,12 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::feature_gates::{self, Feature};
-    pub use k3rs_common::resources::Pod;
-    pub use k3rs_kubelet::podcertificate::{
+    pub use kubernetes_rs_common::feature_gates::{self, Feature};
+    pub use kubernetes_rs_common::resources::Pod;
+    pub use kubernetes_rs_kubelet::podcertificate::{
         IssuingManager, Manager, NoOpManager, PodManager, RealClock,
     };
-    pub use k3rs_storage::{EventRecorder, Storage};
+    pub use kubernetes_rs_storage::{EventRecorder, Storage};
     pub use prometheus::core::{Collector, Desc};
     pub use prometheus::proto::{Gauge, LabelPair, Metric, MetricFamily, MetricType};
     pub use std::collections::{HashMap, HashSet};
@@ -24,14 +24,14 @@ mod tests {
 
     use super::__parent::*;
     use async_trait::async_trait;
-    use k3rs_common::feature_gates::{with_feature, Feature};
-    use k3rs_common::resources::podcertificaterequest::PodCertificateRequest;
-    use k3rs_common::resources::{Node, PodSpec, ServiceAccount, Volume};
-    use k3rs_common::types::{ObjectMeta, TypeMeta};
-    use k3rs_kubelet::podcertificate::tokio_util_cancel::Token;
-    use k3rs_kubelet::podcertificate::wiring::*;
-    use k3rs_kubelet::podcertificate::{MetricReport, SignerAndState};
-    use k3rs_storage::{build_key, build_prefix, Storage, StorageBackend};
+    use kubernetes_rs_common::feature_gates::{with_feature, Feature};
+    use kubernetes_rs_common::resources::podcertificaterequest::PodCertificateRequest;
+    use kubernetes_rs_common::resources::{Node, PodSpec, ServiceAccount, Volume};
+    use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+    use kubernetes_rs_kubelet::podcertificate::tokio_util_cancel::Token;
+    use kubernetes_rs_kubelet::podcertificate::wiring::*;
+    use kubernetes_rs_kubelet::podcertificate::{MetricReport, SignerAndState};
+    use kubernetes_rs_storage::{build_key, build_prefix, Storage, StorageBackend};
     use prometheus::core::Collector;
     use std::sync::Mutex;
 

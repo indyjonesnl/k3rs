@@ -3,14 +3,14 @@
 
 mod __parent {
     pub use anyhow::{Context, Result};
-    pub use k3rs_client::http::ApiClient;
+    pub use kubernetes_rs_client::http::ApiClient;
     pub use serde_json::{json, Value};
     pub use std::collections::BTreeMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::expose::*;
+    use kubernetes_rs_kubectl::commands::expose::*;
     use serde_json::json;
 
     #[test]

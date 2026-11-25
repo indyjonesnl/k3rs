@@ -11,14 +11,14 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use k3rs_common::auth::UserInfo;
-use k3rs_common::deletion::{DeleteOptions, Preconditions};
-use k3rs_common::types::ObjectMeta;
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::deletion::{DeleteOptions, Preconditions};
+use kubernetes_rs_common::types::ObjectMeta;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{
     validate_object_meta, validate_object_meta_update, validate_path_segment_name,
 };
-use k3rs_common::{Error, Result};
+use kubernetes_rs_common::{Error, Result};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub use super::metadata::HasMetadata;
@@ -221,7 +221,9 @@ pub trait RestUpdateStrategy<T>: NamespaceScopedStrategy + Send + Sync {
     /// The `typeConverter` the field manager is built with
     /// (`NewDefaultFieldManager`, installer.go:697-722) for a type whose schema
     /// is not a built-in's: a custom resource's structural schema (#2734).
-    fn field_schema(&self) -> Option<std::sync::Arc<k3rs_common::fieldmanager::schema::Type>> {
+    fn field_schema(
+        &self,
+    ) -> Option<std::sync::Arc<kubernetes_rs_common::fieldmanager::schema::Type>> {
         None
     }
 
@@ -230,7 +232,8 @@ pub trait RestUpdateStrategy<T>: NamespaceScopedStrategy + Send + Sync {
     /// versions. `None` for a kind with one served version.
     fn field_converter(
         &self,
-    ) -> Option<std::sync::Arc<dyn k3rs_common::fieldmanager::versionconverter::Converter>> {
+    ) -> Option<std::sync::Arc<dyn kubernetes_rs_common::fieldmanager::versionconverter::Converter>>
+    {
         None
     }
 }
@@ -650,7 +653,7 @@ pub fn before_delete<T: Object>(
         graceful_pending: false,
     };
 
-    let errs = k3rs_common::validation::metav1::validate_delete_options(options);
+    let errs = kubernetes_rs_common::validation::metav1::validate_delete_options(options);
     if !errs.is_empty() {
         // delete.go:81: `NewInvalid(GroupKind{metav1.GroupName,
         // "DeleteOptions"}, "", errs)`.
@@ -815,7 +818,9 @@ pub trait RestStorage<T: Object>: Send + Sync {
 
     /// The strategy's field-manager schema, see
     /// [`RestUpdateStrategy::field_schema`].
-    fn field_schema(&self) -> Option<std::sync::Arc<k3rs_common::fieldmanager::schema::Type>> {
+    fn field_schema(
+        &self,
+    ) -> Option<std::sync::Arc<kubernetes_rs_common::fieldmanager::schema::Type>> {
         None
     }
 
@@ -824,7 +829,8 @@ pub trait RestStorage<T: Object>: Send + Sync {
     /// versions. `None` for a kind with one served version.
     fn field_converter(
         &self,
-    ) -> Option<std::sync::Arc<dyn k3rs_common::fieldmanager::versionconverter::Converter>> {
+    ) -> Option<std::sync::Arc<dyn kubernetes_rs_common::fieldmanager::versionconverter::Converter>>
+    {
         None
     }
 

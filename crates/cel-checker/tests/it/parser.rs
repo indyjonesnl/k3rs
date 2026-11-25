@@ -5,7 +5,7 @@
 //! the expansions are compared with cel-go in `goldens.rs`.
 
 use cel::common::ast::Expr;
-use k3rs_cel_checker::{EnvSet, EnvType, Features, Version};
+use kubernetes_rs_cel_checker::{EnvSet, EnvType, Features, Version};
 
 fn set(minor: u32) -> EnvSet {
     EnvSet::must_base_env_set(Version::major_minor(1, minor), &Features::default())

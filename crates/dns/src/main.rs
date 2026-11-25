@@ -1,6 +1,6 @@
-//! k3rs DNS server binary entrypoint.
+//! kubernetes-rs DNS server binary entrypoint.
 //!
-//! Same CLI surface as the other k3rs service binaries: storage
+//! Same CLI surface as the other kubernetes-rs service binaries: storage
 //! backend selection, log level, bind addresses, cluster zone. Also
 //! supports an api-server data source (`--api-server-url`, or implicit
 //! in-cluster config when running as a pod) so the binary can run as a
@@ -15,18 +15,18 @@ static GLOBAL_ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use anyhow::Result;
 use clap::Parser;
-use k3rs_client::config::{ClientConfig, SA_DIR};
-use k3rs_client::http::ApiClient;
-use k3rs_dns::{run, run_with_api, DnsConfig};
-use k3rs_storage::{StorageBackend, StorageConfig};
+use kubernetes_rs_client::config::{ClientConfig, SA_DIR};
+use kubernetes_rs_client::http::ApiClient;
+use kubernetes_rs_dns::{run, run_with_api, DnsConfig};
+use kubernetes_rs_storage::{StorageBackend, StorageConfig};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::info;
 
 #[derive(Parser, Debug)]
-#[command(name = "k3rs-dns")]
-#[command(about = "k3rs DNS server - authoritative cluster DNS")]
+#[command(name = "kubernetes-rs-dns")]
+#[command(about = "kubernetes-rs DNS server - authoritative cluster DNS")]
 struct Args {
     /// Etcd endpoints (comma-separated). Defaults to
     /// `http://localhost:2379` when storage mode is selected.
@@ -51,7 +51,7 @@ struct Args {
     token_file: Option<String>,
 
     /// SQLite database path (only used when --storage-backend=sqlite).
-    #[arg(long, default_value = "./data/k3rs.db")]
+    #[arg(long, default_value = "./data/kubernetes-rs.db")]
     data_dir: String,
 
     /// Log level (trace|debug|info|warn|error).
@@ -133,10 +133,10 @@ fn resolve_api_config(args: &Args) -> Result<Option<ClientConfig>> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    k3rs_common::tracing::init_basic_tracing("dns", &args.log_level)?;
+    kubernetes_rs_common::tracing::init_basic_tracing("dns", &args.log_level)?;
     tracing::info!(
-        "Starting k3rs DNS {}",
-        k3rs_common::build_info::version_line()
+        "Starting kubernetes-rs DNS {}",
+        kubernetes_rs_common::build_info::version_line()
     );
 
     let udp_bind: SocketAddr = args.udp_bind.parse()?;
@@ -169,7 +169,7 @@ async fn main() -> Result<()> {
             ApiClient::from_config(&client_config)?
                 // `rest.SetKubernetesDefaults`: the component's default User-Agent.
                 .with_default_user_agent(
-                    k3rs_common::compatibility::default_kubernetes_user_agent(),
+                    kubernetes_rs_common::compatibility::default_kubernetes_user_agent(),
                 ),
         );
         return run_with_api(client, config).await;

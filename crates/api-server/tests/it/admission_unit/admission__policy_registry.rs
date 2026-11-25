@@ -3,22 +3,22 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_api_server::admission::policy_matching::{
+    pub use kubernetes_rs_api_server::admission::policy_matching::{
         EquivalentResourceMapper, NamespaceLister,
     };
-    pub use k3rs_common::admission::{GroupVersionKind, GroupVersionResource};
-    pub use k3rs_common::resources::Namespace;
-    pub use k3rs_common::Result;
-    pub use k3rs_storage::Storage;
+    pub use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource};
+    pub use kubernetes_rs_common::resources::Namespace;
+    pub use kubernetes_rs_common::Result;
+    pub use kubernetes_rs_storage::Storage;
     pub use std::collections::HashMap;
     pub use std::sync::{Arc, RwLock};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::policy_registry::*;
-    use k3rs_common::Error;
-    use k3rs_storage::MemoryStorage;
+    use kubernetes_rs_api_server::admission::policy_registry::*;
+    use kubernetes_rs_common::Error;
+    use kubernetes_rs_storage::MemoryStorage;
 
     fn gvr(g: &str, v: &str, r: &str) -> GroupVersionResource {
         GroupVersionResource {
@@ -225,7 +225,10 @@ mod tests {
         let mut ns = Namespace::new("team-a");
         ns.metadata.labels = Some(HashMap::from([("env".to_string(), "prod".to_string())]));
         storage
-            .create(&k3rs_storage::build_key("namespaces", None, "team-a"), &ns)
+            .create(
+                &kubernetes_rs_storage::build_key("namespaces", None, "team-a"),
+                &ns,
+            )
             .await
             .unwrap();
         let lister = StorageNamespaceLister::new(storage);

@@ -8,7 +8,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::explain::*;
+    use kubernetes_rs_kubectl::commands::explain::*;
 
     #[test]
     fn test_get_resource_docs_has_pod() {

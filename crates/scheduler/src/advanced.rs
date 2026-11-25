@@ -1,14 +1,14 @@
-use k3rs_common::quantity::parse_resource_value;
-use k3rs_common::resources::{Node, Pod, Taint, Toleration, TopologySpreadConstraint};
+use kubernetes_rs_common::quantity::parse_resource_value;
+use kubernetes_rs_common::resources::{Node, Pod, Taint, Toleration, TopologySpreadConstraint};
 use std::collections::HashMap;
 use tracing::debug;
 
-// Affinity predicates relocated to `k3rs_common::affinity`. Re-exported
+// Affinity predicates relocated to `kubernetes_rs_common::affinity`. Re-exported
 // here so existing callers (`crate::advanced::check_node_affinity`, etc. in
 // scheduler.rs / plugins.rs) keep resolving unchanged, and so the helpers used
 // by scheduler-only predicates below (`match_selector`, `matches_pod_affinity_term`)
 // are in scope.
-pub use k3rs_common::affinity::{
+pub use kubernetes_rs_common::affinity::{
     check_node_affinity, check_pod_anti_affinity, match_selector, matches_pod_affinity_term,
 };
 
@@ -187,7 +187,8 @@ pub fn fits_host_ports<'a>(
         let phase = existing_pod.status.as_ref().and_then(|s| s.phase.as_ref());
         if matches!(
             phase,
-            Some(k3rs_common::types::Phase::Succeeded) | Some(k3rs_common::types::Phase::Failed)
+            Some(kubernetes_rs_common::types::Phase::Succeeded)
+                | Some(kubernetes_rs_common::types::Phase::Failed)
         ) {
             continue;
         }
@@ -351,7 +352,8 @@ pub fn calculate_resource_score_with_pods(node: &Node, pod: &Pod, all_pods: &[Po
         let phase = existing_pod.status.as_ref().and_then(|s| s.phase.as_ref());
         if matches!(
             phase,
-            Some(k3rs_common::types::Phase::Succeeded) | Some(k3rs_common::types::Phase::Failed)
+            Some(kubernetes_rs_common::types::Phase::Succeeded)
+                | Some(kubernetes_rs_common::types::Phase::Failed)
         ) {
             continue;
         }
@@ -435,7 +437,7 @@ pub fn calculate_resource_score_with_pods(node: &Node, pod: &Pod, all_pods: &[Po
                 continue;
             }
             let phase = existing_pod.status.as_ref().and_then(|s| s.phase.as_ref());
-            if !matches!(phase, Some(k3rs_common::types::Phase::Running)) {
+            if !matches!(phase, Some(kubernetes_rs_common::types::Phase::Running)) {
                 continue;
             }
             if existing_pod.metadata.deletion_timestamp.is_some() {
@@ -501,7 +503,7 @@ pub fn parse_resource_quantity(quantity: &str, resource_type: &str) -> i64 {
 /// resource name, in each resource's base unit (milli-units for `cpu`, units
 /// for everything else — upstream `Resource.Add`, `types.go:917-918`).
 ///
-/// Delegates to [`k3rs_common::quota::pod_requests`], the port of
+/// Delegates to [`kubernetes_rs_common::quota::pod_requests`], the port of
 /// upstream `PodRequests` (`component-helpers/resource/helpers.go:149-185`):
 /// containers summed, init containers folded in as a max (restartable ones
 /// added), pod-level `spec.resources.requests` overriding per name (only when
@@ -509,7 +511,7 @@ pub fn parse_resource_quantity(quantity: &str, resource_type: &str) -> i64 {
 /// !EnablePodLevelResources`, `noderesources/fit.go:296-297`,
 /// `framework/types.go:722-731`), and `spec.overhead` added.
 pub fn pod_request_amounts(pod: &Pod) -> HashMap<String, i64> {
-    k3rs_common::quota::pod_requests(pod)
+    kubernetes_rs_common::quota::pod_requests(pod)
         .into_iter()
         .map(|(name, q)| {
             let v = if name == "cpu" {
@@ -539,21 +541,21 @@ pub const DEFAULT_MEMORY_REQUEST: i64 = 200 * 1024 * 1024;
 /// still weigh on a node's score. Filtering keeps using the raw
 /// [`pod_request_amounts`].
 pub fn non_zero_request_amounts(pod: &Pod) -> (i64, i64) {
-    use k3rs_common::quantity::{Format, Quantity};
-    use k3rs_common::quota::{pod_requests, pod_requests_non_missing, ResourceList};
+    use kubernetes_rs_common::quantity::{Format, Quantity};
+    use kubernetes_rs_common::quota::{pod_requests, pod_requests_non_missing, ResourceList};
 
     let requests = pod_requests(pod);
-    let pod_level_set =
-        k3rs_common::feature_gates::enabled(k3rs_common::feature_gates::Feature::PodLevelResources)
-            && pod
-                .spec
-                .as_ref()
-                .and_then(|s| s.resources.as_ref())
-                .and_then(|r| r.requests.as_ref())
-                .is_some_and(|r| {
-                    r.keys()
-                        .any(|k| k3rs_common::quota::is_supported_pod_level_resource(k))
-                });
+    let pod_level_set = kubernetes_rs_common::feature_gates::enabled(
+        kubernetes_rs_common::feature_gates::Feature::PodLevelResources,
+    ) && pod
+        .spec
+        .as_ref()
+        .and_then(|s| s.resources.as_ref())
+        .and_then(|r| r.requests.as_ref())
+        .is_some_and(|r| {
+            r.keys()
+                .any(|k| kubernetes_rs_common::quota::is_supported_pod_level_resource(k))
+        });
     let cpu = Quantity::from_milli_value(DEFAULT_MILLI_CPU_REQUEST, Format::DecimalSI);
     let mem = Quantity::from_value(DEFAULT_MEMORY_REQUEST, Format::DecimalSI);
     let mut non_missing = ResourceList::new();

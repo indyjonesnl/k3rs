@@ -36,16 +36,16 @@
 
 use std::sync::Arc;
 
-use k3rs_client::api_status::{is_already_exists, is_conflict, is_not_found};
-use k3rs_client::events::ClientEventRecorder;
-use k3rs_client::http::{ApiClient, GetError};
-use k3rs_client::reflector::Reflector;
-use k3rs_common::resources::{
+use kubernetes_rs_client::api_status::{is_already_exists, is_conflict, is_not_found};
+use kubernetes_rs_client::events::ClientEventRecorder;
+use kubernetes_rs_client::http::{ApiClient, GetError};
+use kubernetes_rs_client::reflector::Reflector;
+use kubernetes_rs_common::resources::{
     CSIDriver, CSINode, CSIStorageCapacity, EventType, Node, PersistentVolume,
     PersistentVolumeClaim, Pod, PodDisruptionBudget, PriorityClass, StorageClass, VolumeAttachment,
 };
-use k3rs_common::{Error, Result};
-use k3rs_storage::{build_key, Storage};
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::{build_key, Storage};
 use serde_json::json;
 
 use crate::node_volume_limits::NodeVolumeLimitsSnapshot;
@@ -75,8 +75,8 @@ pub fn binding_body(pod_name: &str, node_name: &str) -> serde_json::Value {
 /// message `"<schedulerName>: preempting to accommodate a higher priority pod"`.
 pub fn preemption_disruption_condition(
     scheduler_name: &str,
-) -> k3rs_common::resources::PodCondition {
-    k3rs_common::resources::PodCondition {
+) -> kubernetes_rs_common::resources::PodCondition {
+    kubernetes_rs_common::resources::PodCondition {
         condition_type: "DisruptionTarget".to_string(),
         status: "True".to_string(),
         last_probe_time: None,
@@ -93,7 +93,7 @@ pub fn preemption_disruption_condition(
 /// (conditions merge by `type`), as `util.PatchPodStatus` sends
 /// (pkg/scheduler/util/utils.go:105-134).
 pub fn disruption_target_status_patch(
-    condition: &k3rs_common::resources::PodCondition,
+    condition: &kubernetes_rs_common::resources::PodCondition,
 ) -> serde_json::Value {
     json!({ "status": { "conditions": [condition] } })
 }
@@ -154,7 +154,7 @@ has_meta!(
     VolumeAttachment
 );
 
-/// [`ListWatch`](k3rs_client::reflector::ListWatch) over a
+/// [`ListWatch`](kubernetes_rs_client::reflector::ListWatch) over a
 /// [`Storage`] prefix: the storage-mode counterpart of `ApiListWatch`, so the
 /// scheduler's volume informers are the same `Reflector` in both modes.
 ///
@@ -167,7 +167,7 @@ has_meta!(
 pub struct StorageListWatch<S: Storage + Send + Sync + 'static> {
     storage: Arc<S>,
     prefix: String,
-    pending: std::sync::Mutex<Option<k3rs_storage::WatchStream>>,
+    pending: std::sync::Mutex<Option<kubernetes_rs_storage::WatchStream>>,
 }
 
 impl<S: Storage + Send + Sync + 'static> StorageListWatch<S> {
@@ -181,7 +181,7 @@ impl<S: Storage + Send + Sync + 'static> StorageListWatch<S> {
 }
 
 #[async_trait::async_trait]
-impl<S, T> k3rs_client::reflector::ListWatch<T> for StorageListWatch<S>
+impl<S, T> kubernetes_rs_client::reflector::ListWatch<T> for StorageListWatch<S>
 where
     S: Storage + Send + Sync + 'static,
     T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
@@ -204,10 +204,11 @@ where
     async fn watch<'a>(
         &'a self,
         _rv: Option<String>,
-    ) -> anyhow::Result<futures::stream::BoxStream<'a, k3rs_client::reflector::WatchItem<T>>> {
+    ) -> anyhow::Result<futures::stream::BoxStream<'a, kubernetes_rs_client::reflector::WatchItem<T>>>
+    {
         use futures::StreamExt;
-        use k3rs_client::watch::WatchEvent as Ev;
-        use k3rs_storage::WatchEvent as StoreEv;
+        use kubernetes_rs_client::watch::WatchEvent as Ev;
+        use kubernetes_rs_storage::WatchEvent as StoreEv;
         let stream = self
             .pending
             .lock()
@@ -267,7 +268,7 @@ impl VolumeReflectors {
     /// factory for every backend the scheduler runs against; storage mode has
     /// no api-server, so the list+watch source is the store itself.
     pub fn for_storage<S: Storage + Send + Sync + 'static>(storage: &Arc<S>) -> Self {
-        use k3rs_storage::build_prefix;
+        use kubernetes_rs_storage::build_prefix;
         fn cluster<S, T>(storage: &Arc<S>, resource: &str) -> ClusterReflector<T>
         where
             S: Storage + Send + Sync + 'static,
@@ -345,7 +346,7 @@ impl VolumeReflectors {
     }
 
     fn new(client: &Arc<ApiClient>) -> Self {
-        use k3rs_client::reflector::ApiListWatch;
+        use kubernetes_rs_client::reflector::ApiListWatch;
         fn cluster<T>(client: &Arc<ApiClient>, path: &str) -> ClusterReflector<T>
         where
             T: HasMeta + Clone + Send + Sync + serde::de::DeserializeOwned + 'static,
@@ -443,7 +444,7 @@ impl ApiBackend {
     /// Wire an API backend from a connected [`ApiClient`]. Builds the pods and
     /// nodes reflectors over `/api/v1/pods` and `/api/v1/nodes`.
     pub fn new(client: Arc<ApiClient>) -> Self {
-        use k3rs_client::reflector::ApiListWatch;
+        use kubernetes_rs_client::reflector::ApiListWatch;
         let pods_lw = Arc::new(ApiListWatch::new(Arc::clone(&client), "/api/v1/pods"));
         let nodes_lw = Arc::new(ApiListWatch::new(Arc::clone(&client), "/api/v1/nodes"));
         let pods: PodReflector =
@@ -485,7 +486,10 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
     /// snapshot of the pods reflector store.
     pub async fn list_pods(&self) -> Result<Vec<Pod>> {
         match self {
-            DataPlane::Storage(s) => s.list(&k3rs_storage::build_prefix("pods", None)).await,
+            DataPlane::Storage(s) => {
+                s.list(&kubernetes_rs_storage::build_prefix("pods", None))
+                    .await
+            }
             DataPlane::Api(a) => Ok(a.pods.store().items()),
         }
     }
@@ -494,7 +498,10 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
     /// store snapshot.
     pub async fn list_nodes(&self) -> Result<Vec<Node>> {
         match self {
-            DataPlane::Storage(s) => s.list(&k3rs_storage::build_prefix("nodes", None)).await,
+            DataPlane::Storage(s) => {
+                s.list(&kubernetes_rs_storage::build_prefix("nodes", None))
+                    .await
+            }
             DataPlane::Api(a) => Ok(a.nodes.store().items()),
         }
     }
@@ -502,10 +509,10 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
     /// List every Namespace (`nsLister.List`, `nsLister.Get` in
     /// `interpodaffinity/plugin.go`). Storage: `list(/registry/namespaces)`.
     /// API: GET the collection.
-    pub async fn list_namespaces(&self) -> Result<Vec<k3rs_common::resources::Namespace>> {
+    pub async fn list_namespaces(&self) -> Result<Vec<kubernetes_rs_common::resources::Namespace>> {
         match self {
             DataPlane::Storage(s) => {
-                s.list(&k3rs_storage::build_prefix("namespaces", None))
+                s.list(&kubernetes_rs_storage::build_prefix("namespaces", None))
                     .await
             }
             DataPlane::Api(a) => a
@@ -529,7 +536,10 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         match self {
-            DataPlane::Storage(s) => s.list(&k3rs_storage::build_prefix(plural, Some(ns))).await,
+            DataPlane::Storage(s) => {
+                s.list(&kubernetes_rs_storage::build_prefix(plural, Some(ns)))
+                    .await
+            }
             DataPlane::Api(a) => a
                 .client
                 .get_list(&format!("{api_prefix}/namespaces/{ns}/{plural}"))
@@ -576,8 +586,11 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
     pub async fn list_priority_classes(&self) -> Result<Vec<PriorityClass>> {
         match self {
             DataPlane::Storage(s) => {
-                s.list(&k3rs_storage::build_prefix("priorityclasses", None))
-                    .await
+                s.list(&kubernetes_rs_storage::build_prefix(
+                    "priorityclasses",
+                    None,
+                ))
+                .await
             }
             DataPlane::Api(_) => Ok(Vec::new()),
         }
@@ -594,8 +607,11 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
     pub async fn list_pod_disruption_budgets(&self) -> Result<Vec<PodDisruptionBudget>> {
         match self {
             DataPlane::Storage(s) => {
-                s.list(&k3rs_storage::build_prefix("poddisruptionbudgets", None))
-                    .await
+                s.list(&kubernetes_rs_storage::build_prefix(
+                    "poddisruptionbudgets",
+                    None,
+                ))
+                .await
             }
             DataPlane::Api(a) => a
                 .client
@@ -616,7 +632,7 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
     pub async fn list_volume_snapshot(&self, ns: &str) -> Result<VolumeSnapshot> {
         match self {
             DataPlane::Storage(s) => {
-                use k3rs_storage::build_prefix;
+                use kubernetes_rs_storage::build_prefix;
                 Ok(VolumeSnapshot {
                     pvcs: s
                         .list(&build_prefix("persistentvolumeclaims", Some(ns)))
@@ -654,7 +670,7 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
     pub async fn list_node_volume_limits_snapshot(&self) -> Result<NodeVolumeLimitsSnapshot> {
         match self {
             DataPlane::Storage(s) => {
-                use k3rs_storage::build_prefix;
+                use kubernetes_rs_storage::build_prefix;
                 Ok(NodeVolumeLimitsSnapshot {
                     pvcs: s
                         .list(&build_prefix("persistentvolumeclaims", None))
@@ -807,7 +823,7 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
     {
         match self {
             DataPlane::Storage(s) => {
-                s.list(&k3rs_storage::build_prefix("resourceslices", None))
+                s.list(&kubernetes_rs_storage::build_prefix("resourceslices", None))
                     .await
             }
             DataPlane::Api(a) => a
@@ -936,7 +952,7 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
                         if let Some(spec) = fresh.spec.as_mut() {
                             spec.node_name = Some(node_name.to_string());
                         }
-                        if k3rs_common::feature_gates::gate_enabled(
+                        if kubernetes_rs_common::feature_gates::gate_enabled(
                             "ClearingNominatedNodeNameAfterBinding",
                         )
                         .unwrap_or(false)
@@ -991,7 +1007,7 @@ impl<S: Storage + Send + Sync + 'static> DataPlane<S> {
     }
 
     /// Emit a pod-scoped event. Storage mode routes through the unified
-    /// [`EventRecorder`](k3rs_storage::EventRecorder) (correlator +
+    /// [`EventRecorder`](kubernetes_rs_storage::EventRecorder) (correlator +
     /// dedup); the scheduler owns that recorder, so `Storage` here is a no-op
     /// placeholder — the scheduler calls its own recorder directly in storage
     /// mode and only routes through here in API mode.

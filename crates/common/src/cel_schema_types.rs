@@ -2,13 +2,13 @@
 //! `k8s.io/apiserver/pkg/cel/common/schemas.go` (release-1.35), over
 //! [`JSONSchemaProps`].
 //!
-//! The type model and its provider are `k3rs_cel_checker::decl`. The
+//! The type model and its provider are `kubernetes_rs_cel_checker::decl`. The
 //! size estimates `SchemaDeclType` also computes (`MinSerializedSize`,
 //! `MaxElements`) feed the cost estimator.
 
 use crate::resources::crd::{JSONSchemaProps, JSONSchemaPropsOrArray, JSONSchemaPropsOrBool};
-use k3rs_cel_checker::decl::{escape, limits, DeclField, DeclType};
-use k3rs_cel_checker::DType;
+use kubernetes_rs_cel_checker::decl::{escape, limits, DeclField, DeclType};
+use kubernetes_rs_cel_checker::DType;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 

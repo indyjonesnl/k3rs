@@ -1,6 +1,6 @@
 {
   "cniVersion": "1.0.0",
-  "name": "k3rs",
+  "name": "kubernetes-rs",
   "plugins": [
     {
       "type": "bridge",

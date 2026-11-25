@@ -2,34 +2,36 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::admissionregistration::authz::{
+    pub use kubernetes_rs_api_server::registry::admissionregistration::authz::{
         authorize_mutating_param_kind, ParamAuthz,
     };
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestUpdateStrategy, ValidateFuture,
     };
-    pub use k3rs_common::authz::Authorizer;
-    pub use k3rs_common::cel_env::{mutation_env_failure, ExpectedOutput, MutationEnv};
-    pub use k3rs_common::cel_versions::{self, EnvSet, EnvType};
-    pub use k3rs_common::resources::mutating_admission_policy::PatchType;
-    pub use k3rs_common::resources::MutatingAdmissionPolicy;
-    pub use k3rs_common::validation::field::{Error as FieldError, ErrorList, Path};
-    pub use k3rs_common::validation::mutating_admission_policy::{
+    pub use kubernetes_rs_common::authz::Authorizer;
+    pub use kubernetes_rs_common::cel_env::{mutation_env_failure, ExpectedOutput, MutationEnv};
+    pub use kubernetes_rs_common::cel_versions::{self, EnvSet, EnvType};
+    pub use kubernetes_rs_common::resources::mutating_admission_policy::PatchType;
+    pub use kubernetes_rs_common::resources::MutatingAdmissionPolicy;
+    pub use kubernetes_rs_common::validation::field::{Error as FieldError, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::mutating_admission_policy::{
         find_mutating_policy_preexisting_expressions,
         ignore_mutating_admission_policy_match_conditions, set_defaults_mutating_admission_policy,
         validate_mutating_admission_policy, PreexistingExpressions,
     };
-    pub use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::objectmeta::{
+        name_is_dns_subdomain, validate_object_meta,
+    };
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::collections::BTreeSet;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::admissionregistration::mutatingadmissionpolicy::*;
+    use kubernetes_rs_api_server::registry::admissionregistration::mutatingadmissionpolicy::*;
     use serde_json::json;
 
     /// `validMutatingAdmissionPolicy` (strategy_test.go:60-102).
@@ -101,7 +103,7 @@ mod tests {
 
         let mut changed = old.clone();
         changed.spec.as_mut().unwrap().failure_policy =
-            Some(k3rs_common::resources::validating_admission_policy::FailurePolicy::Fail);
+            Some(kubernetes_rs_common::resources::validating_admission_policy::FailurePolicy::Fail);
         strategy.prepare_for_update(&ctx, &mut changed, &old);
         assert_eq!(changed.metadata.generation, Some(4));
     }
@@ -124,7 +126,9 @@ mod tests {
     const SEMVER: &str = "semver('1.2.3').major() > 0";
 
     fn env_1_32() -> EnvSet {
-        EnvSet::must_base_env_set(k3rs_common::feature_gates::Version::major_minor(1, 32))
+        EnvSet::must_base_env_set(kubernetes_rs_common::feature_gates::Version::major_minor(
+            1, 32,
+        ))
     }
 
     fn with_expressions(
@@ -467,12 +471,12 @@ mod tests {
 
 mod invalid_status_tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::admissionregistration::mutatingadmissionpolicy::*;
-    use k3rs_api_server::registry::generic::store::{CreateOptions, UpdateOptions};
-    use k3rs_api_server::registry::rest::DefaultUpdatedObjectInfo;
-    use k3rs_common::auth::UserInfo;
-    use k3rs_common::authz::AlwaysDenyAuthorizer;
-    use k3rs_common::Error;
+    use kubernetes_rs_api_server::registry::admissionregistration::mutatingadmissionpolicy::*;
+    use kubernetes_rs_api_server::registry::generic::store::{CreateOptions, UpdateOptions};
+    use kubernetes_rs_api_server::registry::rest::DefaultUpdatedObjectInfo;
+    use kubernetes_rs_common::auth::UserInfo;
+    use kubernetes_rs_common::authz::AlwaysDenyAuthorizer;
+    use kubernetes_rs_common::Error;
 
     /// `MutatingAdmissionPolicy` strategy `Validate` appends the authz error as a
     /// `field.Forbidden`, and `BeforeCreate` / `BeforeUpdate` wrap the list in
@@ -489,7 +493,7 @@ mod invalid_status_tests {
             "failurePolicy": "Ignore"}})).unwrap();
         assert!(validate(&obj).is_empty(), "{:?}", validate(&obj));
         let storage = Arc::new(StorageBackend::Memory(Arc::new(
-            k3rs_storage::MemoryStorage::new(),
+            kubernetes_rs_storage::MemoryStorage::new(),
         )));
         let store = new_store(storage, Arc::new(AlwaysDenyAuthorizer));
         let user = UserInfo {

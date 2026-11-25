@@ -13,7 +13,7 @@
 //!
 //! Where the validation lives. `validator.go` / `strategy.go` call the
 //! structural-schema, list-type and CEL validators of
-//! `pkg/apiserver/{validation,schema/...}`. k3rs' equivalents are
+//! `pkg/apiserver/{validation,schema/...}`. kubernetes-rs' equivalents are
 //! `handlers::custom_resource::validate_custom_resource_with_old` (schema +
 //! `x-kubernetes-validations` with KEP-4008 ratcheting) and
 //! `handlers::cel_validation`; they report a rendered message rather than a
@@ -51,21 +51,23 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k3rs_common::deletion::{DeleteOptions, Preconditions};
-use k3rs_common::fieldmanager::schema::Type as FieldType;
-use k3rs_common::resources::{
+use kubernetes_rs_common::deletion::{DeleteOptions, Preconditions};
+use kubernetes_rs_common::fieldmanager::schema::Type as FieldType;
+use kubernetes_rs_common::resources::{
     prune_custom_resource, CustomResource, CustomResourceDefinition,
     CustomResourceSubresourceScale, ResourceScope, Scale, ScaleSpec, ScaleStatus,
 };
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_common::validation::field::{Error as FieldError, ErrorList, ErrorType, Path};
-use k3rs_common::validation::metav1::is_qualified_name;
-use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
-use k3rs_common::validation::structural::listtype::validate_list_sets_and_maps;
-use k3rs_common::validation::structural::objectmeta::{coerce_with_options, CoerceOptions};
-use k3rs_common::validation::structural::Structural;
-use k3rs_common::{Error, Result};
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_common::validation::field::{Error as FieldError, ErrorList, ErrorType, Path};
+use kubernetes_rs_common::validation::metav1::is_qualified_name;
+use kubernetes_rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
+use kubernetes_rs_common::validation::structural::listtype::validate_list_sets_and_maps;
+use kubernetes_rs_common::validation::structural::objectmeta::{
+    coerce_with_options, CoerceOptions,
+};
+use kubernetes_rs_common::validation::structural::Structural;
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::handlers::custom_resource::{
     apply_schema_defaults, has_cel_rules, validate_custom_resource_phase,
@@ -172,7 +174,7 @@ fn parse_rendered(msg: &str) -> FieldError {
             return FieldError {
                 error_type,
                 field: field.to_string(),
-                bad_value: k3rs_common::validation::field::BadValue::Omit,
+                bad_value: kubernetes_rs_common::validation::field::BadValue::Omit,
                 detail: detail.to_string(),
                 origin: String::new(),
             };
@@ -181,7 +183,7 @@ fn parse_rendered(msg: &str) -> FieldError {
     FieldError {
         error_type: ErrorType::Invalid,
         field: field.to_string(),
-        bad_value: k3rs_common::validation::field::BadValue::Omit,
+        bad_value: kubernetes_rs_common::validation::field::BadValue::Omit,
         detail: body.to_string(),
         origin: String::new(),
     }
@@ -227,7 +229,7 @@ fn has_blocking_err(errs: &[FieldError], legacy_blocking: bool) -> Option<FieldE
     // `field.Invalid(nil, nil, ...)`: no path, a nil bad value (rendered `null`).
     Some(FieldError::invalid(
         &Path::default(),
-        k3rs_common::validation::field::BadValue::Json(serde_json::Value::Null),
+        kubernetes_rs_common::validation::field::BadValue::Json(serde_json::Value::Null),
         "some validation rules were not checked because the object was invalid; correct the existing errors to complete validation",
     ))
 }
@@ -329,9 +331,12 @@ impl Strategy {
     /// identity.
     fn field_converter(
         &self,
-    ) -> Option<std::sync::Arc<dyn k3rs_common::fieldmanager::versionconverter::Converter>> {
-        use k3rs_common::fieldmanager::versionconverter::{NopObjectConvertor, VersionConverter};
-        use k3rs_common::resources::ConversionStrategyType;
+    ) -> Option<std::sync::Arc<dyn kubernetes_rs_common::fieldmanager::versionconverter::Converter>>
+    {
+        use kubernetes_rs_common::fieldmanager::versionconverter::{
+            NopObjectConvertor, VersionConverter,
+        };
+        use kubernetes_rs_common::resources::ConversionStrategyType;
         if self.crd.spec.versions.len() < 2 {
             return None;
         }
@@ -351,7 +356,9 @@ impl Strategy {
         )))
     }
 
-    fn crd_version(&self) -> Option<&k3rs_common::resources::CustomResourceDefinitionVersion> {
+    fn crd_version(
+        &self,
+    ) -> Option<&kubernetes_rs_common::resources::CustomResourceDefinitionVersion> {
         self.crd
             .spec
             .versions
@@ -359,7 +366,7 @@ impl Strategy {
             .find(|v| v.name == self.version)
     }
 
-    fn subresources(&self) -> Option<&k3rs_common::resources::CustomResourceSubresources> {
+    fn subresources(&self) -> Option<&kubernetes_rs_common::resources::CustomResourceSubresources> {
         self.crd_version().and_then(|v| v.subresources.as_ref())
     }
 
@@ -414,7 +421,7 @@ impl Strategy {
         let Ok(mut value) = serde_json::to_value(&*cr) else {
             return;
         };
-        k3rs_common::validation::structural::prunenulls::prune_non_nullable_nulls_without_defaults(
+        kubernetes_rs_common::validation::structural::prunenulls::prune_non_nullable_nulls_without_defaults(
             &mut value,
             Some(&structural),
         );
@@ -448,7 +455,7 @@ impl Strategy {
         if self.crd.spec.preserve_unknown_fields != Some(true) {
             if let Ok(mut value) = serde_json::to_value(cr) {
                 paths.extend(
-                    k3rs_common::validation::structural::prune::prune_with_options(
+                    kubernetes_rs_common::validation::structural::prune::prune_with_options(
                         &mut value,
                         Some(&structural),
                         true,
@@ -576,7 +583,7 @@ impl Strategy {
         let Some(structural) = self.structural_schema() else {
             return Vec::new();
         };
-        k3rs_common::validation::structural::objectmeta::validate(
+        kubernetes_rs_common::validation::structural::objectmeta::validate(
             None,
             &Self::unstructured_body(cr),
             Some(&structural),
@@ -788,7 +795,8 @@ impl RestUpdateStrategy<CustomResource> for Strategy {
 
     fn field_converter(
         &self,
-    ) -> Option<std::sync::Arc<dyn k3rs_common::fieldmanager::versionconverter::Converter>> {
+    ) -> Option<std::sync::Arc<dyn kubernetes_rs_common::fieldmanager::versionconverter::Converter>>
+    {
         Strategy::field_converter(self)
     }
 
@@ -875,7 +883,8 @@ impl RestUpdateStrategy<CustomResource> for StatusStrategy {
 
     fn field_converter(
         &self,
-    ) -> Option<std::sync::Arc<dyn k3rs_common::fieldmanager::versionconverter::Converter>> {
+    ) -> Option<std::sync::Arc<dyn kubernetes_rs_common::fieldmanager::versionconverter::Converter>>
+    {
         self.0.field_converter()
     }
 
@@ -915,7 +924,7 @@ fn omit_empty_root_meta_fields(cr: &mut CustomResource) {
 /// `ObjectMeta` would have failed the decode. Like upstream's, an error (here
 /// a `metadata` that is not an object) leaves the object to fail its decode.
 pub fn drop_invalid_root_metadata(value: &mut serde_json::Value) {
-    use k3rs_common::validation::structural::objectmeta::{
+    use kubernetes_rs_common::validation::structural::objectmeta::{
         get_object_meta_with_options, set_object_meta, ObjectMetaOptions,
     };
     let Some(obj) = value.as_object_mut() else {
@@ -1137,7 +1146,8 @@ impl RestStorage<CustomResource> for CustomResourceRest {
 
     fn field_converter(
         &self,
-    ) -> Option<std::sync::Arc<dyn k3rs_common::fieldmanager::versionconverter::Converter>> {
+    ) -> Option<std::sync::Arc<dyn kubernetes_rs_common::fieldmanager::versionconverter::Converter>>
+    {
         RestStorage::field_converter(&self.store)
     }
 
@@ -1246,9 +1256,11 @@ impl RestStorage<CustomResource> for CustomResourceRest {
         if let Some(fs) = list_options.get("fieldSelector").filter(|s| !s.is_empty()) {
             validate_field_selector_paths(self.crd(), &self.strategy.version, fs)?;
         }
-        let prefix =
-            k3rs_storage::build_prefix(&self.store.storage_prefix, ctx.namespace.as_deref());
-        let revision = k3rs_storage::Storage::current_revision(&*self.store.storage)
+        let prefix = kubernetes_rs_storage::build_prefix(
+            &self.store.storage_prefix,
+            ctx.namespace.as_deref(),
+        );
+        let revision = kubernetes_rs_storage::Storage::current_revision(&*self.store.storage)
             .await
             .unwrap_or(0);
         crate::registry::generic::reject_compacted_continue(&*self.store.storage, list_options)

@@ -13,7 +13,7 @@
 //! when deleteOptions.PropagationPolicy is Orphan"
 //! (test/e2e/apimachinery/garbage_collector.go:547).
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const DEPLOYMENTS: &str = "/apis/apps/v1/namespaces/default/deployments";

@@ -43,7 +43,7 @@ on:
     branches: [main]
     paths:
       - "crates/storage/**"
-      # The storage crate's error mapping comes from k3rs-common, and
+      # The storage crate's error mapping comes from kubernetes-rs-common, and
       # the contract assertions match on those variants.
       - "crates/common/**"
       - "Cargo.toml"
@@ -75,8 +75,8 @@ jobs:
     # The DinD tier: a docker:dind sidecar sharing the pod network namespace,
     # so testcontainers' published ports are reachable at 127.0.0.1. Same tier
     # cert-manager-smoke.yml uses. The runner image is the one all tiers share
-    # (ci/arc-runner/Dockerfile), so the Rust toolchain is present here too.
-    runs-on: arc-runner-set-dind
+    # (ci/local-runner/Dockerfile), so the Rust toolchain is present here too.
+    runs-on: [self-hosted, kubernetes-rs]
     # The suite starts ~16 short-lived containers one at a time on top of a
     # cold compile, and this tier caps cargo at CARGO_BUILD_JOBS=2.
     timeout-minutes: 40
@@ -129,14 +129,14 @@ jobs:
         # `--test-threads=1` is mandatory, not tuning: the fixtures give every
         # test its own container, and the default thread-per-core parallelism
         # would start a dozen etcd/kine containers at once on a 12 GiB pod.
-        run: cargo test -p k3rs-storage --test storage_contract --locked -- --test-threads=1
+        run: cargo test -p kubernetes-rs-storage --test storage_contract --locked -- --test-threads=1
 
       - name: cargo test --test etcd_rpc_subset
         # Runs even if the contract suite failed, so one red backend doesn't
         # hide an unrelated RPC-subset regression. `!cancelled()` rather than
         # `always()`: a cancelled job should stop, not start more containers.
         if: ${{ !cancelled() }}
-        run: cargo test -p k3rs-storage --test etcd_rpc_subset --locked -- --test-threads=1
+        run: cargo test -p kubernetes-rs-storage --test etcd_rpc_subset --locked -- --test-threads=1
 
       - name: sccache stats
         # Compilation-cache hit rate, for visibility. sccache is configured

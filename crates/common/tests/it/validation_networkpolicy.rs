@@ -3,9 +3,9 @@
 //! Mirrors upstream `ValidateNetworkPolicySpec`
 //! (`pkg/apis/networking/validation/validation.go`, release-1.35).
 
-use k3rs_common::resources::networking::NetworkPolicy;
-use k3rs_common::validation::field::{Error, ErrorType};
-use k3rs_common::validation::networkpolicy::validate_network_policy;
+use kubernetes_rs_common::resources::networking::NetworkPolicy;
+use kubernetes_rs_common::validation::field::{Error, ErrorType};
+use kubernetes_rs_common::validation::networkpolicy::validate_network_policy;
 use serde_json::json;
 
 fn np(spec: serde_json::Value) -> NetworkPolicy {

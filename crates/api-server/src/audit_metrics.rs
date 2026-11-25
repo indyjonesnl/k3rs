@@ -10,7 +10,7 @@
 
 use std::sync::LazyLock;
 
-use k3rs_common::audit::AuditLevel;
+use kubernetes_rs_common::audit::AuditLevel;
 use prometheus::{register, IntCounter, IntCounterVec, Opts};
 
 fn opts(name: &str, help: &str) -> Opts {

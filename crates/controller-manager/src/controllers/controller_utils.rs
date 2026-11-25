@@ -11,9 +11,9 @@
 //!   (`pkg/api/v1/pod/util.go:283`, `controller_utils.go:1028-1085`).
 
 use chrono::{DateTime, Utc};
-use k3rs_common::resources::pod::PodCondition;
-use k3rs_common::resources::Pod;
-use k3rs_common::types::Phase;
+use kubernetes_rs_common::resources::pod::PodCondition;
+use kubernetes_rs_common::resources::Pod;
+use kubernetes_rs_common::types::Phase;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -316,11 +316,11 @@ pub struct RankGates {
 impl RankGates {
     pub fn current() -> Self {
         Self {
-            pod_deletion_cost: k3rs_common::feature_gates::enabled(
-                k3rs_common::feature_gates::Feature::PodDeletionCost,
+            pod_deletion_cost: kubernetes_rs_common::feature_gates::enabled(
+                kubernetes_rs_common::feature_gates::Feature::PodDeletionCost,
             ),
-            logarithmic_scale_down: k3rs_common::feature_gates::enabled(
-                k3rs_common::feature_gates::Feature::LogarithmicScaleDown,
+            logarithmic_scale_down: kubernetes_rs_common::feature_gates::enabled(
+                kubernetes_rs_common::feature_gates::Feature::LogarithmicScaleDown,
             ),
         }
     }

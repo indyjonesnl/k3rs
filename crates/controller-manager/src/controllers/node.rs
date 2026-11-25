@@ -8,10 +8,10 @@ use crate::controllers::worker_pool::spawn_workers;
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
 use futures::StreamExt;
-use k3rs_common::quantity::Quantity;
-use k3rs_common::resources::node::Taint;
-use k3rs_common::resources::{Lease, Node, NodeCondition, NodeStatus, Pod};
-use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
+use kubernetes_rs_common::quantity::Quantity;
+use kubernetes_rs_common::resources::node::Taint;
+use kubernetes_rs_common::resources::{Lease, Node, NodeCondition, NodeStatus, Pod};
+use kubernetes_rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -404,10 +404,10 @@ impl<S: Storage + 'static> NodeController<S> {
             };
             while let Some(ev) = watch.next().await {
                 match ev {
-                    Ok(k3rs_storage::WatchEvent::Deleted(..)) => {}
+                    Ok(kubernetes_rs_storage::WatchEvent::Deleted(..)) => {}
                     Ok(
-                        k3rs_storage::WatchEvent::Added(key, _)
-                        | k3rs_storage::WatchEvent::Modified(key, _),
+                        kubernetes_rs_storage::WatchEvent::Added(key, _)
+                        | kubernetes_rs_storage::WatchEvent::Modified(key, _),
                     ) => {
                         if let Ok(pod) = self.storage.get::<Pod>(&key).await {
                             Self::enqueue_pod(&queue, &pod).await;
@@ -444,7 +444,7 @@ impl<S: Storage + 'static> NodeController<S> {
         let pod_key = format!("/registry/{}", key);
         let mut pod: Pod = match self.storage.get(&pod_key).await {
             Ok(p) => p,
-            Err(k3rs_common::Error::NotFound(_)) => return Ok(()),
+            Err(kubernetes_rs_common::Error::NotFound(_)) => return Ok(()),
             Err(e) => return Err(e.into()),
         };
         let node_name = match pod.spec.as_ref().and_then(|s| s.node_name.clone()) {
@@ -457,7 +457,7 @@ impl<S: Storage + 'static> NodeController<S> {
             .await
         {
             Ok(n) => n,
-            Err(k3rs_common::Error::NotFound(_)) => return Ok(()),
+            Err(kubernetes_rs_common::Error::NotFound(_)) => return Ok(()),
             Err(e) => return Err(e.into()),
         };
         // :1144-1150 no Ready condition: handled on a later node update.
@@ -494,7 +494,7 @@ impl<S: Storage + 'static> NodeController<S> {
         cond.status = "False".to_string();
         cond.last_transition_time = Some(Utc::now());
         match self.storage.update(pod_key, &*pod).await {
-            Ok(_) | Err(k3rs_common::Error::NotFound(_)) => Ok(()),
+            Ok(_) | Err(kubernetes_rs_common::Error::NotFound(_)) => Ok(()),
             Err(e) => Err(e.into()),
         }
     }
@@ -523,7 +523,7 @@ impl<S: Storage + 'static> NodeController<S> {
         if errs.is_empty() {
             Ok(())
         } else {
-            Err(k3rs_common::Error::Internal(errs.join("; ")).into())
+            Err(kubernetes_rs_common::Error::Internal(errs.join("; ")).into())
         }
     }
 
@@ -988,13 +988,15 @@ impl<S: Storage + 'static> NodeController<S> {
         // SwapNodeControllerTaint: stamp timeAdded, add, then delete.
         let node_key = build_key("nodes", None, &node.metadata.name);
         let mut stored: Node = self.storage.get(&node_key).await?;
-        let spec = stored.spec.get_or_insert(k3rs_common::resources::NodeSpec {
-            pod_cidr: None,
-            pod_cidrs: None,
-            provider_id: None,
-            unschedulable: None,
-            taints: None,
-        });
+        let spec = stored
+            .spec
+            .get_or_insert(kubernetes_rs_common::resources::NodeSpec {
+                pod_cidr: None,
+                pod_cidrs: None,
+                provider_id: None,
+                unschedulable: None,
+                taints: None,
+            });
         let taints = spec.taints.get_or_insert_with(Vec::new);
         for key in &to_add {
             if !taints
@@ -1037,13 +1039,15 @@ impl<S: Storage + 'static> NodeController<S> {
                 return false;
             }
         };
-        let spec = stored.spec.get_or_insert(k3rs_common::resources::NodeSpec {
-            pod_cidr: None,
-            pod_cidrs: None,
-            provider_id: None,
-            unschedulable: None,
-            taints: None,
-        });
+        let spec = stored
+            .spec
+            .get_or_insert(kubernetes_rs_common::resources::NodeSpec {
+                pod_cidr: None,
+                pod_cidrs: None,
+                provider_id: None,
+                unschedulable: None,
+                taints: None,
+            });
         let taints = spec.taints.get_or_insert_with(Vec::new);
         let before = serde_json::to_value(&*taints).unwrap_or_default();
         match taints
@@ -1099,7 +1103,7 @@ impl<S: Storage + 'static> NodeController<S> {
                     let key = build_key("nodes", None, &value.value);
                     let node: Node = match self.storage.get(&key).await {
                         Ok(n) => n,
-                        Err(k3rs_common::Error::NotFound(_)) => {
+                        Err(kubernetes_rs_common::Error::NotFound(_)) => {
                             debug!("Node {} no longer present", value.value);
                             return (true, std::time::Duration::ZERO);
                         }
@@ -1363,7 +1367,7 @@ impl<S: Storage + 'static> NodeController<S> {
         // Upstream contract (pkg/kubelet/cm/node_container_manager_linux.go
         // → setNodeStatusMachineInfo / getNodeAllocatableAbsolute):
         //   allocatable = capacity − kube-reserved − system-reserved − eviction-hard
-        // k3rs reads reservation amounts from the annotation
+        // kubernetes-rs reads reservation amounts from the annotation
         // `node.alpha.kubernetes.io/kube-reserved` (comma-separated key=value list,
         // e.g. "cpu=500m,memory=1Gi") as a proxy for the kubelet flag plumbing that
         // the kubelet stub does not yet surface.
@@ -1416,7 +1420,7 @@ impl<S: Storage + 'static> NodeController<S> {
     ///
     /// Upstream: the kubelet eviction manager sets pressure conditions and their
     /// transition times (pkg/kubelet/eviction); the node lifecycle controller
-    /// (pkg/controller/nodelifecycle) observes the flips. k3rs folds the
+    /// (pkg/controller/nodelifecycle) observes the flips. kubernetes-rs folds the
     /// transition-time refresh into the controller because the kubelet stub does
     /// not yet emit it.
     async fn reconcile_condition_transitions(&self, node: &Node) -> Result<()> {
@@ -1715,7 +1719,7 @@ impl<S: Storage + 'static> NodeController<S> {
         let key = build_key("nodes", None, node_name);
         let mut updated_node: Node = self.storage.get(&key).await?;
 
-        let shutdown_taint = k3rs_common::resources::node::Taint {
+        let shutdown_taint = kubernetes_rs_common::resources::node::Taint {
             key: "node.kubernetes.io/shutdown".to_string(),
             value: Some("".to_string()),
             effect: "NoSchedule".to_string(),
@@ -1724,7 +1728,7 @@ impl<S: Storage + 'static> NodeController<S> {
 
         let spec = updated_node
             .spec
-            .get_or_insert(k3rs_common::resources::NodeSpec {
+            .get_or_insert(kubernetes_rs_common::resources::NodeSpec {
                 pod_cidr: None,
                 pod_cidrs: None,
                 provider_id: None,
@@ -1887,7 +1891,7 @@ impl<S: Storage + 'static> NodeController<S> {
                         namespace, pod_name, node_name
                     );
                 }
-                Err(k3rs_common::Error::NotFound(_)) => {
+                Err(kubernetes_rs_common::Error::NotFound(_)) => {
                     // Pod already deleted
                     debug!("Pod {}/{} already deleted", namespace, pod_name);
                 }

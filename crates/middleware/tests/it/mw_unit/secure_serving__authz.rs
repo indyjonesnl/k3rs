@@ -3,10 +3,10 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_common::auth::UserInfo;
-    pub use k3rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
-    pub use k3rs_common::error::{Error, Result};
-    pub use k3rs_middleware::secure_serving::webhook::{
+    pub use kubernetes_rs_common::auth::UserInfo;
+    pub use kubernetes_rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
+    pub use kubernetes_rs_common::error::{Error, Result};
+    pub use kubernetes_rs_middleware::secure_serving::webhook::{
         default_should_retry, with_exponential_backoff, Backoff, ReviewClient,
     };
     pub use serde_json::{json, Map, Value};
@@ -18,9 +18,9 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::authz::UnionAuthorizer;
-    use k3rs_middleware::secure_serving::authz::*;
-    use k3rs_middleware::secure_serving::webhook::ReviewError;
+    use kubernetes_rs_common::authz::UnionAuthorizer;
+    use kubernetes_rs_middleware::secure_serving::authz::*;
+    use kubernetes_rs_middleware::secure_serving::webhook::ReviewError;
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -476,7 +476,7 @@ mod tests {
     // then always-allow paths, then SubjectAccessReview.
     #[tokio::test]
     async fn union_of_privileged_paths_and_sar() {
-        use k3rs_common::authz::PrivilegedGroupAuthorizer;
+        use kubernetes_rs_common::authz::PrivilegedGroupAuthorizer;
         let backend = Backend::new();
         let sar = DelegatingAuthorizerConfig {
             subject_access_review_client: backend.clone(),
@@ -545,8 +545,8 @@ mod tests {
             &self,
             _u: &UserInfo,
             _ns: &str,
-        ) -> Result<k3rs_common::authz::UserRulesOutcome> {
-            Ok(k3rs_common::authz::UserRulesOutcome::default())
+        ) -> Result<kubernetes_rs_common::authz::UserRulesOutcome> {
+            Ok(kubernetes_rs_common::authz::UserRulesOutcome::default())
         }
     }
 

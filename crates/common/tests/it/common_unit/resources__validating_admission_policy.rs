@@ -2,15 +2,15 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::serde_helpers::empty_string_as_none;
-    pub use k3rs_common::resources::{LabelSelector, MatchCondition};
-    pub use k3rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_common::resources::serde_helpers::empty_string_as_none;
+    pub use kubernetes_rs_common::resources::{LabelSelector, MatchCondition};
+    pub use kubernetes_rs_common::types::ObjectMeta;
     pub use serde::{Deserialize, Serialize};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::validating_admission_policy::*;
+    use kubernetes_rs_common::resources::validating_admission_policy::*;
 
     #[test]
     fn test_validating_admission_policy_creation() {

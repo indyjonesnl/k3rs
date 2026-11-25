@@ -23,14 +23,16 @@
 //! removing it is the unit of work for whoever lands the matching
 //! behaviour.
 
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::policy::IntOrString;
-use k3rs_common::resources::*;
-use k3rs_common::types::{LabelSelector, ObjectMeta, Phase, ResourceRequirements, TypeMeta};
-use k3rs_controller_manager::controllers::deployment::DeploymentController;
-use k3rs_controller_manager::controllers::pod_disruption_budget::PodDisruptionBudgetController;
-use k3rs_controller_manager::controllers::replicaset::ReplicaSetController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::policy::IntOrString;
+use kubernetes_rs_common::resources::*;
+use kubernetes_rs_common::types::{
+    LabelSelector, ObjectMeta, Phase, ResourceRequirements, TypeMeta,
+};
+use kubernetes_rs_controller_manager::controllers::deployment::DeploymentController;
+use kubernetes_rs_controller_manager::controllers::pod_disruption_budget::PodDisruptionBudgetController;
+use kubernetes_rs_controller_manager::controllers::replicaset::ReplicaSetController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

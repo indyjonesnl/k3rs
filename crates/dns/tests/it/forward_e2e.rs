@@ -6,10 +6,10 @@
 use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
 use hickory_proto::rr::rdata::A;
 use hickory_proto::rr::{Name, RData, Record, RecordType};
-use k3rs_common::resources::{Service, ServiceSpec, ServiceType};
-use k3rs_dns::forward::{ForwardOptions, Forwarder, Policy};
-use k3rs_dns::server::{serve, SharedZone};
-use k3rs_dns::zone::{Zone, CLUSTER_ZONE};
+use kubernetes_rs_common::resources::{Service, ServiceSpec, ServiceType};
+use kubernetes_rs_dns::forward::{ForwardOptions, Forwarder, Policy};
+use kubernetes_rs_dns::server::{serve, SharedZone};
+use kubernetes_rs_dns::zone::{Zone, CLUSTER_ZONE};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

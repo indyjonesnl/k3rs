@@ -1,19 +1,19 @@
-# Research: `talosctl cluster create` (QEMU provisioner) → a k3rs local multi-node dev cluster
+# Research: `talosctl cluster create` (QEMU provisioner) → a kubernetes-rs local multi-node dev cluster
 
 > Research + design note. **No code.** Goal: understand exactly how Talos spins
 > up a multi-node cluster of local VMs from one command on one Linux box, and
-> decide what k3rs should port, reuse, or shell out to in order to get
+> decide what kubernetes-rs should port, reuse, or shell out to in order to get
 > `1 control-plane + 2 workers` as *real nodes* (own kernel, own disk, own
 > network stack) for local development and testing.
 >
 > Companion to [`TALOS_WORKER_USB_RESEARCH.md`](TALOS_WORKER_USB_RESEARCH.md),
 > which covers the Talos *install/OS* model (#1036). That note answers "how does
-> a k3rs node boot from a USB stick"; this one answers "how do I get three
+> a kubernetes-rs node boot from a USB stick"; this one answers "how do I get three
 > of them on my laptop in under a minute."
 
 **Sources read** (verbatim, on this machine): `../talos-reference` @ `f6058a1`
 (2026-06-10), plus the installed `talosctl v1.13.0`. Talos is **MPL-2.0**;
-k3rs is **Apache-2.0** — see [§7 Licensing](#7-licensing-constraint-mpl-20).
+kubernetes-rs is **Apache-2.0** — see [§7 Licensing](#7-licensing-constraint-mpl-20).
 
 ---
 
@@ -167,7 +167,7 @@ also runs a `DEL` *before* `ADD` to clean up a previous crashed run.
 
 ---
 
-## 4. Path A — usable *today*, zero new k3rs code
+## 4. Path A — usable *today*, zero new kubernetes-rs code
 
 Talos runs the Kubernetes control plane as **static pods whose images come from
 the machine config**, and the kubelet from a configurable image. Image
@@ -179,17 +179,17 @@ the Talos↔K8s compatibility window — the repository name is **not** constrai
 ```yaml
 # config patch
 cluster:
-  apiServer:         { image: ghcr.io/indyjonesnl/k3rs/api-server:v1.35.0 }
-  controllerManager: { image: ghcr.io/indyjonesnl/k3rs/controller-manager:v1.35.0 }
-  scheduler:         { image: ghcr.io/indyjonesnl/k3rs/scheduler:v1.35.0 }
+  apiServer:         { image: ghcr.io/indyjonesnl/kubernetes-rs/api-server:v1.35.0 }
+  controllerManager: { image: ghcr.io/indyjonesnl/kubernetes-rs/controller-manager:v1.35.0 }
+  scheduler:         { image: ghcr.io/indyjonesnl/kubernetes-rs/scheduler:v1.35.0 }
 machine:
-  kubelet:           { image: ghcr.io/indyjonesnl/k3rs/kubelet:v1.35.0 }
+  kubelet:           { image: ghcr.io/indyjonesnl/kubernetes-rs/kubelet:v1.35.0 }
 ```
 
 ```bash
 sudo -E talosctl cluster create qemu \
   --controlplanes 1 --workers 2 \
-  --config-patch @k3rs-swap.yaml
+  --config-patch @kubernetes-rs-swap.yaml
 ```
 
 This is **exactly the vanilla-swap program we already run in CI**, but on three
@@ -207,7 +207,7 @@ Known frictions, all already-known work:
   does not participate in this path.
 - **Kubelet swap is the hard one.** Talos's kubelet is a *system service* with
   Talos-authored args, Talos's CRI containerd, and a specific mount set — a
-  drop-in `k3rs-kubelet` image has to satisfy that contract, not just
+  drop-in `kubernetes-rs-kubelet` image has to satisfy that contract, not just
   boot. Do control-plane swap first, kubelet swap second.
 - **Prereqs on this box:** `/opt/cni/bin` has `bridge`, `firewall`, `static`
   but **not `tc-redirect-tap`** — the preflight will fetch
@@ -218,17 +218,17 @@ Known frictions, all already-known work:
 
 **Value:** immediate honest multi-node testing of our control plane, and it
 tells us how much of the node-lifecycle gap is ours vs the substrate's.
-**Limit:** the *node* is still Talos. It does not give us "k3rs on a
+**Limit:** the *node* is still Talos. It does not give us "kubernetes-rs on a
 VM", and it can't be our shipped dev UX (users would need Talos).
 
 ---
 
-## 5. Path B — port the provisioner: `k3rs dev cluster create`
+## 5. Path B — port the provisioner: `kubernetes-rs dev cluster create`
 
 The thing the user actually asked for: **our own** one-command local cluster of
 microVMs. The port is small and the design maps almost 1:1.
 
-| Talos (Go) | k3rs (Rust) | Notes |
+| Talos (Go) | kubernetes-rs (Rust) | Notes |
 |---|---|---|
 | `pkg/provision/provision.go` (`Provisioner` trait) | `crates/dev-cluster/src/provider.rs` | trait with `create` / `destroy` / `reflect` |
 | `providers/vm/network_linux.go` | `net/bridge.rs` | shell out to CNI plugins, or drive rtnetlink directly |
@@ -236,7 +236,7 @@ microVMs. The port is small and the design maps almost 1:1.
 | `providers/vm/loadbalancer.go` | `services/lb.rs` | plain TCP proxy `gateway:6443` → CP IPs |
 | `providers/vm/disk.go` | `disk.rs` | `File::create` + `set_len` + `fallocate` |
 | `providers/vm/process.go`, `state.go` | `state.rs` | state dir + pidfiles, no daemon |
-| `providers/qemu/{launch,node}.go` | `vmm/qemu.rs` + `k3rs dev vm-launch` | re-exec self as per-VM supervisor |
+| `providers/qemu/{launch,node}.go` | `vmm/qemu.rs` + `kubernetes-rs dev vm-launch` | re-exec self as per-VM supervisor |
 | `providers/qemu/arch.go` | `vmm/arch.rs` | machine type / accel / console per arch |
 
 Rust crates that cover the Go deps: `rtnetlink` (bridge/link),
@@ -263,8 +263,8 @@ Path A gets a guest OS for free. Path B needs one. Three options:
 
 | Option | How | Cost | Fits ROADMAP? |
 |---|---|---|---|
-| **B1. Generic cloud image + inject binaries** | Debian/Alpine cloud image, `cloud-init`/`ignition` NoCloud seed drops in `k3rs` + a systemd unit + kubeconfig; containerd from the distro | Lowest. Days. Kernel/init are someone else's problem | Neutral — measures *our* RAM but with a distro's baseline |
-| **B2. Purpose-built minimal image** | Our own kernel + initramfs, `k3rs` as the only service, read-only squashfs + `/var` overlay | Highest. Weeks | **Yes** — this *is* #33 / #1036's USB image, and the honest idle-RAM number |
+| **B1. Generic cloud image + inject binaries** | Debian/Alpine cloud image, `cloud-init`/`ignition` NoCloud seed drops in `kubernetes-rs` + a systemd unit + kubeconfig; containerd from the distro | Lowest. Days. Kernel/init are someone else's problem | Neutral — measures *our* RAM but with a distro's baseline |
+| **B2. Purpose-built minimal image** | Our own kernel + initramfs, `kubernetes-rs` as the only service, read-only squashfs + `/var` overlay | Highest. Weeks | **Yes** — this *is* #33 / #1036's USB image, and the honest idle-RAM number |
 | **B3. Talos guest, swapped images** | = Path A | Days | No — node isn't ours |
 
 Recommendation: **B1 first** (it de-risks the whole provisioner and is a real
@@ -297,7 +297,7 @@ worth keeping the low-level launch code shareable between them.
   create qemu --controlplanes 1 --workers 2` with the control-plane image swap.
   Deliverable: a written list of what breaks, which is the real backlog for
   node-lifecycle parity.
-- **Phase 1:** `k3rs dev cluster create` skeleton — state dir, bridge via
+- **Phase 1:** `kubernetes-rs dev cluster create` skeleton — state dir, bridge via
   CNI, dhcpd/dns/LB, disks, per-VM supervisor, QEMU microvm backend, B1 guest
   image. Target: `1 CP + 2 workers` reachable via a generated kubeconfig in
   under 60 s, `dev cluster destroy` leaving nothing behind.
@@ -309,7 +309,7 @@ worth keeping the low-level launch code shareable between them.
 
 ## 7. Licensing constraint (MPL-2.0)
 
-Talos is **MPL-2.0**; k3rs is **Apache-2.0**. MPL is *file-level*
+Talos is **MPL-2.0**; kubernetes-rs is **Apache-2.0**. MPL is *file-level*
 copyleft: a Rust translation of an MPL file is a derivative of that file, so
 either
 

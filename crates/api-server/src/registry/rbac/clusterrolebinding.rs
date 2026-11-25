@@ -5,17 +5,17 @@
 
 use std::sync::Arc;
 
-use k3rs_common::authz::Authorizer;
-use k3rs_common::resources::ClusterRoleBinding;
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{
+use kubernetes_rs_common::authz::Authorizer;
+use kubernetes_rs_common::resources::ClusterRoleBinding;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{
     name_is_path_segment, validate_object_meta, validate_object_meta_update,
 };
-use k3rs_common::validation::rbac::{
+use kubernetes_rs_common::validation::rbac::{
     default_cluster_role_binding, validate_cluster_role_binding,
     validate_cluster_role_binding_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use super::policybased::{ClusterRoleBindingPolicyBased, PolicyBased};
 use super::rule::DefaultRuleResolver;

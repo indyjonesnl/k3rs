@@ -8,15 +8,15 @@
 //! `CreateVolume`; `GenerateVolumeNodeAffinity` turns the driver's
 //! `accessible_topology` back into the PV's `nodeAffinity`.
 
-use k3rs_common::resources::csi::CSINode;
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::resources::csi::CSINode;
+use kubernetes_rs_common::resources::volume::{
     NodeSelector, NodeSelectorRequirement, NodeSelectorTerm, TopologySelectorTerm,
     VolumeNodeAffinity,
 };
-use k3rs_common::resources::Node;
-use k3rs_common::Error;
-use k3rs_csi::proto::{Topology, TopologyRequirement};
-use k3rs_storage::{build_key, build_prefix, Storage};
+use kubernetes_rs_common::resources::Node;
+use kubernetes_rs_common::Error;
+use kubernetes_rs_csi::proto::{Topology, TopologyRequirement};
+use kubernetes_rs_storage::{build_key, build_prefix, Storage};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Mutex;

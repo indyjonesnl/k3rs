@@ -9,15 +9,15 @@
 //! `ApiLike` models just that registry behaviour on top of `MemoryStorage`.
 
 use async_trait::async_trait;
-use k3rs_common::resources::csi::VolumeAttributesClass;
-use k3rs_common::resources::PersistentVolumeClaim;
-use k3rs_common::{Error, Result};
-use k3rs_controller_manager::controllers::pvc_protection::{
+use kubernetes_rs_common::resources::csi::VolumeAttributesClass;
+use kubernetes_rs_common::resources::PersistentVolumeClaim;
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_controller_manager::controllers::pvc_protection::{
     update_or_reap, PvcProtectionController,
 };
-use k3rs_controller_manager::controllers::vac_protection::VacProtectionController;
-use k3rs_storage::memory::MemoryStorage;
-use k3rs_storage::{build_key, Storage, WatchStream};
+use kubernetes_rs_controller_manager::controllers::vac_protection::VacProtectionController;
+use kubernetes_rs_storage::memory::MemoryStorage;
+use kubernetes_rs_storage::{build_key, Storage, WatchStream};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;

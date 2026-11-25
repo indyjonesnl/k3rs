@@ -7,7 +7,7 @@
 //! Each test mirrors a single `framework.ConformanceIt(...)` block from
 //! `test/e2e/apimachinery/webhook.go` (line numbers preserved in per-test
 //! docstrings). The HTTP layer is exercised via an inline `spawn_router()`
-//! helper that calls `k3rs_api_server::router::build_router` against an
+//! helper that calls `kubernetes_rs_api_server::router::build_router` against an
 //! `ApiServerState` backed by `MemoryStorage` and `AlwaysAllowAuthorizer`.
 //! The webhook *backends* themselves are tiny warp mocks (the same pattern
 //! used by `admission_webhook_e2e_test.rs`) — every webhook configuration
@@ -41,8 +41,8 @@
 //! API's create/update path.
 
 use axum::http::StatusCode;
-use k3rs_api_server::admission_webhook::AdmissionWebhookManager;
-use k3rs_common::{
+use kubernetes_rs_api_server::admission_webhook::AdmissionWebhookManager;
+use kubernetes_rs_common::{
     admission::{
         AdmissionResponse, AdmissionReview, AdmissionReviewResponse, GroupVersionKind,
         GroupVersionResource, Operation, PatchOp, PatchOperation, UserInfo,
@@ -53,9 +53,9 @@ use k3rs_common::{
         ValidatingWebhook, ValidatingWebhookConfiguration, WebhookClientConfig,
     },
 };
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
-use k3rs_test_support::harness::TestApiServer;
-use k3rs_test_support::mock_http::*;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::mock_http::*;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -490,8 +490,8 @@ fn admission_request(
     namespace: Option<&str>,
     name: &str,
     obj: Value,
-) -> k3rs_common::admission::AdmissionReviewRequest {
-    k3rs_common::admission::AdmissionReviewRequest {
+) -> kubernetes_rs_common::admission::AdmissionReviewRequest {
+    kubernetes_rs_common::admission::AdmissionReviewRequest {
         uid: format!("uid-{}", name),
         kind: GroupVersionKind {
             group: api_group.to_string(),
@@ -688,7 +688,7 @@ async fn should_include_webhook_resources_in_discovery_documents() {
 /// contains unwanted container name", "the pod contains unwanted label", "the
 /// configmap contains unwanted key and value") are produced by the e2e
 /// webhook *server*, not by the api-server, so they pin that fixture rather
-/// than any k3rs behaviour. The hanging-pod scenario
+/// than any kubernetes-rs behaviour. The hanging-pod scenario
 /// (webhook.go:1388-1405) asserts a dial timeout and that the pod was not
 /// persisted; the timeout half is covered by `should_honor_timeout`, and the
 /// not-persisted half needs the full HTTP create path rather than the
@@ -725,16 +725,18 @@ async fn should_be_able_to_deny_pod_and_configmap_creation() {
     }
 
     // The namespaceSelector both deny fixtures carry.
-    let deny_selector = k3rs_common::resources::LabelSelector {
+    let deny_selector = kubernetes_rs_common::resources::LabelSelector {
         match_labels: Some(std::collections::HashMap::from([(
             UNIQUE.to_string(),
             "true".to_string(),
         )])),
-        match_expressions: Some(vec![k3rs_common::resources::LabelSelectorRequirement {
-            key: SKIP_LABEL_KEY.to_string(),
-            operator: k3rs_common::resources::LabelSelectorOperator::NotIn,
-            values: Some(vec![SKIP_LABEL_VALUE.to_string()]),
-        }]),
+        match_expressions: Some(vec![
+            kubernetes_rs_common::resources::LabelSelectorRequirement {
+                key: SKIP_LABEL_KEY.to_string(),
+                operator: kubernetes_rs_common::resources::LabelSelectorOperator::NotIn,
+                values: Some(vec![SKIP_LABEL_VALUE.to_string()]),
+            },
+        ]),
     };
 
     // configmaps are matched on CREATE, UPDATE and DELETE upstream.
@@ -755,7 +757,7 @@ async fn should_be_able_to_deny_pod_and_configmap_creation() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-pod-cm"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-pod-cm"),
         webhooks: Some(vec![
             ValidatingWebhook {
                 rules: vec![rule_for("", "v1", "pods")],
@@ -904,7 +906,7 @@ async fn should_be_able_to_deny_attaching_pod() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-attach"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-attach"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![RuleWithOperations {
                 operations: vec![OperationType::Connect],
@@ -1000,7 +1002,7 @@ async fn should_be_able_to_deny_custom_resource_creation_update_and_deletion() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-cr"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-cr"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![RuleWithOperations {
                 operations: vec![
@@ -1192,7 +1194,7 @@ async fn should_unconditionally_reject_operations_on_fail_closed_webhook() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("fail-closed"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("fail-closed"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             timeout_seconds: Some(1),
@@ -1314,7 +1316,7 @@ async fn should_mutate_configmap() {
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("mutate-cm"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("mutate-cm"),
         webhooks: Some(vec![
             MutatingWebhook {
                 rules: vec![rule_for("", "v1", "configmaps")],
@@ -1417,7 +1419,7 @@ async fn should_mutate_pod_and_apply_defaults_after_mutation() {
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("adding-init-container"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("adding-init-container"),
         webhooks: Some(vec![MutatingWebhook {
             rules: vec![rule_for("", "v1", "pods")],
             ..mutating("adding-init-container.k8s.io", url, vec![], None, None)
@@ -1529,7 +1531,7 @@ async fn should_not_be_able_to_mutate_or_prevent_deletion_of_webhook_configurati
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("self-targeting"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("self-targeting"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![rule_for(
                 "admissionregistration.k8s.io",
@@ -1592,7 +1594,7 @@ async fn should_not_be_able_to_mutate_or_prevent_deletion_of_webhook_configurati
     let mutate_everything = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("adding-label"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("adding-label"),
         webhooks: Some(vec![
             MutatingWebhook {
                 rules: vec![rule_for(
@@ -1737,7 +1739,7 @@ async fn should_mutate_custom_resource() {
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("mutate-cr"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("mutate-cr"),
         webhooks: Some(vec![
             MutatingWebhook {
                 rules: vec![rule_for("example.com", "v1", "foos")],
@@ -1836,7 +1838,7 @@ async fn should_deny_crd_creation() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-crd"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-crd"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![rule_for(
                 "apiextensions.k8s.io",
@@ -1951,7 +1953,7 @@ async fn should_mutate_custom_resource_with_different_stored_version() {
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("mutate-cr-vers"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("mutate-cr-vers"),
         webhooks: Some(vec![MutatingWebhook {
             rules: vec![RuleWithOperations {
                 operations: vec![OperationType::Create],
@@ -2037,7 +2039,7 @@ async fn should_honor_timeout() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("slow-fail"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("slow-fail"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             timeout_seconds: Some(1),
@@ -2145,7 +2147,7 @@ async fn should_honor_timeout() {
         let cfg = ValidatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".to_string(),
             kind: "ValidatingWebhookConfiguration".to_string(),
-            metadata: k3rs_common::types::ObjectMeta::new(name),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(name),
             webhooks: Some(vec![ValidatingWebhook {
                 rules: vec![rule_for("", "v1", "configmaps")],
                 timeout_seconds: timeout,
@@ -2243,7 +2245,7 @@ async fn patching_updating_a_validating_webhook_should_work() {
             let cfg = ValidatingWebhookConfiguration {
                 api_version: "admissionregistration.k8s.io/v1".to_string(),
                 kind: "ValidatingWebhookConfiguration".to_string(),
-                metadata: k3rs_common::types::ObjectMeta::new("vwc-patchable"),
+                metadata: kubernetes_rs_common::types::ObjectMeta::new("vwc-patchable"),
                 webhooks: Some(vec![ValidatingWebhook {
                     rules: vec![RuleWithOperations {
                         operations: operations
@@ -2414,7 +2416,7 @@ async fn patching_updating_a_mutating_webhook_should_work() {
             let cfg = MutatingWebhookConfiguration {
                 api_version: "admissionregistration.k8s.io/v1".to_string(),
                 kind: "MutatingWebhookConfiguration".to_string(),
-                metadata: k3rs_common::types::ObjectMeta::new("mwc-patchable"),
+                metadata: kubernetes_rs_common::types::ObjectMeta::new("mwc-patchable"),
                 webhooks: Some(vec![MutatingWebhook {
                     rules: vec![RuleWithOperations {
                         operations: operations
@@ -2807,7 +2809,7 @@ async fn should_be_able_to_create_and_update_validating_webhook_configurations_w
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("vwc-match-cond"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("vwc-match-cond"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             match_conditions: Some(mc.clone()),
@@ -2896,7 +2898,7 @@ async fn should_be_able_to_create_and_update_mutating_webhook_configurations_wit
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("mwc-match-cond"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("mwc-match-cond"),
         webhooks: Some(vec![MutatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             match_conditions: Some(mc.clone()),
@@ -2982,7 +2984,7 @@ async fn should_reject_validating_webhook_configurations_with_invalid_match_cond
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("vwc-invalid-mc"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("vwc-invalid-mc"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             match_conditions: Some(vec![MatchCondition {
@@ -3034,7 +3036,7 @@ async fn should_reject_mutating_webhook_configurations_with_invalid_match_condit
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("mwc-invalid-mc"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("mwc-invalid-mc"),
         webhooks: Some(vec![MutatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             match_conditions: Some(vec![MatchCondition {
@@ -3103,7 +3105,7 @@ async fn should_mutate_everything_except_skip_me_configmaps() {
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("skip-me"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("skip-me"),
         webhooks: Some(vec![MutatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             match_conditions: Some(vec![MatchCondition {
@@ -3192,7 +3194,7 @@ async fn should_deny_configmap_deletion_via_http_handler() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-cm-delete"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-cm-delete"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![delete_rule_for("", "v1", "configmaps")],
             ..validating(
@@ -3218,7 +3220,7 @@ async fn should_deny_configmap_deletion_via_http_handler() {
         "metadata": {"name": "protected", "namespace": "default"},
         "data": {"k": "v"},
     });
-    let cm_typed: k3rs_common::resources::ConfigMap = serde_json::from_value(cm).unwrap();
+    let cm_typed: kubernetes_rs_common::resources::ConfigMap = serde_json::from_value(cm).unwrap();
     mem.create(
         &build_key("configmaps", Some("default"), "protected"),
         &cm_typed,
@@ -3240,7 +3242,7 @@ async fn should_deny_configmap_deletion_via_http_handler() {
     );
 
     // The configmap must still exist (deletion was rejected pre-storage).
-    let still: k3rs_common::resources::ConfigMap = mem
+    let still: kubernetes_rs_common::resources::ConfigMap = mem
         .get(&build_key("configmaps", Some("default"), "protected"))
         .await
         .expect("configmap must survive a denied delete");
@@ -3258,7 +3260,7 @@ async fn should_deny_pod_deletion_via_http_handler() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-pod-delete"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-pod-delete"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![delete_rule_for("", "v1", "pods")],
             ..validating(
@@ -3283,7 +3285,7 @@ async fn should_deny_pod_deletion_via_http_handler() {
         "metadata": {"name": "keepme", "namespace": "default"},
         "spec": {"containers": [{"name": "c", "image": "nginx"}]},
     });
-    let pod_typed: k3rs_common::resources::Pod = serde_json::from_value(pod).unwrap();
+    let pod_typed: kubernetes_rs_common::resources::Pod = serde_json::from_value(pod).unwrap();
     mem.create(&build_key("pods", Some("default"), "keepme"), &pod_typed)
         .await
         .unwrap();
@@ -3296,7 +3298,7 @@ async fn should_deny_pod_deletion_via_http_handler() {
     );
 
     // The pod must still exist with no deletionTimestamp (delete was blocked).
-    let still: k3rs_common::resources::Pod = mem
+    let still: kubernetes_rs_common::resources::Pod = mem
         .get(&build_key("pods", Some("default"), "keepme"))
         .await
         .expect("pod must survive a denied delete");
@@ -3317,7 +3319,7 @@ async fn delete_webhook_scoped_to_other_resource_does_not_block() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-secret-delete"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-secret-delete"),
         webhooks: Some(vec![ValidatingWebhook {
             // Scoped to secrets, NOT configmaps.
             rules: vec![delete_rule_for("", "v1", "secrets")],
@@ -3347,7 +3349,7 @@ async fn delete_webhook_scoped_to_other_resource_does_not_block() {
         "metadata": {"name": "free", "namespace": "default"},
         "data": {},
     });
-    let cm_typed: k3rs_common::resources::ConfigMap = serde_json::from_value(cm).unwrap();
+    let cm_typed: kubernetes_rs_common::resources::ConfigMap = serde_json::from_value(cm).unwrap();
     mem.create(&build_key("configmaps", Some("default"), "free"), &cm_typed)
         .await
         .unwrap();
@@ -3398,7 +3400,7 @@ async fn should_deny_deployment_deletion_via_http_handler() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-deploy-delete"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-deploy-delete"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![delete_rule_for("apps", "v1", "deployments")],
             ..validating(
@@ -3433,7 +3435,8 @@ async fn should_deny_deployment_deletion_via_http_handler() {
             }
         }
     });
-    let typed: k3rs_common::resources::Deployment = serde_json::from_value(deploy).unwrap();
+    let typed: kubernetes_rs_common::resources::Deployment =
+        serde_json::from_value(deploy).unwrap();
     mem.create(
         &build_key("deployments", Some("default"), "my-deploy"),
         &typed,
@@ -3459,7 +3462,7 @@ async fn should_deny_deployment_deletion_via_http_handler() {
     );
 
     // Deployment must still exist.
-    let _: k3rs_common::resources::Deployment = mem
+    let _: kubernetes_rs_common::resources::Deployment = mem
         .get(&build_key("deployments", Some("default"), "my-deploy"))
         .await
         .expect("deployment must survive a denied delete");
@@ -3475,7 +3478,7 @@ async fn should_deny_service_deletion_via_http_handler() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-svc-delete"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-svc-delete"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![delete_rule_for("", "v1", "services")],
             ..validating(
@@ -3500,7 +3503,7 @@ async fn should_deny_service_deletion_via_http_handler() {
         "metadata": {"name": "my-svc", "namespace": "default"},
         "spec": {"selector": {"app": "x"}, "ports": [{"port": 80}]}
     });
-    let typed: k3rs_common::resources::Service = serde_json::from_value(svc).unwrap();
+    let typed: kubernetes_rs_common::resources::Service = serde_json::from_value(svc).unwrap();
     mem.create(&build_key("services", Some("default"), "my-svc"), &typed)
         .await
         .unwrap();
@@ -3517,7 +3520,7 @@ async fn should_deny_service_deletion_via_http_handler() {
         "deny message should carry the webhook reason: {body}"
     );
 
-    let _: k3rs_common::resources::Service = mem
+    let _: kubernetes_rs_common::resources::Service = mem
         .get(&build_key("services", Some("default"), "my-svc"))
         .await
         .expect("service must survive a denied delete");
@@ -3533,7 +3536,7 @@ async fn should_deny_job_deletion_via_http_handler() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-job-delete"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-job-delete"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![delete_rule_for("batch", "v1", "jobs")],
             ..validating(
@@ -3558,7 +3561,7 @@ async fn should_deny_job_deletion_via_http_handler() {
         "metadata": {"name": "my-job", "namespace": "default"},
         "spec": {"template": {"spec": {"containers": [{"name": "c", "image": "busybox"}], "restartPolicy": "Never"}}}
     });
-    let typed: k3rs_common::resources::Job = serde_json::from_value(job).unwrap();
+    let typed: kubernetes_rs_common::resources::Job = serde_json::from_value(job).unwrap();
     mem.create(&build_key("jobs", Some("default"), "my-job"), &typed)
         .await
         .unwrap();
@@ -3576,7 +3579,7 @@ async fn should_deny_job_deletion_via_http_handler() {
         "deny message should carry the webhook reason: {body}"
     );
 
-    let _: k3rs_common::resources::Job = mem
+    let _: kubernetes_rs_common::resources::Job = mem
         .get(&build_key("jobs", Some("default"), "my-job"))
         .await
         .expect("job must survive a denied delete");
@@ -3592,7 +3595,7 @@ async fn should_deny_namespace_deletion_via_http_handler() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-ns-delete"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-ns-delete"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![delete_rule_for("", "v1", "namespaces")],
             ..validating(
@@ -3616,7 +3619,7 @@ async fn should_deny_namespace_deletion_via_http_handler() {
         "kind": "Namespace",
         "metadata": {"name": "my-ns"},
     });
-    let typed: k3rs_common::resources::Namespace = serde_json::from_value(ns).unwrap();
+    let typed: kubernetes_rs_common::resources::Namespace = serde_json::from_value(ns).unwrap();
     mem.create(&build_key("namespaces", None, "my-ns"), &typed)
         .await
         .unwrap();
@@ -3634,7 +3637,7 @@ async fn should_deny_namespace_deletion_via_http_handler() {
         "deny message should carry the webhook reason: {body}"
     );
 
-    let _: k3rs_common::resources::Namespace = mem
+    let _: kubernetes_rs_common::resources::Namespace = mem
         .get(&build_key("namespaces", None, "my-ns"))
         .await
         .expect("namespace must survive a denied delete");
@@ -3650,7 +3653,7 @@ async fn delete_webhook_scoped_to_secrets_does_not_block_deployment_delete() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-secret-not-deploy"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-secret-not-deploy"),
         webhooks: Some(vec![ValidatingWebhook {
             // Scoped to secrets, NOT deployments.
             rules: vec![delete_rule_for("", "v1", "secrets")],
@@ -3686,7 +3689,8 @@ async fn delete_webhook_scoped_to_secrets_does_not_block_deployment_delete() {
             }
         }
     });
-    let typed: k3rs_common::resources::Deployment = serde_json::from_value(deploy).unwrap();
+    let typed: kubernetes_rs_common::resources::Deployment =
+        serde_json::from_value(deploy).unwrap();
     mem.create(
         &build_key("deployments", Some("default"), "free-deploy"),
         &typed,
@@ -3733,7 +3737,7 @@ async fn mutating_webhook_mutates_configmap_through_http_create() {
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("mutate-cm-http"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("mutate-cm-http"),
         webhooks: Some(vec![MutatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             ..mutating(
@@ -3768,7 +3772,7 @@ async fn mutating_webhook_mutates_configmap_through_http_create() {
     );
 
     // Crucially: the PERSISTED object must also carry the mutation.
-    let stored: k3rs_common::resources::ConfigMap = mem
+    let stored: kubernetes_rs_common::resources::ConfigMap = mem
         .get(&build_key("configmaps", Some("default"), "cm-http"))
         .await
         .expect("configmap must be stored");
@@ -3794,7 +3798,7 @@ async fn mutating_webhook_mutates_pod_through_http_create() {
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("mutate-pod-http"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("mutate-pod-http"),
         webhooks: Some(vec![MutatingWebhook {
             rules: vec![rule_for("", "v1", "pods")],
             ..mutating(
@@ -3832,7 +3836,7 @@ async fn mutating_webhook_mutates_pod_through_http_create() {
         "pod response must carry the webhook-injected label: {body}"
     );
 
-    let stored: k3rs_common::resources::Pod = mem
+    let stored: kubernetes_rs_common::resources::Pod = mem
         .get(&build_key("pods", Some("default"), "pod-http"))
         .await
         .expect("pod must be stored");
@@ -3859,7 +3863,7 @@ async fn validating_webhook_denies_configmap_through_http_create() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-cm-create-http"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-cm-create-http"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             ..validating(
@@ -3901,7 +3905,7 @@ async fn validating_webhook_denies_configmap_through_http_create() {
         "deny message must carry the webhook reason: {body}"
     );
     assert!(
-        mem.get::<k3rs_common::resources::ConfigMap>(&build_key(
+        mem.get::<kubernetes_rs_common::resources::ConfigMap>(&build_key(
             "configmaps",
             Some("default"),
             "denied-cm"
@@ -3921,7 +3925,7 @@ async fn validating_webhook_denies_pod_through_http_create() {
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("deny-pod-create-http"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("deny-pod-create-http"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![rule_for("", "v1", "pods")],
             ..validating(
@@ -3965,9 +3969,13 @@ async fn validating_webhook_denies_pod_through_http_create() {
         "deny message must carry the webhook reason: {body}"
     );
     assert!(
-        mem.get::<k3rs_common::resources::Pod>(&build_key("pods", Some("default"), "denied-pod"))
-            .await
-            .is_err(),
+        mem.get::<kubernetes_rs_common::resources::Pod>(&build_key(
+            "pods",
+            Some("default"),
+            "denied-pod"
+        ))
+        .await
+        .is_err(),
         "denied pod must NOT be persisted"
     );
 }
@@ -3984,7 +3992,7 @@ async fn fail_closed_validating_webhook_rejects_configmap_create_when_unreachabl
     let cfg = ValidatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "ValidatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("fail-closed-cm"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("fail-closed-cm"),
         webhooks: Some(vec![ValidatingWebhook {
             rules: vec![rule_for("", "v1", "configmaps")],
             ..validating(
@@ -4016,7 +4024,7 @@ async fn fail_closed_validating_webhook_rejects_configmap_create_when_unreachabl
         "fail-closed webhook with unreachable backend must block the create, got {status}"
     );
     assert!(
-        mem.get::<k3rs_common::resources::ConfigMap>(&build_key(
+        mem.get::<kubernetes_rs_common::resources::ConfigMap>(&build_key(
             "configmaps",
             Some("default"),
             "fail-closed-cm-obj"
@@ -4041,7 +4049,7 @@ async fn object_selector_skips_webhook_for_nonmatching_configmap() {
         ..mutating("skip.cm.io", url, vec![], Some(FailurePolicy::Fail), None)
     };
     // Only fire for configmaps labelled mutate=please.
-    webhook.object_selector = Some(k3rs_common::resources::LabelSelector {
+    webhook.object_selector = Some(kubernetes_rs_common::resources::LabelSelector {
         match_labels: Some(
             [("mutate".to_string(), "please".to_string())]
                 .into_iter()
@@ -4053,7 +4061,7 @@ async fn object_selector_skips_webhook_for_nonmatching_configmap() {
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("skip-cm"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("skip-cm"),
         webhooks: Some(vec![webhook]),
     };
     mem.create(
@@ -4077,7 +4085,7 @@ async fn object_selector_skips_webhook_for_nonmatching_configmap() {
         body["metadata"]["labels"]["should-not-appear"].is_null(),
         "webhook must be skipped for non-matching objectSelector: {body}"
     );
-    let stored: k3rs_common::resources::ConfigMap = mem
+    let stored: kubernetes_rs_common::resources::ConfigMap = mem
         .get(&build_key("configmaps", Some("default"), "skip-me"))
         .await
         .expect("configmap must be stored");
@@ -4131,7 +4139,7 @@ async fn start_mutator_remove_data(key: String) -> (String, oneshot::Sender<()>)
 async fn mutating_webhook_patch_of_a_cr_is_defaulted_before_the_next_webhook() {
     let mem = Arc::new(MemoryStorage::new());
     let manager = AdmissionWebhookManager::new(mem.clone());
-    let crd: k3rs_common::resources::CustomResourceDefinition = serde_json::from_value(json!({
+    let crd: kubernetes_rs_common::resources::CustomResourceDefinition = serde_json::from_value(json!({
         "apiVersion": "apiextensions.k8s.io/v1",
         "kind": "CustomResourceDefinition",
         "metadata": {"name": "foos.example.com"},
@@ -4167,7 +4175,7 @@ async fn mutating_webhook_patch_of_a_cr_is_defaulted_before_the_next_webhook() {
     let cfg = MutatingWebhookConfiguration {
         api_version: "admissionregistration.k8s.io/v1".to_string(),
         kind: "MutatingWebhookConfiguration".to_string(),
-        metadata: k3rs_common::types::ObjectMeta::new("mutate-cr-default"),
+        metadata: kubernetes_rs_common::types::ObjectMeta::new("mutate-cr-default"),
         webhooks: Some(vec![
             MutatingWebhook {
                 rules: vec![rule_for("example.com", "v1", "foos")],

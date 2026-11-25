@@ -1,29 +1,29 @@
 [package]
-name = "k3rs-dns"
+name = "kubernetes-rs-dns"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [lib]
-name = "k3rs_dns"
+name = "kubernetes_rs_dns"
 path = "src/lib.rs"
 
 [[bin]]
-name = "k3rs-dns"
+name = "kubernetes-rs-dns"
 path = "src/main.rs"
 
 [features]
 mimalloc = ["dep:mimalloc"]
 default = []
-sqlite = ["k3rs-storage/sqlite"]
-redis = ["k3rs-storage/redis"]
+sqlite = ["kubernetes-rs-storage/sqlite"]
+redis = ["kubernetes-rs-storage/redis"]
 
 [dependencies]
 mimalloc = { version = "0.1", optional = true }
-k3rs-common = { path = "../common" }
-k3rs-storage = { path = "../storage" }
-k3rs-client = { path = "../client" }
+kubernetes-rs-common = { path = "../common" }
+kubernetes-rs-storage = { path = "../storage" }
+kubernetes-rs-client = { path = "../client" }
 tokio.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true

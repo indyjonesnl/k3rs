@@ -23,7 +23,7 @@
 //! typed struct it unmarshalled into, so `intstr.IntOrString` with
 //! `Type: Int` marshals as a number
 //! (`staging/src/k8s.io/apimachinery/pkg/util/intstr/intstr.go`,
-//! `MarshalJSON`). k3rs has one hand-written struct per resource, so a
+//! `MarshalJSON`). kubernetes-rs has one hand-written struct per resource, so a
 //! mistyped field is a silent, per-field lie about the wire format.
 //!
 //! Note the fixtures deliberately spell every `Quantity` as a string
@@ -61,7 +61,7 @@
 //! but no read-back and no `creationTimestamp` — a distinction taken from the
 //! server's own verb list, not from a hand-kept exception list.
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 

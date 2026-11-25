@@ -4,14 +4,14 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::csi::VolumeAttachmentStatus;
-use k3rs_common::resources::VolumeAttachment;
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
-use k3rs_common::validation::volumeattachment::{
+use kubernetes_rs_common::resources::csi::VolumeAttachmentStatus;
+use kubernetes_rs_common::resources::VolumeAttachment;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
+use kubernetes_rs_common::validation::volumeattachment::{
     validate_volume_attachment, validate_volume_attachment_update, validate_volume_attachment_v1,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

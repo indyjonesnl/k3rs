@@ -1,8 +1,8 @@
 //! Tests for CSIDriver validation (port of upstream `ValidateCSIDriver`).
 
-use k3rs_common::resources::csi::{CSIDriver, CSIDriverSpec, TokenRequest};
-use k3rs_common::validation::csidriver::validate_csi_driver;
-use k3rs_common::validation::field::ErrorType;
+use kubernetes_rs_common::resources::csi::{CSIDriver, CSIDriverSpec, TokenRequest};
+use kubernetes_rs_common::validation::csidriver::validate_csi_driver;
+use kubernetes_rs_common::validation::field::ErrorType;
 
 fn driver(spec: CSIDriverSpec) -> CSIDriver {
     let mut d = CSIDriver {
@@ -36,7 +36,7 @@ fn tr(audience: &str, expiration: Option<i64>) -> TokenRequest {
     }
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], field_substr: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], field_substr: &str) -> bool {
     errs.iter().any(|e| e.field.contains(field_substr))
 }
 

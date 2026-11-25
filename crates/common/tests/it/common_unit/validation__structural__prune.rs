@@ -2,13 +2,13 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::validation::structural::Structural;
+    pub use kubernetes_rs_common::validation::structural::Structural;
     pub use serde_json::Value;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::validation::structural::prune::*;
+    use kubernetes_rs_common::validation::structural::prune::*;
     use serde_json::json;
     use std::collections::BTreeMap;
 

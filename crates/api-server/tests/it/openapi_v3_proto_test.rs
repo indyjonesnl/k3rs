@@ -16,8 +16,8 @@
 //! `StorageBackend::Memory`, driven via `tower::ServiceExt::oneshot`).
 
 use axum::http::{header, StatusCode};
-use k3rs_api_server::gnostic::openapi_v3::Document;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_api_server::gnostic::openapi_v3::Document;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use prost::Message;
 
 // ---------------------------------------------------------------------------

@@ -2,18 +2,18 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::csi::{CSIDriver, FSGroupPolicy, VolumeLifecycleMode};
-    pub use k3rs_common::validation::field::{Error, ErrorList, Path};
-    pub use k3rs_common::validation::objectmeta::validate_immutable_field;
+    pub use kubernetes_rs_common::resources::csi::{CSIDriver, FSGroupPolicy, VolumeLifecycleMode};
+    pub use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::objectmeta::validate_immutable_field;
     pub use std::collections::HashSet;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::csi::{CSIDriverSpec, TokenRequest};
-    use k3rs_common::types::{ObjectMeta, TypeMeta};
-    use k3rs_common::validation::csidriver::*;
-    use k3rs_common::validation::field::ErrorType;
+    use kubernetes_rs_common::resources::csi::{CSIDriverSpec, TokenRequest};
+    use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+    use kubernetes_rs_common::validation::csidriver::*;
+    use kubernetes_rs_common::validation::field::ErrorType;
 
     /// A spec that passes every create-time rule, so each test can mutate one
     /// field and assert the single resulting error.

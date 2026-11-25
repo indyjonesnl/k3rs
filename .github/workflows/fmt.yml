@@ -8,10 +8,9 @@ on:
 jobs:
   fmt:
     name: Verify formatting with cargo fmt
-    # Runs on the light-tier `arc-runner-set-small` self-hosted scale
-    # set, which ships rustup + rustfmt + jq preinstalled; fmt peaks
-    # well under 100 MiB.
-    runs-on: arc-runner-set-small
+    # Runs on the local ephemeral runner (ci/local-runner), which ships
+    # rustup + rustfmt + jq preinstalled; fmt peaks well under 100 MiB.
+    runs-on: [self-hosted, kubernetes-rs]
     steps:
       - name: Checkout repository
         # fetch-depth: 0 so the change-detection diff below can reach the PR

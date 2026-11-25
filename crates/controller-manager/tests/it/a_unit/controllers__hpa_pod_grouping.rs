@@ -3,19 +3,19 @@
 
 mod __parent {
     pub use chrono::{DateTime, Duration, Utc};
-    pub use k3rs_common::resources::pod::Pod;
-    pub use k3rs_common::types::Phase;
-    pub use k3rs_controller_manager::controllers::hpa_metrics_client::PodMetricsInfo;
+    pub use kubernetes_rs_common::resources::pod::Pod;
+    pub use kubernetes_rs_common::types::Phase;
+    pub use kubernetes_rs_controller_manager::controllers::hpa_metrics_client::PodMetricsInfo;
     pub use std::collections::HashSet;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::pod::{PodCondition, PodStatus};
-    use k3rs_controller_manager::controllers::hpa_pod_grouping::*;
+    use kubernetes_rs_common::resources::pod::{PodCondition, PodStatus};
+    use kubernetes_rs_controller_manager::controllers::hpa_pod_grouping::*;
 
     fn metrics(names: &[&str]) -> PodMetricsInfo {
-        k3rs_controller_manager::controllers::hpa_metrics_client::FakeMetricsClient::pods_info(
+        kubernetes_rs_controller_manager::controllers::hpa_metrics_client::FakeMetricsClient::pods_info(
             &names
                 .iter()
                 .map(|n| (*n, 0i64, Some(50)))

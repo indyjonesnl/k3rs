@@ -2,7 +2,7 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::resources::{
         CustomResourceDefinition, CustomResourceDefinitionCondition, CustomResourceDefinitionNames,
         CustomResourceDefinitionStatus,
     };
@@ -11,7 +11,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::apiextensions::controllers::*;
+    use kubernetes_rs_api_server::registry::apiextensions::controllers::*;
 
     fn crd(name: &str) -> CustomResourceDefinition {
         let (plural, group) = name.split_once('.').unwrap();

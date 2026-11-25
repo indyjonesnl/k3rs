@@ -1,5 +1,5 @@
 /// Concurrency control module for optimistic locking with resourceVersion
-use k3rs_common::Error;
+use kubernetes_rs_common::Error;
 
 /// Extract resourceVersion from metadata.
 ///

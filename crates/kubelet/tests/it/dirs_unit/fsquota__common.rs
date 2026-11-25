@@ -12,7 +12,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::fsquota::common::*;
+    use kubernetes_rs_kubelet::fsquota::common::*;
 
     #[test]
     fn max_quota_matches_upstream_on_64_bit() {

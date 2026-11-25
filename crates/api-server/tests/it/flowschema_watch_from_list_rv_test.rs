@@ -23,7 +23,7 @@
 //! `staging/src/k8s.io/apiserver/pkg/storage/cacher/cache_watcher.go`).
 
 use futures::StreamExt;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::time::timeout;

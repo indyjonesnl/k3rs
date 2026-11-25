@@ -85,21 +85,23 @@
 use super::pv_binder::is_pod_terminated;
 use anyhow::Result;
 use futures::StreamExt;
-use k3rs_common::csi_migration::{translate_in_tree_spec_to_csi, PluginManager, VolumeSpec};
-use k3rs_common::csi_translation::CsiTranslator;
-use k3rs_common::resources::csi::{
+use kubernetes_rs_common::csi_migration::{
+    translate_in_tree_spec_to_csi, PluginManager, VolumeSpec,
+};
+use kubernetes_rs_common::csi_translation::CsiTranslator;
+use kubernetes_rs_common::resources::csi::{
     CSIDriver, CSINode, VolumeAttachment, VolumeAttachmentSource, VolumeAttachmentSpec,
 };
-use k3rs_common::resources::node::AttachedVolume;
-use k3rs_common::resources::service_account::ObjectReference;
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::resources::node::AttachedVolume;
+use kubernetes_rs_common::resources::service_account::ObjectReference;
+use kubernetes_rs_common::resources::volume::{
     PersistentVolumeAccessMode, PersistentVolumeClaimPhase, PersistentVolumeSpec,
 };
-use k3rs_common::resources::{EventSource, EventType};
-use k3rs_common::resources::{Node, PersistentVolume, PersistentVolumeClaim, Pod};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_common::Error;
-use k3rs_storage::{build_key, build_prefix, EventRecorder, Storage};
+use kubernetes_rs_common::resources::{EventSource, EventType};
+use kubernetes_rs_common::resources::{Node, PersistentVolume, PersistentVolumeClaim, Pod};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_common::Error;
+use kubernetes_rs_storage::{build_key, build_prefix, EventRecorder, Storage};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};

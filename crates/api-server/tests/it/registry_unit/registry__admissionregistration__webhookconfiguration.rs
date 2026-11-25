@@ -2,21 +2,23 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_common::cel::compile_failure;
-    pub use k3rs_common::cel_env::{output_type_failure, ExpectedOutput};
-    pub use k3rs_common::cel_versions::{self, EnvSet, EnvType};
-    pub use k3rs_common::resources::admission_webhook::MatchCondition;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::cel::compile_failure;
+    pub use kubernetes_rs_common::cel_env::{output_type_failure, ExpectedOutput};
+    pub use kubernetes_rs_common::cel_versions::{self, EnvSet, EnvType};
+    pub use kubernetes_rs_common::resources::admission_webhook::MatchCondition;
+    pub use kubernetes_rs_common::resources::{
         MutatingWebhookConfiguration, ValidatingWebhookConfiguration,
     };
-    pub use k3rs_common::validation::field::{Error, ErrorList, Path};
-    pub use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
-    pub use k3rs_common::validation::webhookconfiguration::{
+    pub use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::objectmeta::{
+        name_is_dns_subdomain, validate_object_meta,
+    };
+    pub use kubernetes_rs_common::validation::webhookconfiguration::{
         find_mutating_preexisting_expressions, find_validating_preexisting_expressions,
         ignore_mutating_webhook_match_conditions, ignore_validating_webhook_match_conditions,
         set_defaults_mutating_webhook_configuration, set_defaults_validating_webhook_configuration,
@@ -24,14 +26,14 @@ mod __parent {
         validate_validating_webhook_configuration,
         validate_validating_webhook_configuration_update, PreexistingExpressions,
     };
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod preexisting_expression_tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::admissionregistration::webhookconfiguration::*;
-    use k3rs_common::feature_gates::Version;
+    use kubernetes_rs_api_server::registry::admissionregistration::webhookconfiguration::*;
+    use kubernetes_rs_common::feature_gates::Version;
     use serde_json::json;
 
     const SEMVER: &str = "semver('1.2.3').major() > 0";

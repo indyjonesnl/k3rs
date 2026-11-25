@@ -6,17 +6,17 @@
 //! over `model.SchemaDeclType` and the `sizeEstimator`) and `MaxCardinality`
 //! (`maxCardinality(declType.MinSerializedSize)`). This test replays the
 //! checked-in corpus through the shadow estimator
-//! ([`k3rs_common::cel_checker_shadow::estimate_rule_cost`]),
+//! ([`kubernetes_rs_common::cel_checker_shadow::estimate_rule_cost`]),
 //! [`schema_decl_type`] and [`max_cardinality`] and compares. It needs no Go:
 //! regenerate the goldens with `tools/cel-oracle/gen-goldens.sh`.
 
-use k3rs_common::cel_checker_shadow::{check_rule_output, estimate_rule_cost, SelfScope};
-use k3rs_common::cel_crd_cost::max_cardinality;
-use k3rs_common::cel_env::ExpectedOutput;
-use k3rs_common::cel_schema_types::schema_decl_type;
-use k3rs_common::cel_versions::{EnvSet, EnvType};
-use k3rs_common::feature_gates::Version;
-use k3rs_common::resources::crd::JSONSchemaProps;
+use kubernetes_rs_common::cel_checker_shadow::{check_rule_output, estimate_rule_cost, SelfScope};
+use kubernetes_rs_common::cel_crd_cost::max_cardinality;
+use kubernetes_rs_common::cel_env::ExpectedOutput;
+use kubernetes_rs_common::cel_schema_types::schema_decl_type;
+use kubernetes_rs_common::cel_versions::{EnvSet, EnvType};
+use kubernetes_rs_common::feature_gates::Version;
+use kubernetes_rs_common::resources::crd::JSONSchemaProps;
 use serde_json::Value;
 
 const GOLDENS: &str = include_str!("../corpus/crd_goldens.jsonl");

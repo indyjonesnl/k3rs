@@ -27,7 +27,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - date; echo "Hello from k3rs CronJob!"
+            - date; echo "Hello from kubernetes-rs CronJob!"
             resources:
               requests:
                 memory: "32Mi"

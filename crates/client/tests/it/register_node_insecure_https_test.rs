@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
-use k3rs_client::config::ClientConfig;
-use k3rs_client::http::ApiClient;
+use kubernetes_rs_client::config::ClientConfig;
+use kubernetes_rs_client::http::ApiClient;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

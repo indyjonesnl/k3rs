@@ -4,10 +4,10 @@
 mod __parent {
     pub use anyhow::Result;
     pub use chrono::{DateTime, Duration as ChronoDuration, Utc};
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::resources::{
         CertificateSigningRequest, CertificateSigningRequestCondition,
     };
-    pub use k3rs_storage::{build_key, build_prefix, Storage};
+    pub use kubernetes_rs_storage::{build_key, build_prefix, Storage};
     pub use std::sync::Arc;
     pub use std::time::Duration;
     pub use tracing::{error, info};
@@ -15,10 +15,10 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::CertificateSigningRequestStatus;
-    use k3rs_common::types::ObjectMeta;
-    use k3rs_controller_manager::controllers::csr_cleaner::*;
-    use k3rs_storage::MemoryStorage;
+    use kubernetes_rs_common::resources::CertificateSigningRequestStatus;
+    use kubernetes_rs_common::types::ObjectMeta;
+    use kubernetes_rs_controller_manager::controllers::csr_cleaner::*;
+    use kubernetes_rs_storage::MemoryStorage;
 
     // Verbatim from cleaner_test.go:34-65.
     const EXPIRED_CERT: &str = "-----BEGIN CERTIFICATE-----

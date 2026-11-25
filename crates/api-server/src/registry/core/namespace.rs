@@ -6,16 +6,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k3rs_common::deletion::{DeleteOptions, Preconditions};
-use k3rs_common::resources::{Namespace, NamespaceSpec, NamespaceStatus};
-use k3rs_common::types::{DeletionPropagation, Phase};
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::namespace::{
+use kubernetes_rs_common::deletion::{DeleteOptions, Preconditions};
+use kubernetes_rs_common::resources::{Namespace, NamespaceSpec, NamespaceStatus};
+use kubernetes_rs_common::types::{DeletionPropagation, Phase};
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::namespace::{
     validate_namespace, validate_namespace_finalize_update, validate_namespace_status_update,
     validate_namespace_update,
 };
-use k3rs_common::Result;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::Result;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::{CreateOptions, Deleted, Store, UpdateOptions};
 use crate::registry::rest::{

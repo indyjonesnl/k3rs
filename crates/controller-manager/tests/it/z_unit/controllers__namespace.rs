@@ -5,9 +5,11 @@ mod __parent {
     pub use anyhow::Result;
     pub use chrono::Utc;
     pub use futures::StreamExt;
-    pub use k3rs_common::resources::{Namespace, NamespaceCondition, NamespaceStatus, Pod};
-    pub use k3rs_common::types::Phase;
-    pub use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
+    pub use kubernetes_rs_common::resources::{
+        Namespace, NamespaceCondition, NamespaceStatus, Pod,
+    };
+    pub use kubernetes_rs_common::types::Phase;
+    pub use kubernetes_rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
     pub use std::collections::BTreeMap;
     pub use std::sync::Arc;
     pub use std::time::Duration;
@@ -16,8 +18,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_controller_manager::controllers::namespace::*;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_controller_manager::controllers::namespace::*;
+    use kubernetes_rs_storage::memory::MemoryStorage;
 
     fn set_namespace_finalizers(namespace: &mut Namespace, finalizers: Vec<String>) {
         namespace
@@ -642,19 +644,19 @@ mod tests {
 
         #[async_trait::async_trait]
         impl Storage for SlowStorage {
-            async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+            async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
             where
                 T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
             {
                 self.inner.create(key, value).await
             }
-            async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+            async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
             where
                 T: serde::de::DeserializeOwned + Send + Sync,
             {
                 self.inner.get(key).await
             }
-            async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+            async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
             where
                 T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
             {
@@ -664,13 +666,13 @@ mod tests {
                 &self,
                 key: &str,
                 value: &serde_json::Value,
-            ) -> k3rs_common::Result<()> {
+            ) -> kubernetes_rs_common::Result<()> {
                 self.inner.update_raw(key, value).await
             }
-            async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+            async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
                 self.inner.delete(key).await
             }
-            async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+            async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
             where
                 T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
             {
@@ -685,20 +687,26 @@ mod tests {
                 }
                 self.inner.list(prefix).await
             }
-            async fn watch(&self, prefix: &str) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+            async fn watch(
+                &self,
+                prefix: &str,
+            ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
                 self.inner.watch(prefix).await
             }
             async fn watch_from_revision(
                 &self,
                 prefix: &str,
                 revision: i64,
-            ) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+            ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
                 self.inner.watch_from_revision(prefix, revision).await
             }
-            async fn current_revision(&self) -> k3rs_common::Result<i64> {
+            async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
                 self.inner.current_revision().await
             }
-            async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+            async fn is_revision_compacted(
+                &self,
+                revision: i64,
+            ) -> kubernetes_rs_common::Result<bool> {
                 self.inner.is_revision_compacted(revision).await
             }
         }
@@ -714,11 +722,11 @@ mod tests {
 
         for i in 0..NAMESPACES {
             let name = format!("terminating-{i}");
-            let mut meta = k3rs_common::types::ObjectMeta::new(name.clone());
+            let mut meta = kubernetes_rs_common::types::ObjectMeta::new(name.clone());
             meta.deletion_timestamp = Some(chrono::Utc::now());
             meta.uid = format!("{name}-uid");
             let ns = Namespace {
-                type_meta: k3rs_common::types::TypeMeta {
+                type_meta: kubernetes_rs_common::types::TypeMeta {
                     kind: "Namespace".to_string(),
                     api_version: "v1".to_string(),
                 },
@@ -771,19 +779,19 @@ mod tests {
 
         #[async_trait::async_trait]
         impl Storage for SlowStorage {
-            async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+            async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
             where
                 T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
             {
                 self.inner.create(key, value).await
             }
-            async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+            async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
             where
                 T: serde::de::DeserializeOwned + Send + Sync,
             {
                 self.inner.get(key).await
             }
-            async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+            async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
             where
                 T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
             {
@@ -793,13 +801,13 @@ mod tests {
                 &self,
                 key: &str,
                 value: &serde_json::Value,
-            ) -> k3rs_common::Result<()> {
+            ) -> kubernetes_rs_common::Result<()> {
                 self.inner.update_raw(key, value).await
             }
-            async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+            async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
                 self.inner.delete(key).await
             }
-            async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+            async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
             where
                 T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
             {
@@ -814,20 +822,26 @@ mod tests {
                 }
                 self.inner.list(prefix).await
             }
-            async fn watch(&self, prefix: &str) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+            async fn watch(
+                &self,
+                prefix: &str,
+            ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
                 self.inner.watch(prefix).await
             }
             async fn watch_from_revision(
                 &self,
                 prefix: &str,
                 revision: i64,
-            ) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+            ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
                 self.inner.watch_from_revision(prefix, revision).await
             }
-            async fn current_revision(&self) -> k3rs_common::Result<i64> {
+            async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
                 self.inner.current_revision().await
             }
-            async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+            async fn is_revision_compacted(
+                &self,
+                revision: i64,
+            ) -> kubernetes_rs_common::Result<bool> {
                 self.inner.is_revision_compacted(revision).await
             }
         }
@@ -843,11 +857,11 @@ mod tests {
 
         for i in 0..NAMESPACES {
             let name = format!("terminating-{i}");
-            let mut meta = k3rs_common::types::ObjectMeta::new(name.clone());
+            let mut meta = kubernetes_rs_common::types::ObjectMeta::new(name.clone());
             meta.deletion_timestamp = Some(chrono::Utc::now());
             meta.uid = format!("{name}-uid");
             let ns = Namespace {
-                type_meta: k3rs_common::types::TypeMeta {
+                type_meta: kubernetes_rs_common::types::TypeMeta {
                     kind: "Namespace".to_string(),
                     api_version: "v1".to_string(),
                 },
@@ -905,19 +919,19 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Storage for CollectionStorage {
-        async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+        async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.create(key, value).await
         }
-        async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+        async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
         where
             T: serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.get(key).await
         }
-        async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+        async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
@@ -927,18 +941,18 @@ mod tests {
             &self,
             key: &str,
             value: &serde_json::Value,
-        ) -> k3rs_common::Result<()> {
+        ) -> kubernetes_rs_common::Result<()> {
             self.inner.update_raw(key, value).await
         }
-        async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+        async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
             self.single_deletes.lock().unwrap().push(key.to_string());
             self.inner.delete(key).await
         }
-        async fn delete_gracefully(&self, key: &str) -> k3rs_common::Result<()> {
+        async fn delete_gracefully(&self, key: &str) -> kubernetes_rs_common::Result<()> {
             self.graceful_deletes.lock().unwrap().push(key.to_string());
             self.inner.delete_gracefully(key).await
         }
-        async fn delete_collection(&self, prefix: &str) -> k3rs_common::Result<bool> {
+        async fn delete_collection(&self, prefix: &str) -> kubernetes_rs_common::Result<bool> {
             self.collection_calls
                 .lock()
                 .unwrap()
@@ -961,26 +975,29 @@ mod tests {
             }
             Ok(true)
         }
-        async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+        async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.list(prefix).await
         }
-        async fn watch(&self, prefix: &str) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        async fn watch(
+            &self,
+            prefix: &str,
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch(prefix).await
         }
         async fn watch_from_revision(
             &self,
             prefix: &str,
             revision: i64,
-        ) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch_from_revision(prefix, revision).await
         }
-        async fn current_revision(&self) -> k3rs_common::Result<i64> {
+        async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
             self.inner.current_revision().await
         }
-        async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+        async fn is_revision_compacted(&self, revision: i64) -> kubernetes_rs_common::Result<bool> {
             self.inner.is_revision_compacted(revision).await
         }
     }

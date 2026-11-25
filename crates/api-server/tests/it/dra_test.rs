@@ -6,7 +6,7 @@
 //! - DeviceClass (cluster-scoped)
 //! - ResourceSlice (cluster-scoped)
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     AllocationResult, CELDeviceSelector, Device, DeviceAllocationMode, DeviceAllocationResult,
     DeviceClaim, DeviceClass, DeviceClassConfiguration, DeviceClassSpec, DeviceRequest,
     DeviceSelector, ExactDeviceRequest, ResourceClaim, ResourceClaimSpec, ResourceClaimStatus,
@@ -19,7 +19,7 @@ fn test_resourceclaim_serialization() {
     let claim = ResourceClaim {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "ResourceClaim".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "test-claim".to_string(),
             namespace: Some("default".to_string()),
             uid: "test-uid-123".to_string(),
@@ -66,7 +66,7 @@ fn test_resourceclaim_with_allocation_modes() {
     let claim = ResourceClaim {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "ResourceClaim".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "multi-gpu-claim".to_string(),
             namespace: Some("default".to_string()),
             ..Default::default()
@@ -114,7 +114,7 @@ fn test_resourceclaim_status() {
     let claim = ResourceClaim {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "ResourceClaim".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "test-claim-status".to_string(),
             namespace: Some("default".to_string()),
             ..Default::default()
@@ -125,14 +125,16 @@ fn test_resourceclaim_status() {
         status: Some(ResourceClaimStatus {
             allocation: Some(AllocationResult {
                 devices: DeviceAllocationResult {
-                    results: vec![k3rs_common::resources::dra::DeviceRequestAllocationResult {
-                        request: "gpu-req".to_string(),
-                        driver: "gpu-driver.example.com".to_string(),
-                        pool: "gpu-pool-1".to_string(),
-                        device: "gpu-0".to_string(),
-                        admin_access: None,
-                        ..Default::default()
-                    }],
+                    results: vec![
+                        kubernetes_rs_common::resources::dra::DeviceRequestAllocationResult {
+                            request: "gpu-req".to_string(),
+                            driver: "gpu-driver.example.com".to_string(),
+                            pool: "gpu-pool-1".to_string(),
+                            device: "gpu-0".to_string(),
+                            admin_access: None,
+                            ..Default::default()
+                        },
+                    ],
                     config: vec![],
                 },
                 node_selector: None,
@@ -163,14 +165,14 @@ fn test_resourceclaimtemplate_serialization() {
     let template = ResourceClaimTemplate {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "ResourceClaimTemplate".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "test-template".to_string(),
             namespace: Some("default".to_string()),
             uid: "template-uid-456".to_string(),
             ..Default::default()
         },
         spec: ResourceClaimTemplateSpec {
-            metadata: k3rs_common::resources::dra::ObjectMeta {
+            metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
                 labels: Some(
                     vec![
                         ("app".to_string(), "ml-workload".to_string()),
@@ -228,7 +230,7 @@ fn test_deviceclass_serialization() {
     let device_class = DeviceClass {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "DeviceClass".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "nvidia-gpu-a100".to_string(),
             uid: "deviceclass-uid-789".to_string(),
             ..Default::default()
@@ -278,7 +280,7 @@ fn test_deviceclass_with_suitable_nodes() {
     let device_class = DeviceClass {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "DeviceClass".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "high-memory-gpu".to_string(),
             ..Default::default()
         },
@@ -289,10 +291,10 @@ fn test_deviceclass_with_suitable_nodes() {
                 }),
             }],
             config: vec![],
-            suitable_nodes: Some(k3rs_common::resources::NodeSelector {
-                node_selector_terms: vec![k3rs_common::resources::NodeSelectorTerm {
+            suitable_nodes: Some(kubernetes_rs_common::resources::NodeSelector {
+                node_selector_terms: vec![kubernetes_rs_common::resources::NodeSelectorTerm {
                     match_expressions: Some(vec![
-                        k3rs_common::resources::NodeSelectorRequirement {
+                        kubernetes_rs_common::resources::NodeSelectorRequirement {
                             key: "gpu".to_string(),
                             operator: "In".to_string(),
                             values: Some(vec!["true".to_string()]),
@@ -319,7 +321,7 @@ fn test_resourceslice_serialization() {
     let resource_slice = ResourceSlice {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "ResourceSlice".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "node-1-gpu-resources".to_string(),
             uid: "slice-uid-101".to_string(),
             ..Default::default()
@@ -340,7 +342,7 @@ fn test_resourceslice_serialization() {
                     vec![
                         (
                             "model".to_string(),
-                            k3rs_common::resources::dra::DeviceAttribute {
+                            kubernetes_rs_common::resources::dra::DeviceAttribute {
                                 int_value: None,
                                 bool_value: None,
                                 string_value: Some("A100".to_string()),
@@ -349,7 +351,7 @@ fn test_resourceslice_serialization() {
                         ),
                         (
                             "memory".to_string(),
-                            k3rs_common::resources::dra::DeviceAttribute {
+                            kubernetes_rs_common::resources::dra::DeviceAttribute {
                                 int_value: Some(85899345920), // 80GB in bytes
                                 bool_value: None,
                                 string_value: None,
@@ -363,7 +365,7 @@ fn test_resourceslice_serialization() {
                 capacity: Some(
                     vec![(
                         "nvidia.com/gpu".to_string(),
-                        k3rs_common::resources::dra::DeviceCapacity {
+                        kubernetes_rs_common::resources::dra::DeviceCapacity {
                             value: "1".to_string(),
                             request_policy: None,
                         },
@@ -421,7 +423,7 @@ fn test_resourceslice_pool_info() {
     let resource_slice = ResourceSlice {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "ResourceSlice".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "pool-test-slice".to_string(),
             ..Default::default()
         },
@@ -457,7 +459,7 @@ fn test_deviceclass_empty_selectors() {
     let device_class = DeviceClass {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "DeviceClass".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "no-selector-class".to_string(),
             ..Default::default()
         },
@@ -478,20 +480,22 @@ fn test_deviceclass_with_config() {
     let device_class = DeviceClass {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "DeviceClass".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "configured-class".to_string(),
             ..Default::default()
         },
         spec: DeviceClassSpec {
             selectors: vec![],
             config: vec![DeviceClassConfiguration {
-                opaque: Some(k3rs_common::resources::dra::OpaqueDeviceConfiguration {
-                    driver: "example.com/gpu".to_string(),
-                    parameters: serde_json::json!({
-                        "mode": "performance",
-                        "power_limit": 250
-                    }),
-                }),
+                opaque: Some(
+                    kubernetes_rs_common::resources::dra::OpaqueDeviceConfiguration {
+                        driver: "example.com/gpu".to_string(),
+                        parameters: serde_json::json!({
+                            "mode": "performance",
+                            "power_limit": 250
+                        }),
+                    },
+                ),
             }],
             suitable_nodes: None,
         },
@@ -513,7 +517,7 @@ fn test_resourceclaim_all_allocation_mode() {
     let claim = ResourceClaim {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "ResourceClaim".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "all-mode-claim".to_string(),
             namespace: Some("default".to_string()),
             ..Default::default()
@@ -562,7 +566,7 @@ fn test_resourceslice_with_all_nodes() {
     let resource_slice = ResourceSlice {
         api_version: "resource.k8s.io/v1".to_string(),
         kind: "ResourceSlice".to_string(),
-        metadata: k3rs_common::resources::dra::ObjectMeta {
+        metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
             name: "all-nodes-slice".to_string(),
             ..Default::default()
         },

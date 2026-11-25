@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use k3rs_common::resources::{APIService, CustomResourceDefinition};
-use k3rs_storage::{build_prefix, Storage, WatchEvent};
+use kubernetes_rs_common::resources::{APIService, CustomResourceDefinition};
+use kubernetes_rs_storage::{build_prefix, Storage, WatchEvent};
 use tokio::sync::{watch, Notify};
 
 use crate::registry::apiextensions::customresourcedefinition::ControllerRateLimiter;

@@ -2,11 +2,11 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::state::ApiServerState;
-    pub use k3rs_common::auth::UserInfo;
-    pub use k3rs_common::authz::{Decision, RequestAttributes};
-    pub use k3rs_common::resources::podcertificaterequest::PodCertificateRequest;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_api_server::state::ApiServerState;
+    pub use kubernetes_rs_common::auth::UserInfo;
+    pub use kubernetes_rs_common::authz::{Decision, RequestAttributes};
+    pub use kubernetes_rs_common::resources::podcertificaterequest::PodCertificateRequest;
+    pub use kubernetes_rs_common::resources::{
         CertificateSigningRequest, CertificateSigningRequestStatus, ClusterTrustBundle,
     };
 }
@@ -17,7 +17,7 @@ mod subject_restriction_tests {
     //! are the caller's resource match and Rust's typing.
     use super::__parent::*;
     use base64::Engine;
-    use k3rs_api_server::admission::certificates::*;
+    use kubernetes_rs_api_server::admission::certificates::*;
 
     /// `pemWithGroup` (admission_test.go:166-191), base64'd as `spec.request`.
     fn request_with_group(group: &str) -> String {

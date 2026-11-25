@@ -4,15 +4,15 @@
 //! seams the upstream test fakes (discovery and the metadata list).
 
 use async_trait::async_trait;
-use k3rs_common::resources::storageversionmigration::StorageVersionMigration;
-use k3rs_controller_manager::controllers::storage_version_migrator_rv::{
+use kubernetes_rs_common::resources::storageversionmigration::StorageVersionMigration;
+use kubernetes_rs_controller_manager::controllers::storage_version_migrator_rv::{
     LatestResourceVersion, ResourceVersionController, SvmDiscovery, FAKE_SVM_NAMESPACE_NAME,
 };
-use k3rs_discovery::restmapper::{
+use kubernetes_rs_discovery::restmapper::{
     new_discovery_rest_mapper, ApiGroupResources, ApiResource, Gvr, PriorityRestMapper,
     ServedResource,
 };
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

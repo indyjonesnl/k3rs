@@ -10,7 +10,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::post_start_hooks::*;
+    use kubernetes_rs_api_server::post_start_hooks::*;
     use tokio::sync::oneshot;
 
     #[tokio::test]
@@ -50,14 +50,14 @@ mod tests {
         assert_eq!(reg.check("x/y"), Some(Err("not finished")));
     }
 
-    fn memory() -> Arc<k3rs_storage::StorageBackend> {
-        Arc::new(k3rs_storage::StorageBackend::Memory(Arc::new(
-            k3rs_storage::MemoryStorage::new(),
+    fn memory() -> Arc<kubernetes_rs_storage::StorageBackend> {
+        Arc::new(kubernetes_rs_storage::StorageBackend::Memory(Arc::new(
+            kubernetes_rs_storage::MemoryStorage::new(),
         )))
     }
 
-    fn factory() -> Arc<k3rs_api_server::shared_informer_factory::SharedInformerFactory> {
-        Arc::new(k3rs_api_server::shared_informer_factory::SharedInformerFactory::new())
+    fn factory() -> Arc<kubernetes_rs_api_server::shared_informer_factory::SharedInformerFactory> {
+        Arc::new(kubernetes_rs_api_server::shared_informer_factory::SharedInformerFactory::new())
     }
 
     /// `informerSync.Check` (healthz.go:138-152) over the factory the

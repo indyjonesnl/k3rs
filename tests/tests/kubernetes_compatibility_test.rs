@@ -1,10 +1,10 @@
 // Comprehensive Kubernetes API Compatibility Verification Test
-// This test verifies that k3rs behaves exactly like Kubernetes for core API operations
+// This test verifies that kubernetes-rs behaves exactly like Kubernetes for core API operations
 
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::*;
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::*;
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

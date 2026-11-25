@@ -2,21 +2,23 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::{Node, Pod, Toleration};
-    pub use k3rs_scheduler::advanced::{
+    pub use kubernetes_rs_common::resources::{Node, Pod, Toleration};
+    pub use kubernetes_rs_scheduler::advanced::{
         non_zero_request_amounts, parse_resource_quantity, pod_request_amounts,
         toleration_matches_taint,
     };
-    pub use k3rs_scheduler::scheduler_config::{
+    pub use kubernetes_rs_scheduler::scheduler_config::{
         NodeResourcesFitArgs, ResourceSpec, ScoringStrategy,
     };
-    pub use k3rs_scheduler::volume_binding::{build_broken_linear_function, FunctionShapePoint};
+    pub use kubernetes_rs_scheduler::volume_binding::{
+        build_broken_linear_function, FunctionShapePoint,
+    };
     pub use std::collections::HashMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_scheduler::score::*;
+    use kubernetes_rs_scheduler::score::*;
     use serde_json::json;
 
     fn node(name: &str, cpu: &str, mem: &str) -> Node {

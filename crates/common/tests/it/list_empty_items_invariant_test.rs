@@ -22,7 +22,7 @@
 //! type whose serialization emits `null` or omits `items`, mark the test
 //! `#[ignore]` with a link to the tracking issue.
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     Binding, CertificateSigningRequest, ClusterRole, ClusterRoleBinding, ComponentStatus,
     ConfigMap, ControllerRevision, CronJob, CustomResourceDefinition, DaemonSet, Deployment,
     DeviceClass, DeviceClassList, Endpoints, Event, EventList, FlowSchema, HorizontalPodAutoscaler,
@@ -34,7 +34,7 @@ use k3rs_common::resources::{
     RuntimeClass, Secret, Service, ServiceAccount, StatefulSet, StorageClass,
     ValidatingAdmissionPolicy, VolumeAttachment, VolumeSnapshot, VolumeSnapshotClass,
 };
-use k3rs_common::types::{List, ListMeta};
+use kubernetes_rs_common::types::{List, ListMeta};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
@@ -450,11 +450,11 @@ fn empty_resource_slice_list_struct() {
 #[test]
 fn empty_metric_value_list_struct() {
     let list = MetricValueList {
-        type_meta: k3rs_common::types::TypeMeta {
+        type_meta: kubernetes_rs_common::types::TypeMeta {
             api_version: "custom.metrics.k8s.io/v1beta1".to_string(),
             kind: "MetricValueList".to_string(),
         },
-        metadata: k3rs_common::types::ListMeta::default(),
+        metadata: kubernetes_rs_common::types::ListMeta::default(),
         items: Vec::<MetricValue>::new(),
     };
     assert_value_items_is_empty_array("MetricValueList", &list);
@@ -474,7 +474,7 @@ fn empty_metric_value_list_struct() {
 fn populated_pod_list_serializes_as_non_empty_array() {
     let pod = Pod::new(
         "demo",
-        k3rs_common::resources::PodSpec {
+        kubernetes_rs_common::resources::PodSpec {
             containers: vec![],
             ..Default::default()
         },

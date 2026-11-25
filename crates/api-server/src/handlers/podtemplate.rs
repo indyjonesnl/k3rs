@@ -17,13 +17,13 @@ use axum::{
     response::Response,
     Extension,
 };
-use k3rs_common::{
+use kubernetes_rs_common::{
     admission::{GroupVersionKind, GroupVersionResource},
     authz::{Decision, RequestAttributes},
     resources::PodTemplate,
     List, Result,
 };
-use k3rs_storage::build_prefix;
+use kubernetes_rs_storage::build_prefix;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::debug;
@@ -200,10 +200,10 @@ pub async fn list_podtemplates(
             watch: Some(true),
             allow_watch_bookmarks: params
                 .get("allowWatchBookmarks")
-                .map(|v| k3rs_common::query::k8s_query_bool(v)),
+                .map(|v| kubernetes_rs_common::query::k8s_query_bool(v)),
             send_initial_events: params
                 .get("sendInitialEvents")
-                .map(|v| k3rs_common::query::k8s_query_bool(v)),
+                .map(|v| kubernetes_rs_common::query::k8s_query_bool(v)),
         };
         return crate::handlers::watch::watch_namespaced::<PodTemplate>(
             state,
@@ -226,7 +226,7 @@ pub async fn list_podtemplates(
     match state.authorizer.authorize(&attrs).await? {
         Decision::Allow => {}
         Decision::Deny(reason) => {
-            return Err(k3rs_common::Error::Forbidden(reason));
+            return Err(kubernetes_rs_common::Error::Forbidden(reason));
         }
     }
 
@@ -253,7 +253,7 @@ pub async fn list_podtemplates(
     // Apply pagination
     let limit = params.get("limit").and_then(|l| l.parse::<i64>().ok());
     let continue_token = params.get("continue").cloned();
-    let pagination_params = k3rs_common::PaginationParams {
+    let pagination_params = kubernetes_rs_common::PaginationParams {
         limit,
         continue_token,
     };
@@ -267,28 +267,29 @@ pub async fn list_podtemplates(
     )
     .await;
 
-    let paginated = match k3rs_common::paginate(podtemplates, pagination_params, &resource_version)
-    {
-        Ok(p) => p,
-        Err(e) => {
-            if e.message.contains("410 Gone") {
-                let mut status = k3rs_common::Status::failure(&e.message, "Expired", 410);
-                if let Some(token) = e.fresh_continue_token {
-                    status.metadata = Some(k3rs_common::ListMeta {
-                        resource_version: Some(resource_version),
-                        continue_token: Some(token),
-                        remaining_item_count: None,
-                    });
+    let paginated =
+        match kubernetes_rs_common::paginate(podtemplates, pagination_params, &resource_version) {
+            Ok(p) => p,
+            Err(e) => {
+                if e.message.contains("410 Gone") {
+                    let mut status =
+                        kubernetes_rs_common::Status::failure(&e.message, "Expired", 410);
+                    if let Some(token) = e.fresh_continue_token {
+                        status.metadata = Some(kubernetes_rs_common::ListMeta {
+                            resource_version: Some(resource_version),
+                            continue_token: Some(token),
+                            remaining_item_count: None,
+                        });
+                    }
+                    return Ok((
+                        axum::http::StatusCode::GONE,
+                        crate::audit::json_response(status),
+                    )
+                        .into_response());
                 }
-                return Ok((
-                    axum::http::StatusCode::GONE,
-                    crate::audit::json_response(status),
-                )
-                    .into_response());
+                return Err(kubernetes_rs_common::Error::InvalidResource(e.message));
             }
-            return Err(k3rs_common::Error::InvalidResource(e.message));
-        }
-    };
+        };
 
     let mut list = List::new("PodTemplateList", "v1", paginated.items);
     list.metadata.continue_token = paginated.continue_token;
@@ -323,10 +324,10 @@ pub async fn list_all_podtemplates(
             watch: Some(true),
             allow_watch_bookmarks: params
                 .get("allowWatchBookmarks")
-                .map(|v| k3rs_common::query::k8s_query_bool(v)),
+                .map(|v| kubernetes_rs_common::query::k8s_query_bool(v)),
             send_initial_events: params
                 .get("sendInitialEvents")
-                .map(|v| k3rs_common::query::k8s_query_bool(v)),
+                .map(|v| kubernetes_rs_common::query::k8s_query_bool(v)),
         };
         return crate::handlers::watch::watch_cluster_scoped::<PodTemplate>(
             state,
@@ -346,7 +347,7 @@ pub async fn list_all_podtemplates(
     match state.authorizer.authorize(&attrs).await? {
         Decision::Allow => {}
         Decision::Deny(reason) => {
-            return Err(k3rs_common::Error::Forbidden(reason));
+            return Err(kubernetes_rs_common::Error::Forbidden(reason));
         }
     }
 
@@ -373,7 +374,7 @@ pub async fn list_all_podtemplates(
     // Apply pagination
     let limit = params.get("limit").and_then(|l| l.parse::<i64>().ok());
     let continue_token = params.get("continue").cloned();
-    let pagination_params = k3rs_common::PaginationParams {
+    let pagination_params = kubernetes_rs_common::PaginationParams {
         limit,
         continue_token,
     };
@@ -387,28 +388,29 @@ pub async fn list_all_podtemplates(
     )
     .await;
 
-    let paginated = match k3rs_common::paginate(podtemplates, pagination_params, &resource_version)
-    {
-        Ok(p) => p,
-        Err(e) => {
-            if e.message.contains("410 Gone") {
-                let mut status = k3rs_common::Status::failure(&e.message, "Expired", 410);
-                if let Some(token) = e.fresh_continue_token {
-                    status.metadata = Some(k3rs_common::ListMeta {
-                        resource_version: Some(resource_version),
-                        continue_token: Some(token),
-                        remaining_item_count: None,
-                    });
+    let paginated =
+        match kubernetes_rs_common::paginate(podtemplates, pagination_params, &resource_version) {
+            Ok(p) => p,
+            Err(e) => {
+                if e.message.contains("410 Gone") {
+                    let mut status =
+                        kubernetes_rs_common::Status::failure(&e.message, "Expired", 410);
+                    if let Some(token) = e.fresh_continue_token {
+                        status.metadata = Some(kubernetes_rs_common::ListMeta {
+                            resource_version: Some(resource_version),
+                            continue_token: Some(token),
+                            remaining_item_count: None,
+                        });
+                    }
+                    return Ok((
+                        axum::http::StatusCode::GONE,
+                        crate::audit::json_response(status),
+                    )
+                        .into_response());
                 }
-                return Ok((
-                    axum::http::StatusCode::GONE,
-                    crate::audit::json_response(status),
-                )
-                    .into_response());
+                return Err(kubernetes_rs_common::Error::InvalidResource(e.message));
             }
-            return Err(k3rs_common::Error::InvalidResource(e.message));
-        }
-    };
+        };
 
     let mut list = List::new("PodTemplateList", "v1", paginated.items);
     list.metadata.continue_token = paginated.continue_token;

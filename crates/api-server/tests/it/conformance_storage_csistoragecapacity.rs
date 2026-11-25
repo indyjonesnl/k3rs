@@ -10,7 +10,7 @@
 //! `strict_namespaces()`; `f.UniqueName` is that namespace's name.
 
 use futures::StreamExt;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 async fn send(

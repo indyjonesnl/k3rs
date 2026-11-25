@@ -2,16 +2,16 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::{EventType, ObjectReference, Pod};
-    pub use k3rs_storage::{EventRecorder, Storage};
+    pub use kubernetes_rs_common::resources::{EventType, ObjectReference, Pod};
+    pub use kubernetes_rs_storage::{EventRecorder, Storage};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::{Event, PodSpec};
-    use k3rs_common::types::{ObjectMeta, TypeMeta};
-    use k3rs_kubelet::events::*;
-    use k3rs_storage::{Storage, StorageBackend};
+    use kubernetes_rs_common::resources::{Event, PodSpec};
+    use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+    use kubernetes_rs_kubelet::events::*;
+    use kubernetes_rs_storage::{Storage, StorageBackend};
     use std::sync::Arc;
 
     fn make_pod(name: &str, namespace: &str, node: Option<&str>) -> Pod {

@@ -60,7 +60,7 @@ use axum::http::{header::RETRY_AFTER, HeaderName, HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use futures::{FutureExt, StreamExt};
-use k3rs_storage::{Storage, StorageBackend};
+use kubernetes_rs_storage::{Storage, StorageBackend};
 
 use crate::apiserver_request_metrics::{self, RequestMeta};
 use crate::audit::request_info;
@@ -476,9 +476,9 @@ pub async fn priority_and_fairness<S: Storage + 'static>(
         .is_some_and(|v| v.as_bytes() == b"application/apply-patch+yaml");
     let user = req
         .extensions()
-        .get::<k3rs_middleware::AuthContext>()
+        .get::<kubernetes_rs_middleware::AuthContext>()
         .map(|c| c.user.clone())
-        .unwrap_or_else(k3rs_common::auth::UserInfo::anonymous);
+        .unwrap_or_else(kubernetes_rs_common::auth::UserInfo::anonymous);
 
     let is_watch = attrs.verb == "watch";
     // "Skip tracking long running non-watch requests." (:90-95)
@@ -656,8 +656,12 @@ impl ConfigEventFilter {
     /// Whether `event` should `configQueue.Add(0)`: AddFunc and DeleteFunc
     /// always do; UpdateFunc only when the relevant part changed (an object
     /// never seen before counts as changed).
-    pub fn triggers(&mut self, is_flow_schema: bool, event: &k3rs_storage::WatchEvent) -> bool {
-        use k3rs_storage::WatchEvent::{Added, Deleted, Modified};
+    pub fn triggers(
+        &mut self,
+        is_flow_schema: bool,
+        event: &kubernetes_rs_storage::WatchEvent,
+    ) -> bool {
+        use kubernetes_rs_storage::WatchEvent::{Added, Deleted, Modified};
         match event {
             Added(k, v) | Modified(k, v) => {
                 let new = serde_json::from_str::<serde_json::Value>(v)
@@ -721,18 +725,18 @@ where
     Sync: FnMut() -> SyncFut,
     SyncFut: std::future::Future<Output = Result<Duration, String>>,
     Watch: FnMut(String) -> WatchFut,
-    WatchFut: std::future::Future<Output = Option<k3rs_storage::WatchStream>>,
+    WatchFut: std::future::Future<Output = Option<kubernetes_rs_storage::WatchStream>>,
 {
     use crate::registry::apiextensions::customresourcedefinition::ItemExponentialFailureRateLimiter;
-    use k3rs_storage::build_key;
+    use kubernetes_rs_storage::build_key;
 
     let fs_prefix = build_key("flowschemas", None, "");
     let pl_prefix = build_key("prioritylevelconfigurations", None, "");
     let mut limiter =
         ItemExponentialFailureRateLimiter::new(CONFIG_QUEUE_BASE_DELAY, CONFIG_QUEUE_MAX_DELAY);
     let mut filter = ConfigEventFilter::default();
-    let mut fs_watch: Option<k3rs_storage::WatchStream> = None;
-    let mut pl_watch: Option<k3rs_storage::WatchStream> = None;
+    let mut fs_watch: Option<kubernetes_rs_storage::WatchStream> = None;
+    let mut pl_watch: Option<kubernetes_rs_storage::WatchStream> = None;
     let mut retry_at: Option<tokio::time::Instant> = None;
     // The informers' initial list delivers an Add for every object.
     let mut queued = true;
@@ -806,8 +810,8 @@ where
 }
 
 async fn next_event(
-    w: &mut Option<k3rs_storage::WatchStream>,
-) -> Option<k3rs_common::Result<k3rs_storage::WatchEvent>> {
+    w: &mut Option<kubernetes_rs_storage::WatchStream>,
+) -> Option<kubernetes_rs_common::Result<kubernetes_rs_storage::WatchEvent>> {
     match w {
         Some(w) => w.next().await,
         None => std::future::pending().await,

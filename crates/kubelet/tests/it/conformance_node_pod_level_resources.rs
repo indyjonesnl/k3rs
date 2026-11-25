@@ -12,9 +12,9 @@
 //!
 //! All tests are pure (no storage, no runtime).
 
-use k3rs_common::resources::{Container, Pod, PodSpec};
-use k3rs_common::types::{ObjectMeta, ResourceRequirements, TypeMeta};
-use k3rs_kubelet::eviction::{get_qos_class, QoSClass};
+use kubernetes_rs_common::resources::{Container, Pod, PodSpec};
+use kubernetes_rs_common::types::{ObjectMeta, ResourceRequirements, TypeMeta};
+use kubernetes_rs_kubelet::eviction::{get_qos_class, QoSClass};
 use std::collections::HashMap;
 
 fn rr(req: &[(&str, &str)], lim: &[(&str, &str)]) -> ResourceRequirements {

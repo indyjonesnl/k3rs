@@ -1,11 +1,11 @@
 // Controller Behavior Verification Test
-// This test verifies that k3rs controllers behave exactly like Kubernetes controllers
+// This test verifies that kubernetes-rs controllers behave exactly like Kubernetes controllers
 
-use k3rs_common::resources::*;
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta, LabelSelector};
-use k3rs_controller_manager::controllers::deployment::DeploymentController;
-use k3rs_controller_manager::controllers::job::JobController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::*;
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta, LabelSelector};
+use kubernetes_rs_controller_manager::controllers::deployment::DeploymentController;
+use kubernetes_rs_controller_manager::controllers::job::JobController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};

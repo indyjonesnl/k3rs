@@ -10,7 +10,7 @@
 //! Drives the real router over `StorageBackend::Memory`, like
 //! `crd_openapi_v2_test.rs`.
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const CRDS_URI: &str = "/apis/apiextensions.k8s.io/v1/customresourcedefinitions";

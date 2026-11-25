@@ -11,7 +11,7 @@
 
 use crate::egress_http::{tls_client_config, EgressHttpClient};
 use crate::egress_selector::{Dialer, EgressSelector, EgressType};
-use k3rs_admission_webhook::transport::{
+use kubernetes_rs_admission_webhook::transport::{
     Dial, TransportFuture, WebhookHttpError, WebhookHttpRequest, WebhookHttpResponse,
     WebhookTransport,
 };

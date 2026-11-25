@@ -4,7 +4,7 @@ use etcd_client::{
     Client, Compare, CompareOp, GetOptions, KvClient, PutOptions, TxnOp, WatchClient, WatchOptions,
 };
 use futures::StreamExt;
-use k3rs_common::{authz::AuthzStorage, Error, Result};
+use kubernetes_rs_common::{authz::AuthzStorage, Error, Result};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{debug, error, info};
 

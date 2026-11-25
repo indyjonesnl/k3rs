@@ -1,10 +1,10 @@
 //! Tests for StorageClass validation (port of upstream `ValidateStorageClass`).
 
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::resources::volume::{
     PersistentVolumeReclaimPolicy, StorageClass, VolumeBindingMode,
 };
-use k3rs_common::validation::field::ErrorType;
-use k3rs_common::validation::storageclass::validate_storage_class;
+use kubernetes_rs_common::validation::field::ErrorType;
+use kubernetes_rs_common::validation::storageclass::validate_storage_class;
 use std::collections::HashMap;
 
 fn valid_sc() -> StorageClass {
@@ -21,7 +21,7 @@ fn valid_sc() -> StorageClass {
     }
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], substr: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], substr: &str) -> bool {
     errs.iter().any(|e| e.field.contains(substr))
 }
 
@@ -112,7 +112,9 @@ fn oversize_parameters_rejected() {
 }
 
 // --- allowedTopologies (#1330) ---
-use k3rs_common::resources::volume::{TopologySelectorLabelRequirement, TopologySelectorTerm};
+use kubernetes_rs_common::resources::volume::{
+    TopologySelectorLabelRequirement, TopologySelectorTerm,
+};
 
 fn term(key: &str, values: &[&str]) -> TopologySelectorTerm {
     TopologySelectorTerm {

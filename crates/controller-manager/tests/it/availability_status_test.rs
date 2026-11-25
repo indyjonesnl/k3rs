@@ -3,15 +3,15 @@
 // d7162b4 — RS availableReplicas must not require phase==Running.
 // 36ff92b — Deployment availableReplicas must count pods directly, not trust stale RS status.
 
-use k3rs_common::resources::pod::{PodCondition, PodStatus};
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::pod::{PodCondition, PodStatus};
+use kubernetes_rs_common::resources::{
     Container, Deployment, DeploymentSpec, DeploymentStatus, Pod, PodSpec, PodTemplateSpec,
     ReplicaSet, ReplicaSetSpec,
 };
-use k3rs_common::types::{LabelSelector, ObjectMeta, OwnerReference, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::deployment::DeploymentController;
-use k3rs_controller_manager::controllers::replicaset::ReplicaSetController;
-use k3rs_storage::{build_key, MemoryStorage, Storage};
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, OwnerReference, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::deployment::DeploymentController;
+use kubernetes_rs_controller_manager::controllers::replicaset::ReplicaSetController;
+use kubernetes_rs_storage::{build_key, MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -321,7 +321,7 @@ async fn test_deployment_available_replicas_ignores_stale_rs_status() {
     let rs_key = build_key("replicasets", Some(ns), &rs.metadata.name);
 
     // Overwrite RS status to be deliberately stale: 0 available even though pods will be Ready
-    use k3rs_common::resources::workloads::ReplicaSetStatus;
+    use kubernetes_rs_common::resources::workloads::ReplicaSetStatus;
     rs.status = Some(ReplicaSetStatus {
         replicas: 3,
         ready_replicas: 3,

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# k3rs High Availability Testing Script
+# kubernetes-rs High Availability Testing Script
 # This script validates HA features by simulating various failure scenarios
 
 set -e
@@ -61,7 +61,7 @@ check_etcd_cluster() {
 
     # Check all etcd nodes
     for i in 1 2 3; do
-        if docker exec k3rs-etcd-$i etcdctl endpoint health 2>&1 | grep -q "is healthy"; then
+        if docker exec kubernetes-rs-etcd-$i etcdctl endpoint health 2>&1 | grep -q "is healthy"; then
             log_success "etcd-$i is healthy"
         else
             log_error "etcd-$i is unhealthy"
@@ -70,7 +70,7 @@ check_etcd_cluster() {
     done
 
     # Check cluster status
-    docker exec k3rs-etcd-1 etcdctl endpoint status --cluster -w table
+    docker exec kubernetes-rs-etcd-1 etcdctl endpoint status --cluster -w table
     log_success "etcd cluster is healthy"
 }
 
@@ -100,7 +100,7 @@ check_leader_election() {
     log_info "Testing leader election..."
 
     # Check controller-manager leader
-    CM_LEADER=$(docker exec k3rs-etcd-1 etcdctl get /k3rs/controller-manager/leader --print-value-only 2>/dev/null || echo "none")
+    CM_LEADER=$(docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/controller-manager/leader --print-value-only 2>/dev/null || echo "none")
     if [ "$CM_LEADER" != "none" ]; then
         log_success "Controller-manager leader: $CM_LEADER"
     else
@@ -108,7 +108,7 @@ check_leader_election() {
     fi
 
     # Check scheduler leader
-    SCHED_LEADER=$(docker exec k3rs-etcd-1 etcdctl get /k3rs/scheduler/leader --print-value-only 2>/dev/null || echo "none")
+    SCHED_LEADER=$(docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/scheduler/leader --print-value-only 2>/dev/null || echo "none")
     if [ "$SCHED_LEADER" != "none" ]; then
         log_success "Scheduler leader: $SCHED_LEADER"
     else
@@ -120,17 +120,17 @@ test_etcd_node_failure() {
     log_info "Test 1: etcd node failure and recovery"
 
     log_info "Stopping etcd-2..."
-    docker stop k3rs-etcd-2
+    docker stop kubernetes-rs-etcd-2
 
     log_info "Waiting for cluster to stabilize (10s)..."
     sleep 10
 
     # Cluster should still be healthy with 2/3 nodes
-    if docker exec k3rs-etcd-1 etcdctl endpoint health --cluster 2>&1 | grep -q "etcd-1.*is healthy"; then
+    if docker exec kubernetes-rs-etcd-1 etcdctl endpoint health --cluster 2>&1 | grep -q "etcd-1.*is healthy"; then
         log_success "Cluster is still healthy with 2/3 nodes"
     else
         log_error "Cluster unhealthy after losing 1 node"
-        docker start k3rs-etcd-2
+        docker start kubernetes-rs-etcd-2
         return 1
     fi
 
@@ -139,12 +139,12 @@ test_etcd_node_failure() {
         log_success "API server still accessible"
     else
         log_error "API server not accessible"
-        docker start k3rs-etcd-2
+        docker start kubernetes-rs-etcd-2
         return 1
     fi
 
     log_info "Recovering etcd-2..."
-    docker start k3rs-etcd-2
+    docker start kubernetes-rs-etcd-2
 
     log_info "Waiting for etcd-2 to rejoin (15s)..."
     sleep 15
@@ -157,7 +157,7 @@ test_api_server_failure() {
     log_info "Test 2: API server failure and HAProxy failover"
 
     log_info "Stopping api-server-1..."
-    docker stop k3rs-api-server-1
+    docker stop kubernetes-rs-api-server-1
 
     log_info "Waiting for HAProxy to detect failure (10s)..."
     sleep 10
@@ -176,7 +176,7 @@ test_api_server_failure() {
         log_success "API still accessible via HAProxy"
     else
         log_error "API not accessible via HAProxy"
-        docker start k3rs-api-server-1
+        docker start kubernetes-rs-api-server-1
         return 1
     fi
 
@@ -185,7 +185,7 @@ test_api_server_failure() {
     curl -s http://localhost:8404/stats | grep api-server || true
 
     log_info "Recovering api-server-1..."
-    docker start k3rs-api-server-1
+    docker start kubernetes-rs-api-server-1
 
     log_info "Waiting for api-server-1 to recover (20s)..."
     sleep 20
@@ -198,22 +198,22 @@ test_controller_manager_failover() {
     log_info "Test 3: Controller manager leader failover"
 
     # Get current leader
-    OLD_LEADER=$(docker exec k3rs-etcd-1 etcdctl get /k3rs/controller-manager/leader --print-value-only 2>/dev/null || echo "none")
+    OLD_LEADER=$(docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/controller-manager/leader --print-value-only 2>/dev/null || echo "none")
     log_info "Current leader: $OLD_LEADER"
 
     if [ "$OLD_LEADER" == "none" ]; then
         log_warning "No leader elected, waiting (30s)..."
         sleep 30
-        OLD_LEADER=$(docker exec k3rs-etcd-1 etcdctl get /k3rs/controller-manager/leader --print-value-only 2>/dev/null || echo "none")
+        OLD_LEADER=$(docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/controller-manager/leader --print-value-only 2>/dev/null || echo "none")
     fi
 
     # Determine which container to stop
     if echo "$OLD_LEADER" | grep -q "controller-manager-1"; then
-        CONTAINER="k3rs-controller-manager-1"
-        STANDBY="k3rs-controller-manager-2"
+        CONTAINER="kubernetes-rs-controller-manager-1"
+        STANDBY="kubernetes-rs-controller-manager-2"
     else
-        CONTAINER="k3rs-controller-manager-2"
-        STANDBY="k3rs-controller-manager-1"
+        CONTAINER="kubernetes-rs-controller-manager-2"
+        STANDBY="kubernetes-rs-controller-manager-1"
     fi
 
     log_info "Stopping current leader: $CONTAINER..."
@@ -223,7 +223,7 @@ test_controller_manager_failover() {
     sleep 20
 
     # Check for new leader
-    NEW_LEADER=$(docker exec k3rs-etcd-1 etcdctl get /k3rs/controller-manager/leader --print-value-only 2>/dev/null || echo "none")
+    NEW_LEADER=$(docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/controller-manager/leader --print-value-only 2>/dev/null || echo "none")
     log_info "New leader: $NEW_LEADER"
 
     if [ "$NEW_LEADER" != "none" ] && [ "$NEW_LEADER" != "$OLD_LEADER" ]; then
@@ -252,22 +252,22 @@ test_scheduler_failover() {
     log_info "Test 4: Scheduler leader failover"
 
     # Get current leader
-    OLD_LEADER=$(docker exec k3rs-etcd-1 etcdctl get /k3rs/scheduler/leader --print-value-only 2>/dev/null || echo "none")
+    OLD_LEADER=$(docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/scheduler/leader --print-value-only 2>/dev/null || echo "none")
     log_info "Current leader: $OLD_LEADER"
 
     if [ "$OLD_LEADER" == "none" ]; then
         log_warning "No leader elected, waiting (30s)..."
         sleep 30
-        OLD_LEADER=$(docker exec k3rs-etcd-1 etcdctl get /k3rs/scheduler/leader --print-value-only 2>/dev/null || echo "none")
+        OLD_LEADER=$(docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/scheduler/leader --print-value-only 2>/dev/null || echo "none")
     fi
 
     # Determine which container to stop
     if echo "$OLD_LEADER" | grep -q "scheduler-1"; then
-        CONTAINER="k3rs-scheduler-1"
-        STANDBY="k3rs-scheduler-2"
+        CONTAINER="kubernetes-rs-scheduler-1"
+        STANDBY="kubernetes-rs-scheduler-2"
     else
-        CONTAINER="k3rs-scheduler-2"
-        STANDBY="k3rs-scheduler-1"
+        CONTAINER="kubernetes-rs-scheduler-2"
+        STANDBY="kubernetes-rs-scheduler-1"
     fi
 
     log_info "Stopping current leader: $CONTAINER..."
@@ -277,7 +277,7 @@ test_scheduler_failover() {
     sleep 20
 
     # Check for new leader
-    NEW_LEADER=$(docker exec k3rs-etcd-1 etcdctl get /k3rs/scheduler/leader --print-value-only 2>/dev/null || echo "none")
+    NEW_LEADER=$(docker exec kubernetes-rs-etcd-1 etcdctl get /kubernetes-rs/scheduler/leader --print-value-only 2>/dev/null || echo "none")
     log_info "New leader: $NEW_LEADER"
 
     if [ "$NEW_LEADER" != "none" ] && [ "$NEW_LEADER" != "$OLD_LEADER" ]; then
@@ -333,7 +333,7 @@ test_concurrent_failures() {
     log_info "Test 6: Multiple concurrent failures"
 
     log_info "Stopping etcd-2 and api-server-2..."
-    docker stop k3rs-etcd-2 k3rs-api-server-2
+    docker stop kubernetes-rs-etcd-2 kubernetes-rs-api-server-2
 
     sleep 10
 
@@ -342,12 +342,12 @@ test_concurrent_failures() {
         log_success "Cluster survived concurrent failures"
     else
         log_error "Cluster failed with concurrent failures"
-        docker start k3rs-etcd-2 k3rs-api-server-2
+        docker start kubernetes-rs-etcd-2 kubernetes-rs-api-server-2
         return 1
     fi
 
     log_info "Recovering..."
-    docker start k3rs-etcd-2 k3rs-api-server-2
+    docker start kubernetes-rs-etcd-2 kubernetes-rs-api-server-2
 
     sleep 20
     log_success "Test 6 passed: Cluster handles concurrent failures"
@@ -355,7 +355,7 @@ test_concurrent_failures() {
 
 run_all_tests() {
     log_info "========================================"
-    log_info "Starting k3rs HA Test Suite"
+    log_info "Starting kubernetes-rs HA Test Suite"
     log_info "========================================"
     echo
 

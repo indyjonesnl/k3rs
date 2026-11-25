@@ -11,9 +11,9 @@
 //! * the metrics collector (`metrics/collectors/podcertificate_metrics.go`).
 
 use super::{IssuingManager, Manager, NoOpManager, PodManager, RealClock};
-use k3rs_common::feature_gates::{self, Feature};
-use k3rs_common::resources::Pod;
-use k3rs_storage::{EventRecorder, Storage};
+use kubernetes_rs_common::feature_gates::{self, Feature};
+use kubernetes_rs_common::resources::Pod;
+use kubernetes_rs_storage::{EventRecorder, Storage};
 use prometheus::core::{Collector, Desc};
 use prometheus::proto::{Gauge, LabelPair, Metric, MetricFamily, MetricType};
 use std::collections::{HashMap, HashSet};
@@ -22,7 +22,7 @@ use tracing::info;
 
 /// `kubelet.podManager` (`pkg/kubelet/pod/pod_manager.go` `basicManager`): a
 /// `podByUID` map of pod *pointers* (`Arc<Pod>` here), as far as the pod
-/// certificate manager and the volume populator read it. k3rs has no
+/// certificate manager and the volume populator read it. kubernetes-rs has no
 /// event-driven config source for the whole pod set, so the sync loop's list
 /// ([`PodCache::reconcile`]) and the pod watch ([`PodCache::update_pod`]) turn
 /// into the `HandlePodAdditions` / `HandlePodUpdates` / `HandlePodRemoves` calls
@@ -230,7 +230,7 @@ impl Collector for PodCertificateCollector {
 
 /// `kubelet.go:955-972`: an `IssuingManager` when a client exists and the
 /// `PodCertificateRequest` gate is on (the caller then spawns `run`), else a
-/// `NoOpManager`. k3rs' kubelet always has a storage client, so only
+/// `NoOpManager`. kubernetes-rs' kubelet always has a storage client, so only
 /// the gate decides.
 #[allow(clippy::type_complexity)]
 pub fn new_pod_certificate_manager<S: Storage + ?Sized + 'static>(

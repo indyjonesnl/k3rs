@@ -2,9 +2,9 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::feature_gates::{enabled, Feature};
-    pub use k3rs_common::flagz::{self, NamedFlagSetsReader};
-    pub use k3rs_common::statusz;
+    pub use kubernetes_rs_common::feature_gates::{enabled, Feature};
+    pub use kubernetes_rs_common::flagz::{self, NamedFlagSetsReader};
+    pub use kubernetes_rs_common::statusz;
     pub use std::sync::OnceLock;
 }
 
@@ -12,8 +12,8 @@ mod tests {
     use super::__parent::*;
     use axum::body::Body;
     use axum::http::Request;
-    use k3rs_api_server::zpages::*;
-    use k3rs_common::feature_gates::with_feature;
+    use kubernetes_rs_api_server::zpages::*;
+    use kubernetes_rs_common::feature_gates::with_feature;
     use serial_test::serial;
     use tower::ServiceExt;
 

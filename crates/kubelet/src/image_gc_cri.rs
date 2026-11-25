@@ -14,9 +14,9 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use k3rs_common::resources::{EventSource, EventType, ObjectReference};
-use k3rs_cri::{v1, CriClient};
-use k3rs_storage::{EventRecorder, StorageBackend};
+use kubernetes_rs_common::resources::{EventSource, EventType, ObjectReference};
+use kubernetes_rs_cri::{v1, CriClient};
+use kubernetes_rs_storage::{EventRecorder, StorageBackend};
 
 use crate::image_gc::{
     FsStats, GcContainer, GcPod, Image, ImageGcRuntime, ImageSpec, NodeEventSink, StatsProvider,
