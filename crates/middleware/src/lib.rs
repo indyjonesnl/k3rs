@@ -1010,6 +1010,21 @@ impl Drop for AuthenticationLatencyGuard {
     }
 }
 
+/// `filters.Unauthorized` (staging/src/k8s.io/apiserver/pkg/endpoints/filters/
+/// authentication.go:127-149), the one `failed` handler `WithAuthentication`
+/// calls for every authentication failure (an authenticator error or a rejected
+/// token, :73-78):
+/// `responsewriters.ErrorNegotiated(apierrors.NewUnauthorized("Unauthorized"))`.
+/// The message is always the fixed "Unauthorized" (the reason is only logged,
+/// `klog.ErrorS(err, "Unable to authenticate the request")`), and no
+/// `WWW-Authenticate` header is set.
+fn unauthorized(request: &Request) -> Response {
+    let status: kubernetes_rs_common::types::Status =
+        serde_json::from_value(secure_serving::filters::unauthorized_status())
+            .expect("unauthorized_status deserializes into a Status");
+    negotiated_error::error_negotiated(&status, request.headers(), request.uri().query())
+}
+
 /// Authentication middleware that extracts and validates JWT tokens.
 ///
 /// Mirrors upstream `pkg/serviceaccount/legacy.go` / `bound.go`: after a JWT
@@ -1103,7 +1118,7 @@ pub async fn auth_middleware(
             .await
             {
                 warn!("Rejecting service account token: {}", reason);
-                return Err((StatusCode::UNAUTHORIZED, "Invalid token").into_response());
+                return Err(unauthorized(&request));
             }
             let user_info = UserInfo::from_service_account_claims(&claims);
             debug!(
@@ -1124,11 +1139,11 @@ pub async fn auth_middleware(
         // Invalid token
         else {
             warn!("Invalid token");
-            return Err((StatusCode::UNAUTHORIZED, "Invalid token").into_response());
+            return Err(unauthorized(&request));
         }
     } else if let Some(err) = authn_error {
         warn!("Rejecting request: {}", err);
-        return Err((StatusCode::UNAUTHORIZED, "Unauthorized").into_response());
+        return Err(unauthorized(&request));
     } else {
         // Anonymous user
         debug!("Anonymous request");
