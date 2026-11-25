@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::pod_warnings::get_warnings_for_pod_template;
 use kubernetes_rs_common::resources::{
     ReplicaSet, ReplicaSetStatus, Scale, ScaleSpec, ScaleStatus,
 };
@@ -12,7 +13,7 @@ use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
 use kubernetes_rs_common::validation::apps::{
     validate_replicaset, validate_replicaset_status_update, validate_replicaset_update,
 };
-use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
 use kubernetes_rs_common::validation::metav1::is_dns1123_label;
 use kubernetes_rs_storage::StorageBackend;
 
@@ -55,17 +56,23 @@ impl RestCreateStrategy<ReplicaSet> for Strategy {
         validate_replicaset(obj)
     }
 
-    /// strategy.go:119-127. `GetWarningsForPodTemplate` is not ported
-    /// (#1996); the name warning is.
+    /// strategy.go:119-127: the name warning, then
+    /// `GetWarningsForPodTemplate`.
     fn warnings_on_create(&self, _ctx: &RequestContext, obj: &ReplicaSet) -> Vec<String> {
         let msgs = is_dns1123_label(&obj.metadata.name);
-        if msgs.is_empty() {
-            return Vec::new();
+        let mut warnings = Vec::new();
+        if !msgs.is_empty() {
+            warnings.push(format!(
+                "metadata.name: this is used in Pod names and hostnames, which can result in surprising behavior; a DNS label is recommended: [{}]",
+                msgs.join(" ")
+            ));
         }
-        vec![format!(
-            "metadata.name: this is used in Pod names and hostnames, which can result in surprising behavior; a DNS label is recommended: [{}]",
-            msgs.join(" ")
-        )]
+        warnings.extend(get_warnings_for_pod_template(
+            &Path::new("spec").child("template"),
+            &obj.spec.template,
+            None,
+        ));
+        warnings
     }
 }
 
@@ -94,6 +101,24 @@ impl RestUpdateStrategy<ReplicaSet> for Strategy {
         old: &ReplicaSet,
     ) -> ErrorList {
         validate_replicaset_update(obj, old)
+    }
+
+    /// `WarningsOnUpdate` (strategy.go:149-157): the template warnings, only
+    /// when `metadata.generation` changed.
+    fn warnings_on_update(
+        &self,
+        _ctx: &RequestContext,
+        obj: &ReplicaSet,
+        old: &ReplicaSet,
+    ) -> Vec<String> {
+        if obj.metadata.generation == old.metadata.generation {
+            return Vec::new();
+        }
+        get_warnings_for_pod_template(
+            &Path::new("spec").child("template"),
+            &obj.spec.template,
+            Some(&old.spec.template),
+        )
     }
 
     fn allow_unconditional_update(&self) -> bool {

@@ -5,8 +5,9 @@
 use std::sync::Arc;
 
 use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::pod_warnings::get_warnings_for_pod_template;
 use kubernetes_rs_common::resources::PodTemplate;
-use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
 use kubernetes_rs_common::validation::podtemplate::{
     validate_pod_template, validate_pod_template_update,
 };
@@ -48,8 +49,11 @@ impl RestCreateStrategy<PodTemplate> for Strategy {
         validate_pod_template(obj)
     }
 
-    // `WarningsOnCreate` (strategy.go:62-65) is only
-    // `GetWarningsForPodTemplate`, which is not ported (#1996).
+    /// `WarningsOnCreate` (strategy.go:62-65): only
+    /// `GetWarningsForPodTemplate`, rooted at `template`.
+    fn warnings_on_create(&self, _ctx: &RequestContext, obj: &PodTemplate) -> Vec<String> {
+        get_warnings_for_pod_template(&Path::new("template"), &obj.template, None)
+    }
 }
 
 impl RestUpdateStrategy<PodTemplate> for Strategy {
@@ -78,8 +82,19 @@ impl RestUpdateStrategy<PodTemplate> for Strategy {
         validate_pod_template_update(obj, old)
     }
 
-    // `WarningsOnUpdate` (strategy.go:102-110) is only
-    // `GetWarningsForPodTemplate`, which is not ported (#1996).
+    /// `WarningsOnUpdate` (strategy.go:102-110): the template warnings, only
+    /// when `metadata.generation` changed.
+    fn warnings_on_update(
+        &self,
+        _ctx: &RequestContext,
+        obj: &PodTemplate,
+        old: &PodTemplate,
+    ) -> Vec<String> {
+        if obj.metadata.generation == old.metadata.generation {
+            return Vec::new();
+        }
+        get_warnings_for_pod_template(&Path::new("template"), &obj.template, Some(&old.template))
+    }
 
     fn allow_unconditional_update(&self) -> bool {
         true

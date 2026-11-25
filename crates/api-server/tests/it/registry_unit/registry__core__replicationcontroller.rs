@@ -168,4 +168,37 @@ mod tests {
         assert_eq!(new.spec.replicas, old.spec.replicas);
         assert_eq!(new.status.unwrap().replicas, 2);
     }
+
+    fn with_template_node_selector(o: &mut ReplicationController) {
+        o.spec.template.spec.node_selector = Some(HashMap::from([(
+            "beta.kubernetes.io/os".to_string(),
+            "linux".to_string(),
+        )]));
+    }
+
+    /// `GetWarningsForPodTemplate` on create, rooted at `spec.template`.
+    #[test]
+    fn create_warns_about_the_pod_template() {
+        let mut o = rc();
+        assert!(Strategy
+            .warnings_on_create(&ctx(), &o)
+            .iter()
+            .all(|w| !w.contains("nodeSelector")));
+        with_template_node_selector(&mut o);
+        let warnings = Strategy.warnings_on_create(&ctx(), &o);
+        assert!(warnings.contains(&r#"spec.template.spec.nodeSelector[beta.kubernetes.io/os]: deprecated since v1.14; use "kubernetes.io/os" instead"#.to_string()), "{warnings:?}");
+    }
+
+    /// Only a changed generation re-evaluates the template. Upstream passes `(old, new)` (strategy.go:189), so the warning describes the OLD template.
+    #[test]
+    fn update_warns_only_when_the_generation_changed() {
+        let mut old = rc();
+        let mut new = old.clone();
+        with_template_node_selector(&mut old);
+
+        assert!(Strategy.warnings_on_update(&ctx(), &new, &old).is_empty());
+        new.metadata.generation = Some(old.metadata.generation.unwrap() + 1);
+        let warnings = Strategy.warnings_on_update(&ctx(), &new, &old);
+        assert_eq!(warnings, vec![r#"spec.template.spec.nodeSelector[beta.kubernetes.io/os]: deprecated since v1.14; use "kubernetes.io/os" instead"#.to_string()]);
+    }
 }
