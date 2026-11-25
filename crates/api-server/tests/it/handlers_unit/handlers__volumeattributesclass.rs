@@ -9,16 +9,16 @@ mod __parent {
         response::Response,
         Extension,
     };
-    pub use k3rs_api_server::endpoints::handlers::{self as endpoints, RequestScope};
-    pub use k3rs_api_server::registry::storage::volumeattributesclass;
-    pub use k3rs_api_server::{middleware::AuthContext, state::ApiServerState};
-    pub use k3rs_common::{
+    pub use kubernetes_rs_api_server::endpoints::handlers::{self as endpoints, RequestScope};
+    pub use kubernetes_rs_api_server::registry::storage::volumeattributesclass;
+    pub use kubernetes_rs_api_server::{middleware::AuthContext, state::ApiServerState};
+    pub use kubernetes_rs_common::{
         admission::{GroupVersionKind, GroupVersionResource},
         authz::{Decision, RequestAttributes},
         resources::csi::VolumeAttributesClass,
         List, Result,
     };
-    pub use k3rs_storage::build_prefix;
+    pub use kubernetes_rs_storage::build_prefix;
     pub use std::collections::HashMap;
     pub use std::sync::Arc;
     pub use tracing::debug;
@@ -26,8 +26,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::volumeattributesclass::*;
-    use k3rs_common::types::{ObjectMeta, TypeMeta};
+    use kubernetes_rs_api_server::handlers::volumeattributesclass::*;
+    use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
     use std::collections::HashMap;
 
     fn create_test_vac(name: &str) -> VolumeAttributesClass {

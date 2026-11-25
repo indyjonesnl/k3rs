@@ -2283,22 +2283,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs"
+name = "k8s-openapi"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9c6922f6afe80418dd6019818af5d0d34584c371780ff09b9752370c25b4abb"
+dependencies = [
+ "base64",
+ "jiff",
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kubernetes-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
  "clap",
  "dhat",
- "k3rs-api-server",
- "k3rs-client",
- "k3rs-common",
- "k3rs-controller-manager",
- "k3rs-dns",
- "k3rs-kube-proxy",
- "k3rs-kubelet",
- "k3rs-scheduler",
- "k3rs-storage",
+ "kubernetes-rs-api-server",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
+ "kubernetes-rs-controller-manager",
+ "kubernetes-rs-dns",
+ "kubernetes-rs-kube-proxy",
+ "kubernetes-rs-kubelet",
+ "kubernetes-rs-scheduler",
+ "kubernetes-rs-storage",
  "mimalloc",
  "serial_test",
  "tokio",
@@ -2306,7 +2319,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-admission-webhook"
+name = "kubernetes-rs-admission-webhook"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2315,8 +2328,8 @@ dependencies = [
  "cel",
  "chrono",
  "futures",
- "k3rs-common",
- "k3rs-storage",
+ "kubernetes-rs-common",
+ "kubernetes-rs-storage",
  "prometheus",
  "rand 0.9.4",
  "reqwest",
@@ -2327,7 +2340,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-api-server"
+name = "kubernetes-rs-api-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2351,18 +2364,18 @@ dependencies = [
  "inotify",
  "ipnet",
  "jsonwebtoken",
- "k3rs-admission-webhook",
- "k3rs-client",
- "k3rs-common",
- "k3rs-controller-core",
- "k3rs-controller-manager",
- "k3rs-cri",
- "k3rs-discovery",
- "k3rs-middleware",
- "k3rs-protobuf",
- "k3rs-storage",
- "k3rs-streamproxy",
- "k3rs-test-support",
+ "kubernetes-rs-admission-webhook",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
+ "kubernetes-rs-controller-core",
+ "kubernetes-rs-controller-manager",
+ "kubernetes-rs-cri",
+ "kubernetes-rs-discovery",
+ "kubernetes-rs-middleware",
+ "kubernetes-rs-protobuf",
+ "kubernetes-rs-storage",
+ "kubernetes-rs-streamproxy",
+ "kubernetes-rs-test-support",
  "mimalloc",
  "openapiv3",
  "pem",
@@ -2400,7 +2413,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-cel-checker"
+name = "kubernetes-rs-cel-checker"
 version = "0.1.0"
 dependencies = [
  "cel",
@@ -2408,7 +2421,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-client"
+name = "kubernetes-rs-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2417,7 +2430,7 @@ dependencies = [
  "base64",
  "chrono",
  "futures",
- "k3rs-test-support",
+ "kubernetes-rs-test-support",
  "rcgen",
  "reqwest",
  "rustls",
@@ -2431,7 +2444,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-common"
+name = "kubernetes-rs-common"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
@@ -2451,8 +2464,8 @@ dependencies = [
  "futures",
  "ipnet",
  "jsonwebtoken",
- "k3rs-cel-checker",
  "k8s-openapi",
+ "kubernetes-rs-cel-checker",
  "once_cell",
  "p224",
  "p256",
@@ -2488,14 +2501,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-controller-core"
+name = "kubernetes-rs-controller-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
  "futures",
- "k3rs-common",
- "k3rs-storage",
+ "kubernetes-rs-common",
+ "kubernetes-rs-storage",
  "rand 0.9.4",
  "serde_json",
  "tokio",
@@ -2503,7 +2516,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-controller-manager"
+name = "kubernetes-rs-controller-manager"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2519,13 +2532,13 @@ dependencies = [
  "hmac",
  "ipnet",
  "jsonwebtoken",
- "k3rs-client",
- "k3rs-common",
- "k3rs-controller-core",
- "k3rs-csi",
- "k3rs-discovery",
- "k3rs-middleware",
- "k3rs-storage",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
+ "kubernetes-rs-controller-core",
+ "kubernetes-rs-csi",
+ "kubernetes-rs-discovery",
+ "kubernetes-rs-middleware",
+ "kubernetes-rs-storage",
  "mimalloc",
  "pem",
  "prometheus",
@@ -2548,13 +2561,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-cri"
+name = "kubernetes-rs-cri"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
  "hyper-util",
- "k3rs-common",
+ "kubernetes-rs-common",
  "prost",
  "thiserror 1.0.69",
  "tokio",
@@ -2568,7 +2581,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-csi"
+name = "kubernetes-rs-csi"
 version = "0.1.0"
 dependencies = [
  "hyper-util",
@@ -2584,20 +2597,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-discovery"
+name = "kubernetes-rs-discovery"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
- "k3rs-common",
- "k3rs-storage",
+ "kubernetes-rs-common",
+ "kubernetes-rs-storage",
  "serde",
  "serde_json",
  "tokio",
 ]
 
 [[package]]
-name = "k3rs-dns"
+name = "kubernetes-rs-dns"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2606,9 +2619,9 @@ dependencies = [
  "futures",
  "hickory-proto",
  "hickory-server",
- "k3rs-client",
- "k3rs-common",
- "k3rs-storage",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
+ "kubernetes-rs-storage",
  "mimalloc",
  "serde_json",
  "tokio",
@@ -2616,7 +2629,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-kube-proxy"
+name = "kubernetes-rs-kube-proxy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2625,10 +2638,10 @@ dependencies = [
  "clap",
  "crc",
  "futures",
- "k3rs-client",
- "k3rs-common",
- "k3rs-controller-manager",
- "k3rs-storage",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
+ "kubernetes-rs-controller-manager",
+ "kubernetes-rs-storage",
  "mimalloc",
  "miniz_oxide 0.8.9",
  "prometheus",
@@ -2643,7 +2656,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-kubectl"
+name = "kubernetes-rs-kubectl"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2655,8 +2668,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "k3rs-client",
- "k3rs-common",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
  "mimalloc",
  "reqwest",
  "serde",
@@ -2672,7 +2685,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-kubelet"
+name = "kubernetes-rs-kubelet"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2693,13 +2706,13 @@ dependencies = [
  "http-body-util",
  "hyper-util",
  "inotify",
- "k3rs-client",
- "k3rs-common",
- "k3rs-cri",
- "k3rs-csi",
- "k3rs-middleware",
- "k3rs-storage",
- "k3rs-streamproxy",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
+ "kubernetes-rs-cri",
+ "kubernetes-rs-csi",
+ "kubernetes-rs-middleware",
+ "kubernetes-rs-storage",
+ "kubernetes-rs-streamproxy",
  "libc",
  "mimalloc",
  "p256",
@@ -2740,7 +2753,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-middleware"
+name = "kubernetes-rs-middleware"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2756,10 +2769,10 @@ dependencies = [
  "hmac",
  "http-body",
  "http-body-util",
- "k3rs-client",
- "k3rs-common",
- "k3rs-protobuf",
- "k3rs-storage",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
+ "kubernetes-rs-protobuf",
+ "kubernetes-rs-storage",
  "prometheus",
  "prost",
  "rcgen",
@@ -2781,19 +2794,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-protobuf"
+name = "kubernetes-rs-protobuf"
 version = "0.1.0"
 dependencies = [
  "base64",
  "chrono",
- "k3rs-common",
+ "kubernetes-rs-common",
  "serde",
  "serde_json",
  "tracing",
 ]
 
 [[package]]
-name = "k3rs-scheduler"
+name = "kubernetes-rs-scheduler"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2802,12 +2815,12 @@ dependencies = [
  "chrono",
  "clap",
  "futures",
- "k3rs-client",
- "k3rs-common",
- "k3rs-controller-manager",
- "k3rs-middleware",
- "k3rs-storage",
- "k3rs-test-support",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
+ "kubernetes-rs-controller-manager",
+ "kubernetes-rs-middleware",
+ "kubernetes-rs-storage",
+ "kubernetes-rs-test-support",
  "mimalloc",
  "serde",
  "serde_json",
@@ -2819,7 +2832,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-storage"
+name = "kubernetes-rs-storage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2829,8 +2842,8 @@ dependencies = [
  "criterion",
  "etcd-client",
  "futures",
- "k3rs-client",
- "k3rs-common",
+ "kubernetes-rs-client",
+ "kubernetes-rs-common",
  "prometheus",
  "rhino",
  "serde",
@@ -2845,7 +2858,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-streamproxy"
+name = "kubernetes-rs-streamproxy"
 version = "0.1.0"
 dependencies = [
  "axum",
@@ -2861,32 +2874,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "k3rs-test-support"
+name = "kubernetes-rs-test-support"
 version = "0.1.0"
 dependencies = [
  "axum",
  "bytes",
  "futures",
- "k3rs-api-server",
- "k3rs-common",
- "k3rs-storage",
+ "kubernetes-rs-api-server",
+ "kubernetes-rs-common",
+ "kubernetes-rs-storage",
  "serde",
  "serde_json",
  "tokio",
  "tower 0.4.13",
-]
-
-[[package]]
-name = "k8s-openapi"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9c6922f6afe80418dd6019818af5d0d34584c371780ff09b9752370c25b4abb"
-dependencies = [
- "base64",
- "jiff",
- "schemars 1.2.1",
- "serde",
- "serde_json",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 //! `SyncLoopHealthCheck` (`pkg/kubelet/kubelet.go:3096-3107`) and the
 //! `syncLoopMonitor` it reads.
-use k3rs_kubelet::sync_loop_monitor::{SyncLoopMonitor, MIN_SYNC_LOOP_STALENESS};
+use kubernetes_rs_kubelet::sync_loop_monitor::{SyncLoopMonitor, MIN_SYNC_LOOP_STALENESS};
 use std::time::{Duration, Instant};
 
 const MIN: Duration = Duration::from_secs(60);

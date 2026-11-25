@@ -1,5 +1,5 @@
-use k3rs_common::quantity::parse_resource_value;
-use k3rs_common::resources::Pod;
+use kubernetes_rs_common::quantity::parse_resource_value;
+use kubernetes_rs_common::resources::Pod;
 use tracing::{info, warn};
 
 /// Set up an EmptyDir volume directory with mode 0o777, matching upstream
@@ -107,7 +107,7 @@ fn parse_mount_options(options: &[String]) -> (libc::c_ulong, String) {
 /// args built by `MakeMountArgsSensitiveWithMountFlags:350`) execs the
 /// `mount` binary: `mount -t <fstype> [-o <options>] <source> <target>`.
 ///
-/// DELIBERATE DEVIATION (k3rs): minimal node images (e.g. mikronetes microVM
+/// DELIBERATE DEVIATION (kubernetes-rs): minimal node images (e.g. mikronetes microVM
 /// workers) ship no util-linux `mount`, and every projected service-account
 /// token and `medium: Memory` emptyDir then fails with `could not exec mount`
 /// and the pod never leaves ContainerCreating. k3s does not hit this because
@@ -728,7 +728,7 @@ mod inprocess_mount_tests {
     fn mount_missing_target_fails_with_upstream_shaped_message() {
         let err = mount_fs(
             "tmpfs",
-            "/nonexistent/k3rs-mount-test",
+            "/nonexistent/kubernetes-rs-mount-test",
             "tmpfs",
             &o(&["size=1"]),
         )
@@ -741,7 +741,7 @@ mod inprocess_mount_tests {
         );
     }
 
-    /// Needs CAP_SYS_ADMIN: `cargo test -p k3rs-kubelet inprocess -- --ignored` as root.
+    /// Needs CAP_SYS_ADMIN: `cargo test -p kubernetes-rs-kubelet inprocess -- --ignored` as root.
     #[test]
     #[ignore = "requires root / CAP_SYS_ADMIN"]
     fn tmpfs_mount_unmount_roundtrip() {

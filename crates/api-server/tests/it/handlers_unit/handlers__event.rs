@@ -9,17 +9,17 @@ mod __parent {
         response::{IntoResponse, Response},
         Extension,
     };
-    pub use k3rs_api_server::endpoints::handlers::{self as endpoints, RequestScope};
-    pub use k3rs_api_server::registry::core::event;
-    pub use k3rs_api_server::{middleware::AuthContext, state::ApiServerState};
-    pub use k3rs_common::admission::{GroupVersionKind, GroupVersionResource};
-    pub use k3rs_common::dump::decode_request_body;
-    pub use k3rs_common::{
+    pub use kubernetes_rs_api_server::endpoints::handlers::{self as endpoints, RequestScope};
+    pub use kubernetes_rs_api_server::registry::core::event;
+    pub use kubernetes_rs_api_server::{middleware::AuthContext, state::ApiServerState};
+    pub use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource};
+    pub use kubernetes_rs_common::dump::decode_request_body;
+    pub use kubernetes_rs_common::{
         authz::{Decision, RequestAttributes},
         resources::{Event, EventList, EventV1, EventV1List},
         Result,
     };
-    pub use k3rs_storage::build_prefix;
+    pub use kubernetes_rs_storage::build_prefix;
     pub use std::collections::HashMap;
     pub use std::sync::Arc;
     pub use tracing::debug;
@@ -27,9 +27,9 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::event::*;
-    use k3rs_common::resources::EventType;
-    use k3rs_common::resources::ObjectReference;
+    use kubernetes_rs_api_server::handlers::event::*;
+    use kubernetes_rs_common::resources::EventType;
+    use kubernetes_rs_common::resources::ObjectReference;
 
     #[test]
     fn test_event_creation() {
@@ -102,7 +102,8 @@ mod tests {
             "fieldSelector".to_string(),
             "involvedObject.name=pod-a".to_string(),
         );
-        k3rs_api_server::handlers::filtering::apply_selectors(&mut events, &params).unwrap();
+        kubernetes_rs_api_server::handlers::filtering::apply_selectors(&mut events, &params)
+            .unwrap();
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].metadata.name, "event-1");

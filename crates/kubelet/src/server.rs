@@ -16,10 +16,10 @@
 //! about to act on.
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
-use k3rs_common::resources::Pod;
-use k3rs_common::types::{List, Phase};
-use k3rs_common::Result;
-use k3rs_storage::{build_prefix, Storage, StorageBackend};
+use kubernetes_rs_common::resources::Pod;
+use kubernetes_rs_common::types::{List, Phase};
+use kubernetes_rs_common::Result;
+use kubernetes_rs_storage::{build_prefix, Storage, StorageBackend};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -202,9 +202,9 @@ pub const COMPONENT_KUBELET: &str = "kubelet";
 /// `s.addMetricsBucketMatcher("statusz")` (server.go:395) is
 /// [`MetricsBuckets::install_status_z`].
 pub fn install_statusz(router: Router, registered_paths: Vec<String>) -> Router {
-    k3rs_common::statusz::install_if_enabled(router, COMPONENT_KUBELET, || {
-        k3rs_common::statusz::Registry::new(Some(
-            k3rs_common::compatibility::default_build_effective_version(),
+    kubernetes_rs_common::statusz::install_if_enabled(router, COMPONENT_KUBELET, || {
+        kubernetes_rs_common::statusz::Registry::new(Some(
+            kubernetes_rs_common::compatibility::default_build_effective_version(),
         ))
         .with_listed_paths(registered_paths)
     })
@@ -485,41 +485,43 @@ pub fn install_metrics_filter(
     router.layer(axum::middleware::from_fn_with_state(state, metrics_filter))
 }
 
-static FLAGZ: std::sync::OnceLock<k3rs_common::flagz::NamedFlagSetsReader> =
+static FLAGZ: std::sync::OnceLock<kubernetes_rs_common::flagz::NamedFlagSetsReader> =
     std::sync::OnceLock::new();
 
 /// `kubeletDeps.Flagz = flagz.NamedFlagSetsReader{...}`
 /// (cmd/kubelet/app/server.go:270-275): set once from the parsed command line,
 /// and only when `ComponentFlagz` is enabled. Unset leaves `/flagz`
 /// uninstalled (`s.flagz != nil`, server.go:603).
-pub fn set_flagz_reader(reader: k3rs_common::flagz::NamedFlagSetsReader) {
+pub fn set_flagz_reader(reader: kubernetes_rs_common::flagz::NamedFlagSetsReader) {
     let _ = FLAGZ.set(reader);
 }
 
 /// `ComponentFlagz` is on and a flagz registry was set (server.go:602-603).
 pub fn flagz_installed() -> bool {
     FLAGZ.get().is_some()
-        && k3rs_common::feature_gates::enabled(k3rs_common::feature_gates::Feature::ComponentFlagz)
+        && kubernetes_rs_common::feature_gates::enabled(
+            kubernetes_rs_common::feature_gates::Feature::ComponentFlagz,
+        )
 }
 
 /// `flagz.Install(s.restfulCont, ComponentKubelet, s.flagz)` behind the
 /// `ComponentFlagz` gate and `s.flagz != nil` (server.go:602-607, inside
 /// `InstallAuthRequiredHandlers`).
 pub fn install_flagz(router: Router) -> Router {
-    k3rs_common::flagz::install_if_enabled(
+    kubernetes_rs_common::flagz::install_if_enabled(
         router,
         COMPONENT_KUBELET,
         FLAGZ
             .get()
             .cloned()
-            .map(|r| Box::new(r) as Box<dyn k3rs_common::flagz::FlagReader>),
+            .map(|r| Box::new(r) as Box<dyn kubernetes_rs_common::flagz::FlagReader>),
     )
 }
 
 /// The `ContainerCheckpoint` gate, read once when the handlers are installed
 /// (server.go:620 reads it inside `InstallAuthRequiredHandlers`).
 pub fn checkpoint_enabled() -> bool {
-    k3rs_common::feature_gates::gate_enabled("ContainerCheckpoint").unwrap_or(false)
+    kubernetes_rs_common::feature_gates::gate_enabled("ContainerCheckpoint").unwrap_or(false)
 }
 
 /// The `NewServer` bucket inputs for this kubelet's installed handlers:
@@ -532,8 +534,8 @@ pub fn server_bucket_options(enable_debugging_handlers: bool) -> ServerBucketOpt
         enable_debugging_handlers,
         flagz_enabled: flagz_installed(),
         checkpoint_enabled: checkpoint_enabled(),
-        statusz_enabled: k3rs_common::feature_gates::enabled(
-            k3rs_common::feature_gates::Feature::ComponentStatusz,
+        statusz_enabled: kubernetes_rs_common::feature_gates::enabled(
+            kubernetes_rs_common::feature_gates::Feature::ComponentStatusz,
         ),
     }
 }
@@ -586,7 +588,8 @@ pub fn get_request_attributes(
     };
 
     let mut subresources: Vec<&str> = Vec::new();
-    if k3rs_common::feature_gates::gate_enabled("KubeletFineGrainedAuthz").unwrap_or(false) {
+    if kubernetes_rs_common::feature_gates::gate_enabled("KubeletFineGrainedAuthz").unwrap_or(false)
+    {
         if is_subpath(request_path, PODS_PATH) {
             subresources.push("pods");
         } else if is_subpath(request_path, "/healthz") {
@@ -609,7 +612,10 @@ pub fn get_request_attributes(
         subresources.push("log");
     } else if is_subpath(request_path, CHECKPOINT_PATH) {
         subresources.push("checkpoint");
-    } else if is_subpath(request_path, k3rs_common::statusz::DEFAULT_STATUSZ_PATH) {
+    } else if is_subpath(
+        request_path,
+        kubernetes_rs_common::statusz::DEFAULT_STATUSZ_PATH,
+    ) {
         subresources.push("statusz");
     } else if is_subpath(request_path, "/flagz") {
         subresources.push("configz");
@@ -771,7 +777,7 @@ pub struct ServerRouterOptions {
 /// the metrics filter (`ServeHTTP`, :1176).
 pub fn build_server_router(
     state: ServerState,
-    metrics: Arc<k3rs_common::observability::MetricsRegistry>,
+    metrics: Arc<kubernetes_rs_common::observability::MetricsRegistry>,
     kubelet_config: Arc<crate::config::KubeletConfiguration>,
     opts: ServerRouterOptions,
 ) -> Router {

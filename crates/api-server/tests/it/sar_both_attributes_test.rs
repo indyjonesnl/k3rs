@@ -4,7 +4,7 @@
 //! nonResourceAttributes when both were set.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 fn ssar_uri() -> &'static str {

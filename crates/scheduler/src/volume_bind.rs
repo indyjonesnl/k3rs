@@ -20,7 +20,9 @@ use crate::volume_binding::{
     check_pv_node_affinity, is_pvc_fully_bound, pvc_key, try_translate_pv_to_csi, BindingInfo,
     DynamicProvision, PodVolumes, ANN_SELECTED_NODE,
 };
-use k3rs_common::resources::{CSINode, Node, PersistentVolume, PersistentVolumeClaim, Pod};
+use kubernetes_rs_common::resources::{
+    CSINode, Node, PersistentVolume, PersistentVolumeClaim, Pod,
+};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -356,7 +358,7 @@ pub fn reserve(
 
 /// [`BinderEnv`] over the scheduler's long-lived [`VolumeBinder`] caches and
 /// [`DataPlane`] (storage or api-server).
-pub struct DataPlaneBinderEnv<'a, S: k3rs_storage::Storage + Send + Sync + 'static> {
+pub struct DataPlaneBinderEnv<'a, S: kubernetes_rs_storage::Storage + Send + Sync + 'static> {
     pub binder: &'a std::sync::Mutex<VolumeBinder>,
     pub data: &'a DataPlane<S>,
     /// Storage mode's running volume informers (API mode owns its own).
@@ -366,7 +368,9 @@ pub struct DataPlaneBinderEnv<'a, S: k3rs_storage::Storage + Send + Sync + 'stat
 }
 
 #[async_trait::async_trait]
-impl<S: k3rs_storage::Storage + Send + Sync + 'static> BinderEnv for DataPlaneBinderEnv<'_, S> {
+impl<S: kubernetes_rs_storage::Storage + Send + Sync + 'static> BinderEnv
+    for DataPlaneBinderEnv<'_, S>
+{
     async fn update_pv(&self, pv: &PersistentVolume) -> Result<PersistentVolume, String> {
         self.data.update_pv(pv).await.map_err(|e| e.to_string())
     }
@@ -431,7 +435,7 @@ impl<S: k3rs_storage::Storage + Send + Sync + 'static> BinderEnv for DataPlaneBi
         let ns = pod.metadata.namespace.as_deref().unwrap_or("default");
         match self.data.get_pod(ns, &pod.metadata.name).await {
             Ok(_) => Ok(true),
-            Err(k3rs_common::Error::NotFound(_)) => Ok(false),
+            Err(kubernetes_rs_common::Error::NotFound(_)) => Ok(false),
             Err(e) => Err(e.to_string()),
         }
     }

@@ -16,13 +16,15 @@
 //!   stays as a second shape.
 
 use async_trait::async_trait;
-use k3rs_common::resources::{Node, Pod};
-use k3rs_scheduler::framework_runtime::{ExtensionPoint, PluginInstance, Registry};
-use k3rs_scheduler::fwk::{Code, CycleState, FilterPlugin, NodeInfo, Plugin, Status};
-use k3rs_scheduler::profile::Map;
-use k3rs_scheduler::scheduler::Scheduler;
-use k3rs_scheduler::scheduler_config::{profiles_from_config, profiles_from_config_with_registry};
-use k3rs_storage::{memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_scheduler::framework_runtime::{ExtensionPoint, PluginInstance, Registry};
+use kubernetes_rs_scheduler::fwk::{Code, CycleState, FilterPlugin, NodeInfo, Plugin, Status};
+use kubernetes_rs_scheduler::profile::Map;
+use kubernetes_rs_scheduler::scheduler::Scheduler;
+use kubernetes_rs_scheduler::scheduler_config::{
+    profiles_from_config, profiles_from_config_with_registry,
+};
+use kubernetes_rs_storage::{memory::MemoryStorage, Storage};
 use serde_json::json;
 use std::sync::Arc;
 

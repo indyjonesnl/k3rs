@@ -90,10 +90,10 @@ case "${1:-}" in
         # Which containers exist. node-2 peers and the store are individually
         # switchable so the "no pair present" and "no store" paths get covered.
         case "$name" in
-            k3rs-kubelet)   [ "${KUBELET_PRESENT:-1}"  = "1" ] || exit 1 ;;
-            k3rs-kubelet2|k3rs-kube-proxy2|k3rs-containerd2)
+            kubernetes-rs-kubelet)   [ "${KUBELET_PRESENT:-1}"  = "1" ] || exit 1 ;;
+            kubernetes-rs-kubelet2|kubernetes-rs-kube-proxy2|kubernetes-rs-containerd2)
                                    [ "${NODE2_PRESENT:-1}"    = "1" ] || exit 1 ;;
-            k3rs-rhino)     [ "${RHINO_PRESENT:-1}"    = "1" ] || exit 1 ;;
+            kubernetes-rs-rhino)     [ "${RHINO_PRESENT:-1}"    = "1" ] || exit 1 ;;
         esac
         case "$fmt" in
             "")
@@ -103,7 +103,7 @@ case "${1:-}" in
                 if [ "${CERTS_MOUNTED:-1}" = "1" ]; then
                     printf '%s:%s\n' "${CERTS_PATH}" "${CERTS_PATH}"
                 else
-                    printf '%s:/etc/k3rs/certs\n' "${CERTS_PATH}"
+                    printf '%s:/etc/kubernetes-rs/certs\n' "${CERTS_PATH}"
                 fi
                 exit 0 ;;
         esac ;;
@@ -291,7 +291,7 @@ else
     fail=1
 fi
 
-# A cluster whose control plane is not k3rs' (vanilla kind) can opt out
+# A cluster whose control plane is not kubernetes-rs' (vanilla kind) can opt out
 # of the assertion entirely — 'none' must not degrade into a pod literally
 # named "none".
 PREFLIGHT_FLAGS=(--control-plane-pods none)

@@ -11,7 +11,7 @@ use crate::async_preemption::{AsyncPreemption, DefaultPreemptionPreEnqueue};
 use crate::framework_runtime::{names, ExtensionPoint};
 use crate::fwk::{Code, Status};
 use crate::profile::Profile;
-use k3rs_common::resources::Pod;
+use kubernetes_rs_common::resources::Pod;
 use std::sync::Arc;
 
 /// `SchedulingGates` checks if a Pod carries `.spec.schedulingGates`.

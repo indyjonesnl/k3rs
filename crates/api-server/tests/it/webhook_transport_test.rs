@@ -3,13 +3,13 @@
 //! `hookClientConfig`, authentication.go
 //! `NewDefaultAuthenticationInfoResolverWrapper`).
 
-use k3rs_admission_webhook::transport::{
+use kubernetes_rs_admission_webhook::transport::{
     Dial, ServiceRef, WebhookHttpRequest, WebhookTarget, WebhookTransport,
 };
-use k3rs_admission_webhook::AdmissionWebhookClient;
-use k3rs_api_server::webhook_transport::EgressWebhookTransport;
-use k3rs_common::resources::{ServiceReference, WebhookClientConfig};
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_admission_webhook::AdmissionWebhookClient;
+use kubernetes_rs_api_server::webhook_transport::EgressWebhookTransport;
+use kubernetes_rs_common::resources::{ServiceReference, WebhookClientConfig};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -79,7 +79,7 @@ async fn put_service(storage: &MemoryStorage, cluster_ip: &str) {
         "spec": { "clusterIP": cluster_ip, "ports": [{ "port": 443 }] },
     });
     storage
-        .create::<k3rs_common::resources::Service>(
+        .create::<kubernetes_rs_common::resources::Service>(
             &build_key("services", Some("ns"), "hook"),
             &serde_json::from_value(svc).unwrap(),
         )

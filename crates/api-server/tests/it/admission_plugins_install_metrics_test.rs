@@ -11,15 +11,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use k3rs_api_server::admission::plugins::{install, AdmissionOptions};
-use k3rs_api_server::endpoints::handlers::admission::Admission;
-use k3rs_api_server::state::ApiServerState;
-use k3rs_common::admission::{GroupVersionKind, GroupVersionResource};
-use k3rs_common::auth::{TokenManager, UserInfo};
-use k3rs_common::authz::AlwaysAllowAuthorizer;
-use k3rs_common::observability::MetricsRegistry;
-use k3rs_common::resources::Pod;
-use k3rs_storage::{MemoryStorage, StorageBackend};
+use kubernetes_rs_api_server::admission::plugins::{install, AdmissionOptions};
+use kubernetes_rs_api_server::endpoints::handlers::admission::Admission;
+use kubernetes_rs_api_server::state::ApiServerState;
+use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource};
+use kubernetes_rs_common::auth::{TokenManager, UserInfo};
+use kubernetes_rs_common::authz::AlwaysAllowAuthorizer;
+use kubernetes_rs_common::observability::MetricsRegistry;
+use kubernetes_rs_common::resources::Pod;
+use kubernetes_rs_storage::{MemoryStorage, StorageBackend};
 use serde_json::json;
 
 fn node_restriction_delete_admit() -> u64 {

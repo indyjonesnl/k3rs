@@ -6,7 +6,7 @@ mod __parent {
 }
 
 mod tests {
-    use k3rs_common::equality::semantic_equal;
+    use kubernetes_rs_common::equality::semantic_equal;
     use std::collections::HashMap;
 
     #[test]

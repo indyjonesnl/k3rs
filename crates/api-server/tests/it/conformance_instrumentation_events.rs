@@ -21,7 +21,7 @@
 //!
 //! Harness:
 //!   `spawn_router()` → `TestApiServer::new()` (the shared
-//!   `k3rs-test-support` harness: `build_router` + `MemoryStorage` +
+//!   `kubernetes-rs-test-support` harness: `build_router` + `MemoryStorage` +
 //!   `AlwaysAllowAuthorizer`), driven via a `send` helper that returns
 //!   `(u16, serde_json::Value)`. Both the core/v1 (`/api/v1/…`) and
 //!   `events.k8s.io/v1` (`/apis/events.k8s.io/v1/…`) surfaces are exercised.
@@ -74,8 +74,8 @@
 //! the `list_apiservices` selector bug in the aggregation/discovery area.
 
 use axum::http::Method;
-use k3rs_storage::memory::MemoryStorage;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_storage::memory::MemoryStorage;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 

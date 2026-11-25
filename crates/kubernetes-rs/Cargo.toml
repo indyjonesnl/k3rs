@@ -1,5 +1,5 @@
 [package]
-name = "k3rs"
+name = "kubernetes-rs"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,28 +7,28 @@ license.workspace = true
 description = "All-in-one Kubernetes in a single binary"
 
 [[bin]]
-name = "k3rs"
+name = "kubernetes-rs"
 path = "src/main.rs"
 
 [features]
 default = ["sqlite"]
 sqlite = [
-    "k3rs-storage/sqlite",
-    "k3rs-api-server/sqlite",
-    "k3rs-scheduler/sqlite",
-    "k3rs-controller-manager/sqlite",
-    "k3rs-kubelet/sqlite",
-    "k3rs-kube-proxy/sqlite",
-    "k3rs-dns/sqlite",
+    "kubernetes-rs-storage/sqlite",
+    "kubernetes-rs-api-server/sqlite",
+    "kubernetes-rs-scheduler/sqlite",
+    "kubernetes-rs-controller-manager/sqlite",
+    "kubernetes-rs-kubelet/sqlite",
+    "kubernetes-rs-kube-proxy/sqlite",
+    "kubernetes-rs-dns/sqlite",
 ]
 redis = [
-    "k3rs-storage/redis",
-    "k3rs-api-server/redis",
-    "k3rs-scheduler/redis",
-    "k3rs-controller-manager/redis",
-    "k3rs-kubelet/redis",
-    "k3rs-kube-proxy/redis",
-    "k3rs-dns/redis",
+    "kubernetes-rs-storage/redis",
+    "kubernetes-rs-api-server/redis",
+    "kubernetes-rs-scheduler/redis",
+    "kubernetes-rs-controller-manager/redis",
+    "kubernetes-rs-kubelet/redis",
+    "kubernetes-rs-kube-proxy/redis",
+    "kubernetes-rs-dns/redis",
 ]
 # Heap profiling via dhat (off by default). Build with
 # `--features dhat-heap` to swap in dhat's allocator; on a clean shutdown
@@ -44,15 +44,15 @@ dhat-heap = ["dep:dhat"]
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
-k3rs-api-server = { path = "../api-server" }
-k3rs-scheduler = { path = "../scheduler" }
-k3rs-controller-manager = { path = "../controller-manager" }
-k3rs-kubelet = { path = "../kubelet" }
-k3rs-kube-proxy = { path = "../kube-proxy" }
-k3rs-dns = { path = "../dns" }
-k3rs-client = { path = "../client" }
-k3rs-storage = { path = "../storage" }
-k3rs-common = { path = "../common" }
+kubernetes-rs-api-server = { path = "../api-server" }
+kubernetes-rs-scheduler = { path = "../scheduler" }
+kubernetes-rs-controller-manager = { path = "../controller-manager" }
+kubernetes-rs-kubelet = { path = "../kubelet" }
+kubernetes-rs-kube-proxy = { path = "../kube-proxy" }
+kubernetes-rs-dns = { path = "../dns" }
+kubernetes-rs-client = { path = "../client" }
+kubernetes-rs-storage = { path = "../storage" }
+kubernetes-rs-common = { path = "../common" }
 tokio.workspace = true
 axum.workspace = true
 clap.workspace = true

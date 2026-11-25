@@ -9,7 +9,7 @@
 //! type list mirrors `NamespaceController::finalize_namespace`.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 
 const NS: &str = "dc-coverage";
 

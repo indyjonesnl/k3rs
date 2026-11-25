@@ -7,7 +7,7 @@
 //! (`dropDisabledWorkloadRef`, util.go:1836) must not survive in a template.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 fn pod_spec() -> Value {

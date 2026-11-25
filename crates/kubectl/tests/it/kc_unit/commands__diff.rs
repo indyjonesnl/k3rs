@@ -3,16 +3,16 @@
 
 mod __parent {
     pub use anyhow::{Context, Result};
-    pub use k3rs_client::http::{ApiClient, GetError};
-    pub use k3rs_kubectl::discovery::RestMapper;
-    pub use k3rs_kubectl::ops::build_path;
+    pub use kubernetes_rs_client::http::{ApiClient, GetError};
+    pub use kubernetes_rs_kubectl::discovery::RestMapper;
+    pub use kubernetes_rs_kubectl::ops::build_path;
     pub use serde_json::Value;
 }
 
 mod tests {
-    use k3rs_kubectl::commands::diff::strip_server_managed;
-    use k3rs_kubectl::discovery::{ResourceMapping, RestMapper};
-    use k3rs_kubectl::ops::build_path;
+    use kubernetes_rs_kubectl::commands::diff::strip_server_managed;
+    use kubernetes_rs_kubectl::discovery::{ResourceMapping, RestMapper};
+    use kubernetes_rs_kubectl::ops::build_path;
     use serde_json::json;
 
     fn mapping(

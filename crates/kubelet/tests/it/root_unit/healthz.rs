@@ -4,7 +4,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use http_body_util::BodyExt;
-use k3rs_kubelet::healthz::{install_path_handler, HealthChecker};
+use kubernetes_rs_kubelet::healthz::{install_path_handler, HealthChecker};
 use tower::ServiceExt;
 
 async fn get(app: &Router, uri: &str) -> (StatusCode, String) {

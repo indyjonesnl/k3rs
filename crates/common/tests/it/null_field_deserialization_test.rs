@@ -12,8 +12,10 @@
 //   ff43065  Fix #212: EndpointSlice ports field accepts null
 //   402d503  Fix CSINode null drivers + ResourceQuota status route
 
-use k3rs_common::resources::{CSINodeSpec, EndpointAddress, EndpointSlice, TokenRequestSpec};
-use k3rs_common::types::ObjectMeta;
+use kubernetes_rs_common::resources::{
+    CSINodeSpec, EndpointAddress, EndpointSlice, TokenRequestSpec,
+};
+use kubernetes_rs_common::types::ObjectMeta;
 use serde_json::json;
 
 // ---------------------------------------------------------------------------

@@ -39,7 +39,7 @@ Target to claim the niche: **sub-400 MB idle** (stretch 250–300 MB).
 
 ## Dimensions
 
-1. **Binary size** — release `k3rs` all-in-one, raw + stripped (and a
+1. **Binary size** — release `kubernetes-rs` all-in-one, raw + stripped (and a
    `musl` static variant).
 2. **Time-to-cluster** — `compose up` → first node `Ready`.
 3. **Idle control-plane RSS** — single node, default CNI + DNS, no workload.
@@ -62,14 +62,14 @@ Process-level idle RSS of the all-in-one binary (used by the #1039 before/after)
 is also available standalone:
 
 ```bash
-cargo build --release -p k3rs
+cargo build --release -p kubernetes-rs
 scripts/bench-idle-memory.sh --seconds 60
 ```
 
 ### Tokio worker threads (#3852)
 
 The all-in-one defaults to `min(available_parallelism, 4)` tokio workers
-(`default_worker_threads` in `crates/k3rs/src/main.rs`); `TOKIO_WORKER_THREADS`
+(`default_worker_threads` in `crates/kubernetes-rs/src/main.rs`); `TOKIO_WORKER_THREADS`
 overrides it. `available_parallelism` honours the affinity mask and cgroup CPU
 quota. Each worker brings a per-thread allocator heap, so uncapped idle RSS
 grows with the core count. Measured on a 24-CPU host, musl + mimalloc,
@@ -94,7 +94,7 @@ rustup target add x86_64-unknown-linux-musl
 # A musl C toolchain is required for the cc-based deps (aws-lc-sys, ring,
 # libsqlite3-sys): apt-get install musl-tools, then point cc at it.
 CC_x86_64_unknown_linux_musl=musl-gcc \
-  cargo build --release -p k3rs --target x86_64-unknown-linux-musl
+  cargo build --release -p kubernetes-rs --target x86_64-unknown-linux-musl
 # (release profile already strips; no separate `strip` step needed)
 ```
 
@@ -112,24 +112,24 @@ CC_x86_64_unknown_linux_musl=musl-gcc \
 > hardware the host target already *is* `aarch64-unknown-linux-musl`:
 >
 > ```bash
-> docker build -f all-in-one-musl.Dockerfile -t k3rs-all-in-one:musl .
+> docker build -f all-in-one-musl.Dockerfile -t kubernetes-rs-all-in-one:musl .
 > ```
 >
 > `.github/workflows/publish-musl-image.yml` does exactly this on a native
 > runner per arch and publishes the two as one multi-arch manifest
-> (`ghcr.io/indyjonesnl/rusternetes/all-in-one-musl:musl`), so an arm64 static
+> (`ghcr.io/indyjonesnl/kubernetes-rs/all-in-one-musl:musl`), so an arm64 static
 > binary is a `docker pull` away:
 >
 > ```bash
 > docker create --platform linux/arm64 \
->   ghcr.io/indyjonesnl/rusternetes/all-in-one-musl:musl   # then `docker cp <id>:/k3rs .`
+>   ghcr.io/indyjonesnl/kubernetes-rs/all-in-one-musl:musl   # then `docker cp <id>:/kubernetes-rs .`
 > ```
 
 ## Results
 
 Reference hardware: _TBD (record CPU/RAM/OS when filling this in)_.
 
-| Metric | k3rs | k3s | Notes |
+| Metric | kubernetes-rs | k3s | Notes |
 |---|---|---|---|
 | Binary size (release, glibc) | **75.1 MiB** | — | dynamically linked; the release profile already strips symbols, so raw == stripped |
 | Binary size (musl, static, x86_64) | **82.4 MiB** | ~70 MB | static-pie, stripped, self-contained (no glibc) |

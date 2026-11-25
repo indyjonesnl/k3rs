@@ -9,7 +9,7 @@
 
 use axum::http::StatusCode;
 use base64::Engine;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const APPLY: &str = "application/apply-patch+yaml";

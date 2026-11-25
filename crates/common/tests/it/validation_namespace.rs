@@ -1,8 +1,8 @@
 //! Tests for Namespace validation (port of upstream ValidateNamespace).
 
-use k3rs_common::resources::namespace::NamespaceSpec;
-use k3rs_common::resources::Namespace;
-use k3rs_common::validation::namespace::validate_namespace;
+use kubernetes_rs_common::resources::namespace::NamespaceSpec;
+use kubernetes_rs_common::resources::Namespace;
+use kubernetes_rs_common::validation::namespace::validate_namespace;
 
 fn ns(finalizers: Option<Vec<&str>>) -> Namespace {
     let mut n = Namespace {
@@ -17,7 +17,7 @@ fn ns(finalizers: Option<Vec<&str>>) -> Namespace {
     n
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], substr: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], substr: &str) -> bool {
     errs.iter().any(|e| e.field.contains(substr))
 }
 

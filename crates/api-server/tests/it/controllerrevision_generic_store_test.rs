@@ -7,7 +7,7 @@
 //! calls (`pkg/apis/apps/validation/validation.go:328-367`).
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const CR: &str = "/apis/apps/v1/namespaces/default/controllerrevisions";

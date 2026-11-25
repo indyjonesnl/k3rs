@@ -28,10 +28,10 @@
 //! `preemptionPolicy: Never` pins that used to live here as `#[ignore]`d
 //! controller tests (issue #1033).
 
-use k3rs_common::resources::{Container, Pod, PodSpec, PriorityClass};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::priorityclass::PriorityClassController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{Container, Pod, PodSpec, PriorityClass};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::priorityclass::PriorityClassController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------

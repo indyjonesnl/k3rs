@@ -9,9 +9,9 @@
 //! sees on `/api/v1/...?watch=true` plus the optimistic-concurrency surface on
 //! create/update/delete.
 //!
-//! ## resourceVersion model in k3rs
+//! ## resourceVersion model in kubernetes-rs
 //!
-//! k3rs uses a **per-resource resourceVersion** that the backend stamps
+//! kubernetes-rs uses a **per-resource resourceVersion** that the backend stamps
 //! on every write (etcd/rhino set it to the mod_revision; the in-memory backend
 //! preserves whatever the test/handler sets). The cluster-wide list RV is
 //! exposed by `Storage::current_revision()` (etcd revision, or
@@ -41,8 +41,8 @@
 
 use axum::http::{Method, StatusCode};
 use futures::StreamExt;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;

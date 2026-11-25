@@ -3,8 +3,8 @@
 //! (`pkg/volume/csi/fake/fake_client.go`) play — but over the wire, so the
 //! client's request construction and error mapping are exercised too.
 
-use k3rs_kubelet::volume_plugins::csi_client::proto::node_server::{Node, NodeServer};
-use k3rs_kubelet::volume_plugins::csi_client::proto::*;
+use kubernetes_rs_kubelet::volume_plugins::csi_client::proto::node_server::{Node, NodeServer};
+use kubernetes_rs_kubelet::volume_plugins::csi_client::proto::*;
 use std::sync::{Arc, Mutex};
 use tonic::{Request, Response, Status};
 

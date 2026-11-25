@@ -45,8 +45,8 @@
 //! its UID is appended to the uncounted list a second time — double-counting a
 //! failure, tripping `backoffLimit`, and failing a Job that should have passed.
 
-use k3rs_common::resources::workloads::UncountedTerminatedPods;
-use k3rs_common::resources::Pod;
+use kubernetes_rs_common::resources::workloads::UncountedTerminatedPods;
+use kubernetes_rs_common::resources::Pod;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 

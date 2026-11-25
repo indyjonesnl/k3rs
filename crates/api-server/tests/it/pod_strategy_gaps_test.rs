@@ -3,7 +3,7 @@
 //! (pkg/api/pod/util.go:697) and `GetWarningsForPod` (pkg/api/pod/warnings.go:38).
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const PODS: &str = "/api/v1/namespaces/default/pods";

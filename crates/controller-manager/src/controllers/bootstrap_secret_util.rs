@@ -4,7 +4,7 @@
 //! upstream shares one `bootstrapsecretutil` package between them.
 
 use chrono::{DateTime, Utc};
-use k3rs_common::resources::Secret;
+use kubernetes_rs_common::resources::Secret;
 use std::time::Duration;
 
 /// `bootstrapapi.SecretTypeBootstrapToken` (types.go:33).

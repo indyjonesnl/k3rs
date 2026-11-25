@@ -3,9 +3,9 @@
 //! Mirrors upstream `ValidateLimitRange`
 //! (`pkg/apis/core/validation/validation.go`, release-1.35).
 
-use k3rs_common::resources::policy::LimitRange;
-use k3rs_common::validation::field::{Error, ErrorType};
-use k3rs_common::validation::limitrange::validate_limit_range;
+use kubernetes_rs_common::resources::policy::LimitRange;
+use kubernetes_rs_common::validation::field::{Error, ErrorType};
+use kubernetes_rs_common::validation::limitrange::validate_limit_range;
 use serde_json::json;
 
 fn lr(limits: serde_json::Value) -> LimitRange {

@@ -4,13 +4,13 @@
 mod __parent {
     pub use anyhow::{Context, Result};
     pub use chrono::{DateTime, Utc};
-    pub use k3rs_client::http::ApiClient;
+    pub use kubernetes_rs_client::http::ApiClient;
     pub use serde_json::Value;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::events::*;
+    use kubernetes_rs_kubectl::commands::events::*;
 
     #[test]
     fn test_parse_for_object() {

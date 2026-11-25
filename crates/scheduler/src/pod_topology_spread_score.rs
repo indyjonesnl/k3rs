@@ -29,9 +29,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use k3rs_common::resources::pod::TopologySpreadConstraint;
-use k3rs_common::resources::{Node, Pod};
-use k3rs_common::types::{
+use kubernetes_rs_common::resources::pod::TopologySpreadConstraint;
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_common::types::{
     label_selector_as_selector, LabelSelector, LabelSelectorRequirement, Phase, Selector,
 };
 
@@ -342,7 +342,7 @@ fn required_node_affinity_matches(pod: &Pod, node: &Node) -> bool {
                 .as_ref()
         })
     {
-        if !k3rs_common::affinity::matches_node_selector(node, required) {
+        if !kubernetes_rs_common::affinity::matches_node_selector(node, required) {
             return false;
         }
     }
@@ -649,11 +649,13 @@ pub fn normalize_score(state: &PreScoreState, names: &[&str], scores: &mut [i64]
 pub async fn read_default_selector_inputs<S>(
     data: &crate::data_plane::DataPlane<S>,
     pod: &Pod,
-) -> k3rs_common::Result<DefaultSelectorInputs>
+) -> kubernetes_rs_common::Result<DefaultSelectorInputs>
 where
-    S: k3rs_storage::Storage + Send + Sync + 'static,
+    S: kubernetes_rs_storage::Storage + Send + Sync + 'static,
 {
-    use k3rs_common::resources::{ReplicaSet, ReplicationController, Service, StatefulSet};
+    use kubernetes_rs_common::resources::{
+        ReplicaSet, ReplicationController, Service, StatefulSet,
+    };
     let ns = pod_namespace(pod);
     let services: Vec<Service> = data.list_namespaced("services", "/api/v1", ns).await?;
     let service_selectors = services.into_iter().map(|s| s.spec.selector).collect();

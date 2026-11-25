@@ -2,8 +2,8 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::error::Error;
-    pub use k3rs_common::resources::crd::JSONSchemaProps;
+    pub use kubernetes_rs_common::error::Error;
+    pub use kubernetes_rs_common::resources::crd::JSONSchemaProps;
     pub use regex::Regex;
     pub use serde_json::Value;
     pub use std::collections::HashMap;
@@ -12,7 +12,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::schema_validation::*;
+    use kubernetes_rs_common::schema_validation::*;
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -170,10 +170,12 @@ mod tests {
         let schema = JSONSchemaProps {
             type_: Some("array".to_string()),
             items: Some(Box::new(
-                k3rs_common::resources::crd::JSONSchemaPropsOrArray::Schema(JSONSchemaProps {
-                    type_: Some("string".to_string()),
-                    ..Default::default()
-                }),
+                kubernetes_rs_common::resources::crd::JSONSchemaPropsOrArray::Schema(
+                    JSONSchemaProps {
+                        type_: Some("string".to_string()),
+                        ..Default::default()
+                    },
+                ),
             )),
             ..Default::default()
         };
@@ -298,7 +300,7 @@ mod tests {
     /// Invalid value "NonExistentValue" should be rejected.
     #[test]
     fn test_validate_enum_in_array_items() {
-        use k3rs_common::resources::crd::JSONSchemaPropsOrArray;
+        use kubernetes_rs_common::resources::crd::JSONSchemaPropsOrArray;
 
         // Build the schema matching the conformance test:
         // spec.bars[].feeling with enum: ["Great", "Down"]
@@ -439,5 +441,5 @@ mod tests {
 
     // Note: the `regex_cache_speedup` perf microbenchmark that used to live
     // here was moved to `crates/common/benches/regex_cache.rs` (criterion).
-    // Run with: `cargo bench -p k3rs-common --bench regex_cache`.
+    // Run with: `cargo bench -p kubernetes-rs-common --bench regex_cache`.
 }

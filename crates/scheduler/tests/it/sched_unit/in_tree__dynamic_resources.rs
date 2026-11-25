@@ -1,11 +1,11 @@
 //! DynamicResources PreFilter/Filter through the plugin object
 //! (`dynamicresources.go:402-`, `:631-`).
 use async_trait::async_trait;
-use k3rs_common::resources::{Node, Pod, ResourceClaim, ResourceSlice};
-use k3rs_scheduler::fwk::{
+use kubernetes_rs_common::resources::{Node, Pod, ResourceClaim, ResourceSlice};
+use kubernetes_rs_scheduler::fwk::{
     Code, CycleState, FilterPlugin, Handle, NoHandle, NodeInfo, PreFilterPlugin,
 };
-use k3rs_scheduler::in_tree::DynamicResources;
+use kubernetes_rs_scheduler::in_tree::DynamicResources;
 use serde_json::{json, Value};
 
 #[derive(Default)]

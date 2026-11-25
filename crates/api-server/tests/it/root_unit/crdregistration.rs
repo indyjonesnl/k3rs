@@ -4,9 +4,9 @@
 mod __parent {
     pub use async_trait::async_trait;
     pub use futures::StreamExt;
-    pub use k3rs_api_server::registry::apiextensions::customresourcedefinition::ControllerRateLimiter;
-    pub use k3rs_common::resources::{APIService, CustomResourceDefinition};
-    pub use k3rs_storage::{build_prefix, Storage, WatchEvent};
+    pub use kubernetes_rs_api_server::registry::apiextensions::customresourcedefinition::ControllerRateLimiter;
+    pub use kubernetes_rs_common::resources::{APIService, CustomResourceDefinition};
+    pub use kubernetes_rs_storage::{build_prefix, Storage, WatchEvent};
     pub use std::collections::{HashMap, HashSet, VecDeque};
     pub use std::sync::{Arc, Mutex};
     pub use std::time::Duration;
@@ -15,7 +15,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::crdregistration::*;
+    use kubernetes_rs_api_server::crdregistration::*;
 
     struct FakeLister(Vec<CustomResourceDefinition>);
     #[async_trait]

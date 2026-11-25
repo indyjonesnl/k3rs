@@ -24,7 +24,9 @@
 //! its `type` and `format`. This catches regressions where serde flattening or
 //! `skip_serializing_if` predicates silently drop data.
 
-use k3rs_common::resources::{JSONSchemaProps, JSONSchemaPropsOrArray, JSONSchemaPropsOrBool};
+use kubernetes_rs_common::resources::{
+    JSONSchemaProps, JSONSchemaPropsOrArray, JSONSchemaPropsOrBool,
+};
 use serde::{de::DeserializeOwned, Serialize};
 
 /// Run the four-step roundtrip assertion for a typed payload.

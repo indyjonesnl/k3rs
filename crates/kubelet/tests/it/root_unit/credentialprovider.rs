@@ -2,9 +2,9 @@
 //! `secrets/secrets_test.go`, plus the pull-credential path of
 //! `kuberuntime_image.go` `PullImage`.
 use base64::Engine;
-use k3rs_common::resources::{Pod, PodSpec, Secret};
-use k3rs_cri::fake::FakeCri;
-use k3rs_kubelet::credentialprovider::*;
+use kubernetes_rs_common::resources::{Pod, PodSpec, Secret};
+use kubernetes_rs_cri::fake::FakeCri;
+use kubernetes_rs_kubelet::credentialprovider::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -186,8 +186,8 @@ fn make_docker_keyring_reads_both_secret_kinds() {
 
 #[tokio::test]
 async fn pull_sends_matching_pod_secret_credentials() {
-    use k3rs_common::resources::pod::LocalObjectReference;
-    use k3rs_storage::{build_key, Storage, StorageBackend};
+    use kubernetes_rs_common::resources::pod::LocalObjectReference;
+    use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
     let storage = Arc::new(StorageBackend::new_memory());
     let cfg = r#"{"auths":{"reg.example.com":{"username":"ada","password":"smash"}}}"#;
     storage
@@ -202,16 +202,16 @@ async fn pull_sends_matching_pod_secret_credentials() {
         )
         .await
         .unwrap();
-    let vm = k3rs_kubelet::volumes::VolumeManager::new_with_recording_empty_dir_mounts(
-        "/tmp/k3rs-test-vols".to_string(),
+    let vm = kubernetes_rs_kubelet::volumes::VolumeManager::new_with_recording_empty_dir_mounts(
+        "/tmp/kubernetes-rs-test-vols".to_string(),
         Some(storage),
-        k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+        kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
     );
     let fake = FakeCri::new();
     let tmp = tempfile::tempdir().unwrap();
     let sock = tmp.path().join("fake-cri.sock");
     fake.serve(&sock);
-    let rt = k3rs_kubelet::cri_runtime::CriContainerRuntime::connect(
+    let rt = kubernetes_rs_kubelet::cri_runtime::CriContainerRuntime::connect(
         &sock,
         tmp.path().to_str().unwrap(),
     )
@@ -256,12 +256,12 @@ async fn pull_sends_matching_pod_secret_credentials() {
 
 #[tokio::test]
 async fn pull_passes_pod_sandbox_config() {
-    use k3rs_cri::v1;
+    use kubernetes_rs_cri::v1;
     let fake = FakeCri::new();
     let tmp = tempfile::tempdir().unwrap();
     let sock = tmp.path().join("fake-cri.sock");
     fake.serve(&sock);
-    let rt = k3rs_kubelet::cri_runtime::CriContainerRuntime::connect(
+    let rt = kubernetes_rs_kubelet::cri_runtime::CriContainerRuntime::connect(
         &sock,
         tmp.path().to_str().unwrap(),
     )
@@ -360,8 +360,8 @@ fn node_keyring_caches_for_its_lifetime() {
     assert_eq!(none.lookup("r.io/x"), vec![auth("b", "p", "")], "expired");
 }
 
-fn ext() -> k3rs_kubelet::credentialprovider_plugin::ExternalCredentialProviderKeyring {
-    k3rs_kubelet::credentialprovider_plugin::ExternalCredentialProviderKeyring::from_providers(
+fn ext() -> kubernetes_rs_kubelet::credentialprovider_plugin::ExternalCredentialProviderKeyring {
+    kubernetes_rs_kubelet::credentialprovider_plugin::ExternalCredentialProviderKeyring::from_providers(
         vec![],
     )
 }

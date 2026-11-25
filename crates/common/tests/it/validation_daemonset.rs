@@ -4,9 +4,9 @@
 //! (`pkg/apis/apps/validation/validation.go`, release-1.35). Runs after
 //! defaulting, so the valid fixture carries `updateStrategy`.
 
-use k3rs_common::resources::workloads::DaemonSet;
-use k3rs_common::validation::apps::validate_daemonset;
-use k3rs_common::validation::field::{Error, ErrorType};
+use kubernetes_rs_common::resources::workloads::DaemonSet;
+use kubernetes_rs_common::validation::apps::validate_daemonset;
+use kubernetes_rs_common::validation::field::{Error, ErrorType};
 use serde_json::json;
 
 fn ds(spec: serde_json::Value) -> DaemonSet {

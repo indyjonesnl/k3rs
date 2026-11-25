@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
-use k3rs_common::resources::service_account::ObjectReference;
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::resources::service_account::ObjectReference;
+use kubernetes_rs_common::resources::volume::{
     HostPathType, HostPathVolumeSource, PersistentVolumePhase, PersistentVolumeReclaimPolicy,
 };
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     EventSource, EventType, PersistentVolume, PersistentVolumeClaim, PersistentVolumeStatus,
     StorageClass,
 };
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, extract_key, EventRecorder, Storage, WorkQueue};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, extract_key, EventRecorder, Storage, WorkQueue};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -165,7 +165,7 @@ impl<S: Storage + 'static> DynamicProvisionerController<S> {
         loop {
             self.enqueue_all(&queue).await;
 
-            let prefix = k3rs_storage::build_prefix("persistentvolumeclaims", None);
+            let prefix = kubernetes_rs_storage::build_prefix("persistentvolumeclaims", None);
             let watch_result = self.storage.watch(&prefix).await;
             let mut watch = match watch_result {
                 Ok(w) => w,
@@ -381,7 +381,7 @@ impl<S: Storage + 'static> DynamicProvisionerController<S> {
     pub fn is_provisioner_supported(&self, provisioner: &str) -> bool {
         matches!(
             provisioner,
-            "k3rs.io/hostpath" | "kubernetes.io/hostpath" | "hostpath"
+            "kubernetes-rs.io/hostpath" | "kubernetes.io/hostpath" | "hostpath"
         )
     }
 
@@ -411,7 +411,7 @@ impl<S: Storage + 'static> DynamicProvisionerController<S> {
             .as_ref()
             .and_then(|p| p.get("path"))
             .map(|s| s.as_str())
-            .unwrap_or("/tmp/k3rs/dynamic-pvs");
+            .unwrap_or("/tmp/kubernetes-rs/dynamic-pvs");
 
         let volume_path = format!("{}/{}", base_path, pv_name);
 
@@ -425,7 +425,7 @@ impl<S: Storage + 'static> DynamicProvisionerController<S> {
         // Validate provisioner type
         if !matches!(
             storage_class.provisioner.as_str(),
-            "k3rs.io/hostpath" | "kubernetes.io/hostpath" | "hostpath"
+            "kubernetes-rs.io/hostpath" | "kubernetes.io/hostpath" | "hostpath"
         ) {
             return Err(anyhow::anyhow!(
                 "Unsupported provisioner: {}",
@@ -473,7 +473,7 @@ impl<S: Storage + 'static> DynamicProvisionerController<S> {
                 });
                 meta
             },
-            spec: k3rs_common::resources::PersistentVolumeSpec {
+            spec: kubernetes_rs_common::resources::PersistentVolumeSpec {
                 capacity,
                 host_path: host_path_source,
                 nfs: None,
@@ -498,15 +498,17 @@ impl<S: Storage + 'static> DynamicProvisionerController<S> {
                 // capacity/class and can pair two concurrently-provisioned PVCs
                 // with each other's PV. The binder honors this claimRef and only
                 // completes the binding for the named PVC.
-                claim_ref: Some(k3rs_common::resources::service_account::ObjectReference {
-                    kind: Some("PersistentVolumeClaim".to_string()),
-                    namespace: Some(namespace.to_string()),
-                    name: Some(pvc.metadata.name.clone()),
-                    uid: Some(pvc.metadata.uid.clone()),
-                    api_version: Some("v1".to_string()),
-                    resource_version: None,
-                    field_path: None,
-                }),
+                claim_ref: Some(
+                    kubernetes_rs_common::resources::service_account::ObjectReference {
+                        kind: Some("PersistentVolumeClaim".to_string()),
+                        namespace: Some(namespace.to_string()),
+                        name: Some(pvc.metadata.name.clone()),
+                        uid: Some(pvc.metadata.uid.clone()),
+                        api_version: Some("v1".to_string()),
+                        resource_version: None,
+                        field_path: None,
+                    },
+                ),
                 volume_attributes_class_name: None,
             },
             status: Some(PersistentVolumeStatus {

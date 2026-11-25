@@ -3,18 +3,18 @@
 
 mod __parent {
     pub use futures::StreamExt;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::resources::{
         CSIDriver, CSINode, CSIStorageCapacity, DeviceClass, PersistentVolume,
         PersistentVolumeClaim, ResourceClaim, ResourceSlice, StorageClass, VolumeAttachment,
     };
-    pub use k3rs_common::types::ObjectMeta;
-    pub use k3rs_scheduler::data_plane::DataPlane;
-    pub use k3rs_scheduler::queue::dra_hints::ResourceClaimCache;
-    pub use k3rs_scheduler::queue::{
+    pub use kubernetes_rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_scheduler::data_plane::DataPlane;
+    pub use kubernetes_rs_scheduler::queue::dra_hints::ResourceClaimCache;
+    pub use kubernetes_rs_scheduler::queue::{
         ActionType, ClusterEvent, EventObject, EventResource, PriorityQueue,
         QueueingHintMapPerProfile,
     };
-    pub use k3rs_storage::{Storage, WatchEvent};
+    pub use kubernetes_rs_storage::{Storage, WatchEvent};
     pub use serde::{de::DeserializeOwned, Serialize};
     pub use std::collections::{HashMap, HashSet};
     pub use std::sync::Arc;
@@ -24,11 +24,11 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_scheduler::queue::{
+    use kubernetes_rs_scheduler::queue::{
         priority_sort_less, ClusterEvent, PriorityQueueOptions, QueueingHint, QueueingHintFunction,
         QueueingHintMap,
     };
-    use k3rs_scheduler::resource_events::*;
+    use kubernetes_rs_scheduler::resource_events::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn pv(name: &str, rv: &str) -> PersistentVolume {
@@ -57,7 +57,7 @@ mod tests {
             priority_sort_less(),
             PriorityQueueOptions {
                 queueing_hint_map: HashMap::from([(
-                    k3rs_scheduler::profile::DEFAULT_SCHEDULER_NAME.to_string(),
+                    kubernetes_rs_scheduler::profile::DEFAULT_SCHEDULER_NAME.to_string(),
                     m,
                 )]),
                 ..Default::default()
@@ -67,7 +67,7 @@ mod tests {
 
     /// Park one pod rejected by plugin "P" in unschedulablePods.
     async fn park_pod(q: &Arc<PriorityQueue>) {
-        let pod: k3rs_common::resources::Pod = serde_json::from_value(serde_json::json!({
+        let pod: kubernetes_rs_common::resources::Pod = serde_json::from_value(serde_json::json!({
             "metadata": {"name": "p", "namespace": "ns", "uid": "u"},
             "spec": {}
         }))
@@ -112,8 +112,8 @@ mod tests {
     /// otherwise the hints are registered but can never fire (#3962).
     #[test]
     fn default_profile_unions_node_volume_limits_resources() {
-        use k3rs_scheduler::profile::Profile;
-        use k3rs_scheduler::queue::hints::build_queueing_hint_map_per_profile;
+        use kubernetes_rs_scheduler::profile::Profile;
+        use kubernetes_rs_scheduler::queue::hints::build_queueing_hint_map_per_profile;
         let profile = Profile::named("default-scheduler");
         let map = build_queueing_hint_map_per_profile([&profile], &Default::default());
         let got = unioned_gvks(&map);

@@ -3,8 +3,8 @@
 //! handlers, so they must call `audit.LogRequestObject` themselves, as
 //! `endpoints/handlers/create.go:161` does for them upstream.
 
-use k3rs_common::audit::{AuditBackend, AuditEvent};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::audit::{AuditBackend, AuditEvent};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -27,13 +27,15 @@ fn capture() -> Arc<Capture> {
     static CAP: std::sync::OnceLock<Arc<Capture>> = std::sync::OnceLock::new();
     CAP.get_or_init(|| {
         let cap = Arc::new(Capture(Default::default()));
-        k3rs_api_server::audit::install_audit(k3rs_api_server::audit::AuditConfig {
-            policy: k3rs_api_server::audit::Policy::from_yaml(
-                "apiVersion: audit.k8s.io/v1\nkind: Policy\nrules:\n- level: Request\n",
-            )
-            .unwrap(),
-            sink: cap.clone(),
-        });
+        kubernetes_rs_api_server::audit::install_audit(
+            kubernetes_rs_api_server::audit::AuditConfig {
+                policy: kubernetes_rs_api_server::audit::Policy::from_yaml(
+                    "apiVersion: audit.k8s.io/v1\nkind: Policy\nrules:\n- level: Request\n",
+                )
+                .unwrap(),
+                sink: cap.clone(),
+            },
+        );
         cap
     })
     .clone()
@@ -71,7 +73,8 @@ async fn pod_binding_and_eviction_record_their_request_object() {
             .iter()
             .rev()
             .find(|e| {
-                e.request_uri == path && e.stage == k3rs_common::audit::AuditStage::ResponseComplete
+                e.request_uri == path
+                    && e.stage == kubernetes_rs_common::audit::AuditStage::ResponseComplete
             })
             .unwrap_or_else(|| panic!("{path}: no ResponseComplete event"));
         let ro = ev
@@ -136,7 +139,8 @@ async fn review_requests_record_their_request_object() {
             .iter()
             .rev()
             .find(|e| {
-                e.request_uri == path && e.stage == k3rs_common::audit::AuditStage::ResponseComplete
+                e.request_uri == path
+                    && e.stage == kubernetes_rs_common::audit::AuditStage::ResponseComplete
             })
             .unwrap_or_else(|| panic!("{path}: no ResponseComplete event"));
         let ro = ev

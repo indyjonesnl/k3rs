@@ -7,7 +7,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::patch::mergepatch::*;
+    use kubernetes_rs_common::patch::mergepatch::*;
     use serde_json::json;
 
     #[test]

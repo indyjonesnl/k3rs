@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test script for MetalLB integration with k3rs
+# Test script for MetalLB integration with kubernetes-rs
 #
 # This script:
 # 1. Installs MetalLB

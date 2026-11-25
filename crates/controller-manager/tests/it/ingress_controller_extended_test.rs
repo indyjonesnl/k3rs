@@ -6,14 +6,14 @@
 //! status population. These tests drive [`IngressController`] against a
 //! [`MemoryStorage`] backend — no networking, no real LB provisioning.
 
-use k3rs_common::resources::ingress::{
+use kubernetes_rs_common::resources::ingress::{
     HTTPIngressPath, HTTPIngressRuleValue, IngressBackend, IngressRule, IngressServiceBackend,
     IngressSpec, IngressTLS, ServiceBackendPort,
 };
-use k3rs_common::resources::{Ingress, IngressClass, Secret, Service, ServiceSpec};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::ingress::IngressController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{Ingress, IngressClass, Secret, Service, ServiceSpec};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::ingress::IngressController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::sync::Arc;
 
 async fn setup_test() -> Arc<MemoryStorage> {
@@ -456,7 +456,7 @@ async fn status_load_balancer_honors_user_supplied_annotation_ip() {
     let mut ingress = make_ingress("annotated", "default", spec);
     let mut annotations = std::collections::HashMap::new();
     annotations.insert(
-        "ingress.k3rs.io/load-balancer-ip".to_string(),
+        "ingress.kubernetes-rs.io/load-balancer-ip".to_string(),
         "192.0.2.42".to_string(),
     );
     ingress.metadata.annotations = Some(annotations);

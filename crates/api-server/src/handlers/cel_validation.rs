@@ -22,20 +22,20 @@
 //!      estimated cost budget — sufficient to reject obviously expensive
 //!      rules at compile time and runaway evaluations at runtime.
 
-use k3rs_common::cel_cost::{
+use kubernetes_rs_common::cel_cost::{
     CostEvalError, CostOptions, MAX_EVALUATED_MESSAGE_EXPRESSION_SIZE_BYTES,
     RUNTIME_CEL_COST_BUDGET,
 };
-use k3rs_common::cel_env::ExpectedOutput;
-use k3rs_common::cel_versions::{compile_failure, EnvSet, EnvType};
-use k3rs_common::resources::{
+use kubernetes_rs_common::cel_env::ExpectedOutput;
+use kubernetes_rs_common::cel_versions::{compile_failure, EnvSet, EnvType};
+use kubernetes_rs_common::resources::{
     CustomResource, CustomResourceDefinition, CustomResourceDefinitionSpec, JSONSchemaProps,
     JSONSchemaPropsOrArray, JSONSchemaPropsOrBool,
 };
-use k3rs_common::schema_validation::PathSeg;
-use k3rs_common::validation::field::{Error as FieldError, Path};
-use k3rs_common::{cel_checker_shadow, cel_schema_types};
-use k3rs_common::{CELContext, CELEvaluator, Error, Result};
+use kubernetes_rs_common::schema_validation::PathSeg;
+use kubernetes_rs_common::validation::field::{Error as FieldError, Path};
+use kubernetes_rs_common::{cel_checker_shadow, cel_schema_types};
+use kubernetes_rs_common::{CELContext, CELEvaluator, Error, Result};
 use std::collections::HashSet;
 
 /// `StaticEstimatedCostLimit` (apiextensions validation.go:56-58): the largest
@@ -294,7 +294,7 @@ fn collect_rules_recursive(
 /// `additionalProperties`, `items`) carries a rule: upstream's
 /// `cel.NewValidator(...) != nil`, which is nil for a schema without rules.
 pub fn schema_has_rules(schema: &JSONSchemaProps) -> bool {
-    use k3rs_common::resources::crd::{JSONSchemaPropsOrArray, JSONSchemaPropsOrBool};
+    use kubernetes_rs_common::resources::crd::{JSONSchemaPropsOrArray, JSONSchemaPropsOrBool};
     if schema
         .x_kubernetes_validations
         .as_ref()
@@ -416,7 +416,7 @@ pub fn find_preexisting_expressions(spec: &CustomResourceDefinitionSpec) -> Pree
     let found = RefCell::new(PreexistingExpressions::default());
     for v in &spec.versions {
         if let Some(schema) = v.schema.as_ref().and_then(|s| s.open_apiv3_schema.as_ref()) {
-            k3rs_common::validation::crd::schema_has(schema, &|s| {
+            kubernetes_rs_common::validation::crd::schema_has(schema, &|s| {
                 for raw in s.x_kubernetes_validations.iter().flatten() {
                     if let Some(rule) = raw.get("rule").and_then(|r| r.as_str()) {
                         found.borrow_mut().rules.insert(rule.to_string());
@@ -464,7 +464,7 @@ fn get_expression_cost(
         Some(c) => multiply_with_overflow_guard(max_cost, c),
         None => multiply_with_overflow_guard(
             max_cost,
-            k3rs_common::cel_crd_cost::max_cardinality(min_serialized_size),
+            kubernetes_rs_common::cel_crd_cost::max_cardinality(min_serialized_size),
         ),
     }
 }
@@ -750,7 +750,8 @@ fn compile_schema_rules(
             ));
             schema_errors = true;
         }
-        if !field_path.is_empty() && !k3rs_common::validation::crd::path_valid(schema, &field_path)
+        if !field_path.is_empty()
+            && !kubernetes_rs_common::validation::crd::path_valid(schema, &field_path)
         {
             errs.push(FieldError::invalid(
                 &fp_path,
@@ -1218,7 +1219,7 @@ fn walk_and_eval(
             }
         }
         if let Some(addl) = &schema.additional_properties {
-            use k3rs_common::resources::crd::JSONSchemaPropsOrBool;
+            use kubernetes_rs_common::resources::crd::JSONSchemaPropsOrBool;
             if let JSONSchemaPropsOrBool::Schema(addl_schema) = addl.as_ref() {
                 let declared: std::collections::HashSet<&String> = schema
                     .properties
@@ -1254,7 +1255,7 @@ fn walk_and_eval(
     // Recurse into arrays.
     if let Some(arr) = node.as_array() {
         if let Some(items) = &schema.items {
-            use k3rs_common::resources::crd::JSONSchemaPropsOrArray;
+            use kubernetes_rs_common::resources::crd::JSONSchemaPropsOrArray;
             if let JSONSchemaPropsOrArray::Schema(item_schema) = items.as_ref() {
                 for (i, child) in arr.iter().enumerate() {
                     let old_child = correlate_old_item(schema, old_node, child);

@@ -4,10 +4,10 @@
 //! (`checkFile`, pkg/kubeapiserver/authorizer/reload.go:226-274).
 
 use axum::{extract::State, routing::post, Json, Router};
-use k3rs_api_server::authorizer::build_authorizer_with_config;
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, Decision, RequestAttributes};
-use k3rs_storage::MemoryStorage;
+use kubernetes_rs_api_server::authorizer::build_authorizer_with_config;
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Authorizer, Decision, RequestAttributes};
+use kubernetes_rs_storage::MemoryStorage;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

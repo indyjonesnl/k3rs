@@ -278,7 +278,7 @@ impl IpFamily {
     /// IPv6 address cannot be embedded (`:` and length — iptables chain names
     /// are capped at 28 bytes), so it is hashed like upstream's
     /// `servicePortEndpointChainName` (proxier.go:643-647, `KUBE-SEP-` + 16
-    /// base32 chars). k3rs deviation: FNV-1a instead of SHA-256 to
+    /// base32 chars). kubernetes-rs deviation: FNV-1a instead of SHA-256 to
     /// avoid a new dependency; the name is only an internal identifier.
     fn sep_chain(self, cluster_ip: &str, port: u16, proto: &str, idx: usize) -> String {
         match self {
@@ -324,10 +324,10 @@ fn join_host_port(ip: &str, port: u16) -> String {
 /// no `ipFamilies` fall back to the single `clusterIP` (skew tolerance),
 /// otherwise take `clusterIPs[i]` where `ipFamilies[i]` matches.
 pub fn cluster_ip_for_family(
-    service: &k3rs_common::resources::Service,
+    service: &kubernetes_rs_common::resources::Service,
     family: IpFamily,
 ) -> Option<String> {
-    use k3rs_common::resources::service::IPFamily;
+    use kubernetes_rs_common::resources::service::IPFamily;
     let spec = &service.spec;
     let families = spec.ip_families.as_deref().unwrap_or_default();
     if families.is_empty() {
@@ -430,8 +430,8 @@ impl IptablesManager {
 
     pub fn for_testing(recent_available: bool) -> Self {
         Self {
-            services_chain: "K3RS-SERVICES".to_string(),
-            nodeports_chain: "K3RS-NODEPORTS".to_string(),
+            services_chain: "KUBERNETES_RS-SERVICES".to_string(),
+            nodeports_chain: "KUBERNETES_RS-NODEPORTS".to_string(),
             hostports_chain: "KUBE-HOSTPORTS".to_string(),
             ip_family: IpFamily::V4,
             iptables_cmd: "/usr/sbin/iptables".to_string(),
@@ -497,8 +497,8 @@ impl IptablesManager {
             None => (None, None),
         };
         Self {
-            services_chain: "K3RS-SERVICES".to_string(),
-            nodeports_chain: "K3RS-NODEPORTS".to_string(),
+            services_chain: "KUBERNETES_RS-SERVICES".to_string(),
+            nodeports_chain: "KUBERNETES_RS-NODEPORTS".to_string(),
             hostports_chain: "KUBE-HOSTPORTS".to_string(),
             ip_family,
             iptables_cmd,
@@ -516,7 +516,7 @@ impl IptablesManager {
     pub fn initialize(&self) -> Result<()> {
         info!("Initializing iptables chains for kube-proxy");
 
-        // Best-effort flush of any K3RS-* chains left over from a
+        // Best-effort flush of any KUBERNETES_RS-* chains left over from a
         // previous instance that was force-killed (SIGKILL / OOM) and never
         // ran its Drop. Without this the next run would stack duplicate jump
         // rules onto the host's PREROUTING/OUTPUT and the iptables state
@@ -643,7 +643,7 @@ impl IptablesManager {
                     "-m",
                     "comment",
                     "--comment",
-                    "k3rs service hairpin masquerade",
+                    "kubernetes-rs service hairpin masquerade",
                     "-s",
                     cidr,
                     "-d",
@@ -662,7 +662,7 @@ impl IptablesManager {
                         "-m",
                         "comment",
                         "--comment",
-                        "k3rs service hairpin masquerade",
+                        "kubernetes-rs service hairpin masquerade",
                         "-s",
                         cidr,
                         "-d",
@@ -697,7 +697,7 @@ impl IptablesManager {
         //
         // Match on both `--ctorigdstport` (TCP) and a second rule for UDP
         // because conntrack stores per-protocol.
-        let nodeport_masq_comment = "k3rs NodePort masquerade";
+        let nodeport_masq_comment = "kubernetes-rs NodePort masquerade";
         for proto in ["tcp", "udp"] {
             let check = Command::new(&self.iptables_cmd)
                 .args([
@@ -760,7 +760,7 @@ impl IptablesManager {
         // Remove the legacy over-broad NodePort MASQUERADE rule (no
         // ctorigdstport scope) from older installations. Looped to remove
         // duplicates.
-        let legacy_nodeport_comment = "k3rs nodeport masquerade";
+        let legacy_nodeport_comment = "kubernetes-rs nodeport masquerade";
         for _ in 0..16 {
             let r = Command::new(&self.iptables_cmd)
                 .args([
@@ -798,7 +798,7 @@ impl IptablesManager {
         // resolution path. Upstream kube-proxy avoids this by gating its
         // MASQUERADE on a packet mark (`KUBE-MARK-MASQ`); the `--ctorigdst`
         // filter accomplishes the same scope with fewer moving parts.
-        let masq_comment = "k3rs ClusterIP DNAT masquerade";
+        let masq_comment = "kubernetes-rs ClusterIP DNAT masquerade";
         let cluster_cidr = self.cluster_cidr.as_str();
         let dnat_masq_check = Command::new(&self.iptables_cmd)
             .args([
@@ -858,7 +858,7 @@ impl IptablesManager {
         // Remove the legacy over-broad rule from older versions. Best-effort
         // — if it isn't there, -D fails silently. Looped so older versions
         // that stacked duplicates get fully cleared.
-        let legacy_comment = "k3rs DNAT traffic masquerade";
+        let legacy_comment = "kubernetes-rs DNAT traffic masquerade";
         for _ in 0..16 {
             let r = Command::new(&self.iptables_cmd)
                 .args([
@@ -1570,7 +1570,7 @@ impl IptablesManager {
                         &prob_str,
                     ]);
                 }
-                let comment = format!("k3rs service {}:{}", service_ip, port);
+                let comment = format!("kubernetes-rs service {}:{}", service_ip, port);
                 args.extend_from_slice(&[
                     "-j",
                     "DNAT",
@@ -1758,7 +1758,7 @@ impl IptablesManager {
 
                 // Add DNAT to endpoint
                 let dnat_target = format!("{}:{}", endpoint_ip, endpoint_port);
-                let comment = format!("k3rs nodeport {}", node_port);
+                let comment = format!("kubernetes-rs nodeport {}", node_port);
                 args.extend_from_slice(&[
                     "-j",
                     "DNAT",
@@ -1839,7 +1839,7 @@ impl IptablesManager {
             "-m",
             "comment",
             "--comment",
-            "k3rs ClusterIP DNAT masquerade",
+            "kubernetes-rs ClusterIP DNAT masquerade",
             "-m",
             "conntrack",
             "--ctstate",
@@ -1858,7 +1858,7 @@ impl IptablesManager {
             "-m",
             "comment",
             "--comment",
-            "k3rs DNAT traffic masquerade",
+            "kubernetes-rs DNAT traffic masquerade",
             "-m",
             "conntrack",
             "--ctstate",
@@ -1876,7 +1876,7 @@ impl IptablesManager {
                 "-m",
                 "comment",
                 "--comment",
-                "k3rs NodePort masquerade",
+                "kubernetes-rs NodePort masquerade",
                 "-p",
                 proto,
                 "-m",
@@ -1898,7 +1898,7 @@ impl IptablesManager {
             "-m",
             "comment",
             "--comment",
-            "k3rs nodeport masquerade",
+            "kubernetes-rs nodeport masquerade",
             "-m",
             "addrtype",
             "--src-type",
@@ -1916,7 +1916,7 @@ impl IptablesManager {
                 "-m",
                 "comment",
                 "--comment",
-                "k3rs service hairpin masquerade",
+                "kubernetes-rs service hairpin masquerade",
                 "-s",
                 cidr,
                 "-d",
@@ -1986,9 +1986,9 @@ impl IptablesManager {
     #[allow(clippy::type_complexity)]
     pub async fn build_nat_rules(
         &self,
-        services: &[k3rs_common::resources::Service],
+        services: &[kubernetes_rs_common::resources::Service],
         endpointslice_map: &std::collections::HashMap<String, Vec<(String, Option<String>, u16)>>,
-        pods: &[k3rs_common::resources::Pod],
+        pods: &[kubernetes_rs_common::resources::Pod],
         node_name: &str,
     ) -> String {
         let family = self.ip_family;
@@ -2002,7 +2002,7 @@ impl IptablesManager {
         // KUBE-HOSTPORTS lines (chain header + DNAT rules) emitted in-place
         // so the entire NAT table is replaced atomically with one restore.
         // hostPort DNAT is programmed from IPv4 podIPs only for now.
-        let hostport_pods: &[k3rs_common::resources::Pod] =
+        let hostport_pods: &[kubernetes_rs_common::resources::Pod] =
             if family == IpFamily::V4 { pods } else { &[] };
         rules.push_str(&self.build_hostport_chain_block(hostport_pods, node_name));
 
@@ -2026,8 +2026,10 @@ impl IptablesManager {
                 // K8s ref: pkg/proxy/iptables/proxier.go — servicePortEndpointChains
                 let svc_key = format!("{}/{}", namespace, service.metadata.name);
                 let target_port = svc_port.target_port.as_ref().and_then(|tp| match tp {
-                    k3rs_common::resources::IntOrString::Int(p) => Some(*p as u16),
-                    k3rs_common::resources::IntOrString::String(s) => s.parse::<u16>().ok(),
+                    kubernetes_rs_common::resources::IntOrString::Int(p) => Some(*p as u16),
+                    kubernetes_rs_common::resources::IntOrString::String(s) => {
+                        s.parse::<u16>().ok()
+                    }
                 });
                 let endpoints: Vec<(String, u16)> = endpointslice_map
                     .get(&svc_key)
@@ -2138,7 +2140,7 @@ impl IptablesManager {
                     for (idx, (endpoint_ip, endpoint_port)) in endpoints.iter().enumerate() {
                         let is_last = idx == n - 1;
                         let dnat_target = join_host_port(endpoint_ip, *endpoint_port);
-                        let comment = format!("k3rs service {}:{}", cluster_ip, port);
+                        let comment = format!("kubernetes-rs service {}:{}", cluster_ip, port);
 
                         let mut rule = format!(
                             "-A {} -d {}/{} -p {} --dport {}",
@@ -2162,7 +2164,7 @@ impl IptablesManager {
             }
         }
 
-        // NodePort rules — add DNAT rules to K3RS-NODEPORTS chain.
+        // NodePort rules — add DNAT rules to KUBERNETES_RS-NODEPORTS chain.
         // Session affinity for NodePort reuses the same KUBE-SEP-* chains and
         // AFFINITY-* recent names created by the ClusterIP section above.
         // This matches K8s behavior where NodePort traffic goes through the same
@@ -2185,8 +2187,10 @@ impl IptablesManager {
 
                 let svc_key = format!("{}/{}", namespace, service.metadata.name);
                 let np_target_port = svc_port.target_port.as_ref().and_then(|tp| match tp {
-                    k3rs_common::resources::IntOrString::Int(p) => Some(*p as u16),
-                    k3rs_common::resources::IntOrString::String(s) => s.parse::<u16>().ok(),
+                    kubernetes_rs_common::resources::IntOrString::Int(p) => Some(*p as u16),
+                    kubernetes_rs_common::resources::IntOrString::String(s) => {
+                        s.parse::<u16>().ok()
+                    }
                 });
                 let endpoints: Vec<(String, u16)> = endpointslice_map
                     .get(&svc_key)
@@ -2315,7 +2319,7 @@ impl IptablesManager {
     /// HostportSyncer.SyncHostports.
     pub fn build_hostport_rules(
         &self,
-        pods: &[k3rs_common::resources::Pod],
+        pods: &[kubernetes_rs_common::resources::Pod],
         node_name: &str,
     ) -> String {
         let mut rules = String::new();
@@ -2330,7 +2334,7 @@ impl IptablesManager {
     /// inside the larger NAT restore blob for atomic application.
     fn build_hostport_chain_block(
         &self,
-        pods: &[k3rs_common::resources::Pod],
+        pods: &[kubernetes_rs_common::resources::Pod],
         node_name: &str,
     ) -> String {
         let mut rules = String::new();
@@ -2420,7 +2424,7 @@ impl IptablesManager {
                     let dnat_target = format!("{}:{}", pod_ip, port.container_port);
                     let pod_ns = pod.metadata.namespace.as_deref().unwrap_or("default");
                     let comment = format!(
-                        "k3rs hostPort {}/{} {}",
+                        "kubernetes-rs hostPort {}/{} {}",
                         pod_ns, pod.metadata.name, host_port
                     );
 
@@ -2754,9 +2758,9 @@ mod tests {
     }
 
     use super::IptablesManager;
-    use k3rs_common::resources::service::{ClientIPConfig, SessionAffinityConfig};
-    use k3rs_common::resources::{Service, ServicePort, ServiceSpec, ServiceType};
-    use k3rs_common::types::ObjectMeta;
+    use kubernetes_rs_common::resources::service::{ClientIPConfig, SessionAffinityConfig};
+    use kubernetes_rs_common::resources::{Service, ServicePort, ServiceSpec, ServiceType};
+    use kubernetes_rs_common::types::ObjectMeta;
     use std::collections::HashMap;
 
     fn make_service(
@@ -2778,7 +2782,7 @@ mod tests {
             None
         };
         Service {
-            type_meta: k3rs_common::types::TypeMeta {
+            type_meta: kubernetes_rs_common::types::TypeMeta {
                 kind: "Service".to_string(),
                 api_version: "v1".to_string(),
             },
@@ -2818,7 +2822,7 @@ mod tests {
     // NewDualStackProxier (proxier.go:93) + GetClusterIPByFamily
     // (pkg/proxy/util/utils.go:190, tests in utils_test.go).
     use super::{cluster_ip_for_family, IpFamily};
-    use k3rs_common::resources::service::IPFamily;
+    use kubernetes_rs_common::resources::service::IPFamily;
 
     fn dual_stack_service() -> Service {
         let mut svc = make_service(
@@ -2976,7 +2980,7 @@ mod tests {
         // --rcheck rules in services chain with custom timeout
         assert!(
             rules.contains(
-                "-A K3RS-SERVICES -d 10.96.0.5/32 -p tcp --dport 80 -m recent --name AFFINITY-109605-80-0 --rcheck --seconds 7200 --reap -j KUBE-SEP-109605-80-0"
+                "-A KUBERNETES_RS-SERVICES -d 10.96.0.5/32 -p tcp --dport 80 -m recent --name AFFINITY-109605-80-0 --rcheck --seconds 7200 --reap -j KUBE-SEP-109605-80-0"
             ),
             "missing --rcheck rule for endpoint 0:\n{}",
             rules
@@ -3095,7 +3099,7 @@ mod tests {
 
         assert!(
             rules.contains(
-                "-A K3RS-NODEPORTS -p tcp --dport 30080 -m recent --name AFFINITY-1096011-80-0 --rcheck --seconds 600 --reap -j KUBE-SEP-1096011-80-0"
+                "-A KUBERNETES_RS-NODEPORTS -p tcp --dport 30080 -m recent --name AFFINITY-1096011-80-0 --rcheck --seconds 600 --reap -j KUBE-SEP-1096011-80-0"
             ),
             "missing NodePort --rcheck rule for endpoint 0:\n{}",
             rules
@@ -3106,7 +3110,7 @@ mod tests {
             rules
         );
         assert!(
-            rules.contains("-A K3RS-NODEPORTS -p tcp --dport 30080 -m statistic"),
+            rules.contains("-A KUBERNETES_RS-NODEPORTS -p tcp --dport 30080 -m statistic"),
             "missing NodePort probability fallback:\n{}",
             rules
         );

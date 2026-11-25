@@ -3,23 +3,25 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_api_server::admission::policy_json_patch::evaluate_expression_budgeted;
-    pub use k3rs_api_server::admission::policy_mutating::{PatchError, PatchRequest, Patcher};
-    pub use k3rs_api_server::fieldmanager::apply::merge_values;
-    pub use k3rs_api_server::fieldmanager::fieldset::{field_kind, FieldKind};
-    pub use k3rs_common::cel::CELEvaluator;
-    pub use k3rs_common::cel_struct::{self, TypeCheck};
+    pub use kubernetes_rs_api_server::admission::policy_json_patch::evaluate_expression_budgeted;
+    pub use kubernetes_rs_api_server::admission::policy_mutating::{
+        PatchError, PatchRequest, Patcher,
+    };
+    pub use kubernetes_rs_api_server::fieldmanager::apply::merge_values;
+    pub use kubernetes_rs_api_server::fieldmanager::fieldset::{field_kind, FieldKind};
+    pub use kubernetes_rs_common::cel::CELEvaluator;
+    pub use kubernetes_rs_common::cel_struct::{self, TypeCheck};
     pub use serde_json::{Map, Value};
     pub use std::sync::{Arc, Mutex};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::policy_apply_config::*;
-    use k3rs_api_server::admission::policy_matching::Attributes;
-    use k3rs_api_server::admission::policy_mutating::VersionedAttributes;
-    use k3rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
-    use k3rs_common::cel_cost::RUNTIME_CEL_COST_BUDGET;
+    use kubernetes_rs_api_server::admission::policy_apply_config::*;
+    use kubernetes_rs_api_server::admission::policy_matching::Attributes;
+    use kubernetes_rs_api_server::admission::policy_mutating::VersionedAttributes;
+    use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
+    use kubernetes_rs_common::cel_cost::RUNTIME_CEL_COST_BUDGET;
     use serde_json::json;
 
     /// `TestApplyConfiguration` harness: a Deployment `Create` with the

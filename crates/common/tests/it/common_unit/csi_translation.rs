@@ -2,27 +2,27 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::pod::Volume;
-    pub use k3rs_common::resources::volume::PersistentVolumeMode;
-    pub use k3rs_common::resources::volume::{
+    pub use kubernetes_rs_common::resources::pod::Volume;
+    pub use kubernetes_rs_common::resources::volume::PersistentVolumeMode;
+    pub use kubernetes_rs_common::resources::volume::{
         AWSElasticBlockStoreVolumeSource, CSIVolumeSource, GCEPersistentDiskVolumeSource,
         NodeSelector, NodeSelectorRequirement, NodeSelectorTerm, PersistentVolumeAccessMode,
         SecretReference, StorageClass, TopologySelectorLabelRequirement, TopologySelectorTerm,
         VolumeNodeAffinity,
     };
-    pub use k3rs_common::resources::PersistentVolume;
-    pub use k3rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_common::resources::PersistentVolume;
+    pub use kubernetes_rs_common::types::ObjectMeta;
     pub use std::collections::{BTreeSet, HashMap};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::csi_translation::*;
-    use k3rs_common::resources::volume::{
+    use kubernetes_rs_common::csi_translation::*;
+    use kubernetes_rs_common::resources::volume::{
         AWSElasticBlockStoreVolumeSource, GCEPersistentDiskVolumeSource, NodeSelector,
         NodeSelectorRequirement, NodeSelectorTerm, PersistentVolumeAccessMode, VolumeNodeAffinity,
     };
-    use k3rs_common::types::{ObjectMeta, TypeMeta};
+    use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
     use std::collections::HashMap;
 
     const ZONE_BETA: &str = "failure-domain.beta.kubernetes.io/zone";
@@ -1102,12 +1102,13 @@ mod tests {
                 .collect()
         });
         pv.spec.access_modes = vec![PersistentVolumeAccessMode::ReadWriteOnce];
-        pv.spec.more_sources.portworx_volume =
-            Some(k3rs_common::resources::pv_sources::PortworxVolumeSource {
+        pv.spec.more_sources.portworx_volume = Some(
+            kubernetes_rs_common::resources::pv_sources::PortworxVolumeSource {
                 volume_id: "ID1111".into(),
                 fs_type: "type".into(),
                 read_only: false,
-            });
+            },
+        );
         pv
     }
 
@@ -1287,7 +1288,7 @@ mod tests {
         });
         pv.spec.access_modes = vec![PersistentVolumeAccessMode::ReadWriteOnce];
         pv.spec.more_sources.vsphere_volume = Some(
-            k3rs_common::resources::pv_sources::VsphereVirtualDiskVolumeSource {
+            kubernetes_rs_common::resources::pv_sources::VsphereVirtualDiskVolumeSource {
                 volume_path: "[vsanDatastore] 6785a85e/disk.vmdk".into(),
                 fs_type: "ext4".into(),
                 storage_policy_name: policy.into(),
@@ -1484,7 +1485,7 @@ mod tests {
                 .collect()
         });
         pv.spec.more_sources.azure_file = Some(
-            k3rs_common::resources::pv_sources::AzureFilePersistentVolumeSource {
+            kubernetes_rs_common::resources::pv_sources::AzureFilePersistentVolumeSource {
                 secret_name: "secretname".into(),
                 share_name: "sharename".into(),
                 read_only: true,
@@ -1493,7 +1494,7 @@ mod tests {
         );
         pv.spec.claim_ref =
             claim_ns.map(
-                |ns| k3rs_common::resources::service_account::ObjectReference {
+                |ns| kubernetes_rs_common::resources::service_account::ObjectReference {
                     namespace: Some(ns.into()),
                     ..Default::default()
                 },
@@ -1666,7 +1667,7 @@ mod tests {
     fn cinder_pv() -> PersistentVolume {
         let mut pv = blank_pv("pv1");
         pv.spec.more_sources.cinder = Some(
-            k3rs_common::resources::pv_sources::CinderPersistentVolumeSource {
+            kubernetes_rs_common::resources::pv_sources::CinderPersistentVolumeSource {
                 volume_id: "vol-1".into(),
                 fs_type: "ext4".into(),
                 read_only: true,
@@ -1778,7 +1779,9 @@ mod tests {
     const AZD_URI: &str =
         "/subscriptions/12/resourceGroups/23/providers/Microsoft.Compute/disks/name";
 
-    fn azd_pv(src: k3rs_common::resources::pv_sources::AzureDiskVolumeSource) -> PersistentVolume {
+    fn azd_pv(
+        src: kubernetes_rs_common::resources::pv_sources::AzureDiskVolumeSource,
+    ) -> PersistentVolume {
         let mut pv = blank_pv("pv1");
         pv.spec.more_sources.azure_disk = Some(src);
         pv
@@ -1882,7 +1885,7 @@ mod tests {
     /// `TestTranslateAzureDiskInTreePVToCSI`.
     #[test]
     fn azure_disk_pv_translates_matches_upstream_table() {
-        use k3rs_common::resources::pv_sources::AzureDiskVolumeSource;
+        use kubernetes_rs_common::resources::pv_sources::AzureDiskVolumeSource;
         let t = CsiTranslator::new();
         // "no azure disk volume"
         assert!(t.translate_in_tree_pv_to_csi(&blank_pv("x")).is_err());

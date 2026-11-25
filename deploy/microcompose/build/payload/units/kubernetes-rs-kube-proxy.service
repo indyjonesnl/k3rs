@@ -1,0 +1,14 @@
+[Unit]
+Description=kubernetes-rs kube-proxy + node-network agent
+After=containerd.service
+ConditionPathExists=/usr/local/bin/kube-proxy
+[Service]
+Environment=RUST_LOG=info
+# --configure-node-network writes /etc/cni/net.d/10-kubernetes-rs.conflist from this node's
+# spec.podCIDR and installs host-gw routes to the other nodes' pod CIDRs
+# (same L2 bridge here, so no overlay needed).
+ExecStart=/usr/local/bin/kube-proxy --node-name %H --api-server-url https://api-server:6443 \
+  --kubeconfig /etc/kubernetes-rs/pki/kube-proxy.conf --configure-node-network --pod-cidr 10.244.0.0/16
+Restart=always
+[Install]
+WantedBy=multi-user.target

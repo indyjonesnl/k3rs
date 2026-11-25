@@ -1,5 +1,5 @@
-use k3rs_common::resources::certificates::CertificateSigningRequestCondition as Cond;
-use k3rs_common::validation::certificatesigningrequest::validate_csr_status_conditions;
+use kubernetes_rs_common::resources::certificates::CertificateSigningRequestCondition as Cond;
+use kubernetes_rs_common::validation::certificatesigningrequest::validate_csr_status_conditions;
 
 fn cond(t: &str, s: &str) -> Cond {
     Cond {

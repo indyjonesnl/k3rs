@@ -7,11 +7,11 @@
 //! everything else. Mirrors upstream
 //! `pkg/apis/core/validation/validation.go::ValidatePodUpdate` (release-1.35).
 
-use k3rs_common::resources::pod::{PodSchedulingGate, PodSecurityContext};
-use k3rs_common::resources::{Container, EphemeralContainer, Pod, PodSpec, Toleration};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::resources::pod::{PodSchedulingGate, PodSecurityContext};
+use kubernetes_rs_common::resources::{Container, EphemeralContainer, Pod, PodSpec, Toleration};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::Value;
 
 // ---------------------------------------------------------------------------
@@ -92,7 +92,8 @@ async fn seed(state: &TestApiServer, pod: &Pod) {
             .await;
         // ServiceAccount.Validate on `ephemeralcontainers` looks the pod's
         // service account up (admission.go:379-395).
-        k3rs_test_support::harness::seed_default_service_account(&*state.storage, ns).await;
+        kubernetes_rs_test_support::harness::seed_default_service_account(&*state.storage, ns)
+            .await;
     }
     let key = build_key(
         "pods",
@@ -548,7 +549,7 @@ async fn test_update_container_body_except_image_rejected() {
 /// `conformance_apimachinery_namespaces_quota_limits.rs`.)
 #[tokio::test]
 async fn test_update_container_resources_via_plain_put_rejected() {
-    use k3rs_common::types::ResourceRequirements;
+    use kubernetes_rs_common::types::ResourceRequirements;
     use std::collections::HashMap;
 
     let state = make_state();

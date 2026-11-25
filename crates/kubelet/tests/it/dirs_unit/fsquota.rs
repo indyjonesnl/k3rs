@@ -3,7 +3,7 @@
 
 mod __parent {
     pub use anyhow::{anyhow, Result};
-    pub use k3rs_kubelet::fsquota::common::{
+    pub use kubernetes_rs_kubelet::fsquota::common::{
         mount_parse, LinuxVolumeQuotaApplier, LinuxVolumeQuotaProvider, QuotaID, VolumeProvider,
         BAD_QUOTA_ID, MOUNTS_FILE,
     };
@@ -17,10 +17,10 @@ mod tests {
     //! Port of `pkg/volume/util/fsquota/quota_linux_test.go`.
 
     use super::__parent::*;
-    use k3rs_kubelet::fsquota::common::{
+    use kubernetes_rs_kubelet::fsquota::common::{
         LinuxVolumeQuotaApplier, LinuxVolumeQuotaProvider, QuotaID, BAD_QUOTA_ID,
     };
-    use k3rs_kubelet::fsquota::*;
+    use kubernetes_rs_kubelet::fsquota::*;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     const DUMMY_MOUNT_DATA: &str = "sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0

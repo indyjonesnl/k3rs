@@ -2,8 +2,8 @@
 //! rules of `pkg/registry/resource/{deviceclass,resourceslice}/strategy.go`.
 
 use axum::http::StatusCode;
-use k3rs_common::feature_gates::{self, Feature};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::feature_gates::{self, Feature};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const CLASSES: &str = "/apis/resource.k8s.io/v1/deviceclasses";

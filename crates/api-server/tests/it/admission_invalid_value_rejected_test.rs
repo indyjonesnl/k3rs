@@ -17,7 +17,7 @@
 //! must consist of alphanumeric characters, '-', '_' or '.'").
 
 use axum::http::StatusCode;
-use k3rs_common::{
+use kubernetes_rs_common::{
     admission::{AdmissionReview, AdmissionReviewResponse, PatchOp, PatchOperation},
     resources::{
         MutatingWebhook, MutatingWebhookConfiguration, OperationType, Rule, RuleWithOperations,
@@ -25,9 +25,9 @@ use k3rs_common::{
     },
     types::ObjectMeta,
 };
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
-use k3rs_test_support::harness::TestApiServer;
-use k3rs_test_support::mock_http::*;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::mock_http::*;
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
 

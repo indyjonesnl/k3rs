@@ -5,17 +5,17 @@
 
 use std::sync::Arc;
 
-use k3rs_common::quantity::Quantity;
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::quantity::Quantity;
+use kubernetes_rs_common::resources::volume::{
     PersistentVolumeClaimSpec, TypedLocalObjectReference, TypedObjectReference,
 };
-use k3rs_common::resources::{PersistentVolumeClaim, PersistentVolumeClaimStatus};
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::pvc::{
+use kubernetes_rs_common::resources::{PersistentVolumeClaim, PersistentVolumeClaimStatus};
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::pvc::{
     validate_persistent_volume_claim, validate_persistent_volume_claim_status_update,
     validate_persistent_volume_claim_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{
@@ -51,8 +51,8 @@ fn drop_disabled_fields(
         .and_then(|r| r.namespace.as_deref())
         .is_some_and(|ns| !ns.is_empty());
     let ref_in_use = old.is_some_and(|o| o.data_source_ref.is_some());
-    if !k3rs_common::feature_gates::enabled(
-        k3rs_common::feature_gates::Feature::CrossNamespaceVolumeDataSource,
+    if !kubernetes_rs_common::feature_gates::enabled(
+        kubernetes_rs_common::feature_gates::Feature::CrossNamespaceVolumeDataSource,
     ) && cross_namespace
         && !ref_in_use
     {

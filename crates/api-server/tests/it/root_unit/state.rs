@@ -2,31 +2,31 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::admission::policy_plugin::MutatingPolicyPlugin;
-    pub use k3rs_api_server::admission_webhook::AdmissionWebhookManager;
-    pub use k3rs_api_server::prometheus_client::PrometheusClient;
-    pub use k3rs_api_server::registry::core::service::alloc::ClusterIpAllocators;
-    pub use k3rs_api_server::registry::core::service::allocator::{
+    pub use kubernetes_rs_api_server::admission::policy_plugin::MutatingPolicyPlugin;
+    pub use kubernetes_rs_api_server::admission_webhook::AdmissionWebhookManager;
+    pub use kubernetes_rs_api_server::prometheus_client::PrometheusClient;
+    pub use kubernetes_rs_api_server::registry::core::service::alloc::ClusterIpAllocators;
+    pub use kubernetes_rs_api_server::registry::core::service::allocator::{
         storage::Etcd, AllocationBitmap,
     };
-    pub use k3rs_api_server::registry::core::service::ipranges::ServiceIpRanges;
-    pub use k3rs_api_server::registry::core::service::portallocator::{
+    pub use kubernetes_rs_api_server::registry::core::service::ipranges::ServiceIpRanges;
+    pub use kubernetes_rs_api_server::registry::core::service::portallocator::{
         PortAllocator, PortRange, DEFAULT_SERVICE_NODE_PORT_RANGE,
     };
-    pub use k3rs_api_server::watch_cache::WatchCache;
-    pub use k3rs_common::auth::{BootstrapTokenManager, TokenManager};
-    pub use k3rs_common::authz::Authorizer;
-    pub use k3rs_common::observability::MetricsRegistry;
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_api_server::watch_cache::WatchCache;
+    pub use kubernetes_rs_common::auth::{BootstrapTokenManager, TokenManager};
+    pub use kubernetes_rs_common::authz::Authorizer;
+    pub use kubernetes_rs_common::observability::MetricsRegistry;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod node_port_range_tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::core::service::portallocator::PortRange;
-    use k3rs_api_server::state::*;
-    use k3rs_common::authz::AlwaysAllowAuthorizer;
-    use k3rs_common::observability::MetricsRegistry;
+    use kubernetes_rs_api_server::registry::core::service::portallocator::PortRange;
+    use kubernetes_rs_api_server::state::*;
+    use kubernetes_rs_common::authz::AlwaysAllowAuthorizer;
+    use kubernetes_rs_common::observability::MetricsRegistry;
 
     fn state() -> ApiServerState {
         ApiServerState::new(

@@ -5,17 +5,17 @@
 //! default profile's plugins, as `try_preempt` does. The node is taken as the
 //! kubelet reports it: `NodeResourcesFit` counts `pods` against allocatable, so
 //! fixtures that omit it get the kubelet's usual 110.
-use k3rs_common::resources::{Node, Pod, PodDisruptionBudget};
-use k3rs_scheduler::default_preemption::select_victims_on_node;
-use k3rs_scheduler::fwk::NoHandle;
-use k3rs_scheduler::profile::Profile;
+use kubernetes_rs_common::resources::{Node, Pod, PodDisruptionBudget};
+use kubernetes_rs_scheduler::default_preemption::select_victims_on_node;
+use kubernetes_rs_scheduler::fwk::NoHandle;
+use kubernetes_rs_scheduler::profile::Profile;
 
 /// The `status` the disruption controller gives a budget over `pods`
 /// (`updatePdbStatus`, disruption.go:1001-1050): `disruptionsAllowed` is the
 /// healthy pods it selects minus the desired healthy count, never negative.
 /// Fixtures build budgets from their spec only, as an API client would.
 fn with_controller_status(pdb: &PodDisruptionBudget, pods: &[Pod]) -> PodDisruptionBudget {
-    use k3rs_common::resources::{IntOrString, PodDisruptionBudgetStatus};
+    use kubernetes_rs_common::resources::{IntOrString, PodDisruptionBudgetStatus};
     let mut pdb = pdb.clone();
     if pdb.status.is_some() {
         return pdb;
@@ -26,7 +26,7 @@ fn with_controller_status(pdb: &PodDisruptionBudget, pods: &[Pod]) -> PodDisrupt
             p.metadata.namespace == pdb.metadata.namespace
                 && p.metadata.deletion_timestamp.is_none()
                 && pdb.spec.selector.as_ref().is_some_and(|sel| {
-                    k3rs_common::affinity::match_selector(sel, &p.metadata.labels)
+                    kubernetes_rs_common::affinity::match_selector(sel, &p.metadata.labels)
                 })
         })
         .count() as i32;
@@ -62,10 +62,10 @@ fn as_reported_by_kubelet(node: &Node) -> Node {
 /// `preemptionPolicy` gate included (`try_preempt`), for a node every filter
 /// rejected as Unschedulable.
 pub fn try_preempt(node: &Node, pod: &Pod, all_pods: &[Pod]) -> Option<(String, Vec<Pod>)> {
-    use k3rs_scheduler::diagnosis::Diagnosis;
-    use k3rs_scheduler::fwk::Code;
-    use k3rs_scheduler::scheduler::Scheduler;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_scheduler::diagnosis::Diagnosis;
+    use kubernetes_rs_scheduler::fwk::Code;
+    use kubernetes_rs_scheduler::scheduler::Scheduler;
+    use kubernetes_rs_storage::memory::MemoryStorage;
     let scheduler = Scheduler::new_with_name(
         std::sync::Arc::new(MemoryStorage::new()),
         1,

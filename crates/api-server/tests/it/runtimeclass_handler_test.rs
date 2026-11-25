@@ -3,10 +3,10 @@
 //! Tests all CRUD operations, edge cases, and error handling for runtimeclasses.
 //! RuntimeClass defines a class of container runtime supported in the cluster.
 
-use k3rs_common::resources::pod::Toleration;
-use k3rs_common::resources::runtimeclass::{Overhead, RuntimeClass, Scheduling};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::Toleration;
+use kubernetes_rs_common::resources::runtimeclass::{Overhead, RuntimeClass, Scheduling};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

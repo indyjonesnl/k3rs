@@ -9,14 +9,14 @@
 //! Regression target: #1747 — before this controller existed, a `DELETE` on a
 //! ServiceCIDR removed it immediately, whatever held IPs from it.
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     IPAddress, ParentReference, ServiceCIDR, ServiceCIDRCondition, ServiceCIDRStatus,
 };
-use k3rs_controller_manager::controllers::servicecidr::{
+use kubernetes_rs_controller_manager::controllers::servicecidr::{
     ServiceCIDRController, IP_ALLOCATOR_CONTROLLER_NAME, LABEL_IP_ADDRESS_FAMILY, LABEL_MANAGED_BY,
     READY_MESSAGE, SERVICE_CIDR_PROTECTION_FINALIZER, TERMINATING_MESSAGE,
 };
-use k3rs_storage::{build_key, MemoryStorage, Storage};
+use kubernetes_rs_storage::{build_key, MemoryStorage, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 

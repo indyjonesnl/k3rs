@@ -23,9 +23,9 @@
 //! ```
 //!
 //! `RawExtension.raw` carries the full payload of the watched object as
-//! bytes — for k3rs that means the `k8s\x00` magic prefix followed by
+//! bytes — for kubernetes-rs that means the `k8s\x00` magic prefix followed by
 //! a protobuf-encoded `runtime.Unknown` whose `raw` field holds the
-//! resource's JSON body (see `k3rs_common::protobuf::encode_protobuf`).
+//! resource's JSON body (see `kubernetes_rs_common::protobuf::encode_protobuf`).
 //!
 //! ## Streaming convention
 //!
@@ -50,7 +50,7 @@
 //!   WatchEvents decode independently in order, mirroring how a
 //!   `watch=true` HTTP body is consumed by `kubectl`/client-go.
 
-use k3rs_common::{
+use kubernetes_rs_common::{
     protobuf::{decode_protobuf, encode_protobuf, is_protobuf, TypeMeta, PROTOBUF_MAGIC},
     resources::pod::Pod,
     types::{ObjectMeta, Status, TypeMeta as ResourceTypeMeta},
@@ -242,7 +242,7 @@ fn watch_event_proto_deleted_carries_prior_pod() {
 
 /// BOOKMARK envelope: `object` is a minimal resource of the watched Kind
 /// carrying only kind / apiVersion / metadata.resourceVersion. We use a
-/// `Pod` (`spec` omitted) to mirror what the k3rs JSON handler emits
+/// `Pod` (`spec` omitted) to mirror what the kubernetes-rs JSON handler emits
 /// for bookmarks; protobuf framing is identical.
 #[test]
 fn watch_event_proto_bookmark_carries_resource_version() {

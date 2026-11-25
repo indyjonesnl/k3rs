@@ -3,31 +3,33 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_api_server::registry::apiextensions::controllers::{
+    pub use kubernetes_rs_api_server::registry::apiextensions::controllers::{
         self, condition, crd_has_finalizer, crd_remove_finalizer, set_crd_condition, ESTABLISHED,
         TERMINATING,
     };
-    pub use k3rs_api_server::registry::apiextensions::finalizer_queue;
-    pub use k3rs_api_server::registry::generic::{CreateOptions, Deleted, Store, UpdateOptions};
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::apiextensions::finalizer_queue;
+    pub use kubernetes_rs_api_server::registry::generic::{
+        CreateOptions, Deleted, Store, UpdateOptions,
+    };
+    pub use kubernetes_rs_api_server::registry::rest::{
         GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestStorage, RestUpdateStrategy, UpdatedObjectInfo, ValidateObject,
         ValidateObjectUpdate,
     };
-    pub use k3rs_api_server::ssa::ResetFields;
-    pub use k3rs_common::deletion::{DeleteOptions, Preconditions};
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_api_server::ssa::ResetFields;
+    pub use kubernetes_rs_common::deletion::{DeleteOptions, Preconditions};
+    pub use kubernetes_rs_common::resources::{
         CustomResourceDefinition, JSONSchemaProps, JSONSchemaPropsOrArray, JSONSchemaPropsOrBool,
         JSONSchemaPropsOrStringArray,
     };
-    pub use k3rs_common::validation::crd::{
+    pub use kubernetes_rs_common::validation::crd::{
         is_crd_condition_true, validate_custom_resource_definition,
         validate_custom_resource_definition_update,
         validate_update_custom_resource_definition_status, CUSTOM_RESOURCE_CLEANUP_FINALIZER,
     };
-    pub use k3rs_common::validation::field::{ErrorList, Path};
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_storage::{build_prefix, Storage, StorageBackend};
+    pub use kubernetes_rs_common::validation::field::{ErrorList, Path};
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_storage::{build_prefix, Storage, StorageBackend};
     pub use std::sync::Arc;
     pub use tracing::warn;
 }
@@ -37,7 +39,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn crd_informer_synced_polls_until_synced() {
         let calls = std::sync::atomic::AtomicUsize::new(0);
-        k3rs_api_server::registry::apiextensions::customresourcedefinition::wait_for_crd_informer_synced(|| {
+        kubernetes_rs_api_server::registry::apiextensions::customresourcedefinition::wait_for_crd_informer_synced(|| {
             let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             async move { n >= 3 }
         })
@@ -45,7 +47,7 @@ mod tests {
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 4);
     }
     use super::__parent::*;
-    use k3rs_api_server::registry::apiextensions::customresourcedefinition::*;
+    use kubernetes_rs_api_server::registry::apiextensions::customresourcedefinition::*;
 
     /// The drain wait polls at once, then every interval, until a list is
     /// empty (crd_finalizer.go:253-267).
@@ -153,7 +155,7 @@ mod tests {
     async fn hook_started_informer_establishes_a_crd_written_to_storage() {
         let storage = Arc::new(StorageBackend::new_memory());
         let controllers: Arc<
-            k3rs_api_server::registry::apiextensions::controller_queue::CrdControllers,
+            kubernetes_rs_api_server::registry::apiextensions::controller_queue::CrdControllers,
         > = Default::default();
         let _h = start_controllers_loop(storage.clone(), controllers.clone());
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -168,7 +170,7 @@ mod tests {
         let rest = CrdRest::with_controllers(storage.clone(), controllers);
         for _ in 0..100 {
             if let Some(c) = rest.get_crd("widgets.example.com").await.unwrap() {
-                if k3rs_api_server::registry::apiextensions::controllers::find_crd_condition(
+                if kubernetes_rs_api_server::registry::apiextensions::controllers::find_crd_condition(
                     &c,
                     "Established",
                 )
@@ -224,8 +226,8 @@ mod tests {
     /// (validation.go:158-163) even below the library's introduced version.
     #[test]
     fn update_compiles_preexisting_rules_in_the_stored_environment() {
-        use k3rs_common::cel_versions::EnvSet;
-        use k3rs_common::feature_gates::Version;
+        use kubernetes_rs_common::cel_versions::EnvSet;
+        use kubernetes_rs_common::feature_gates::Version;
         let rule = "semver('1.2.3').major() > 0";
         let env_set = EnvSet::must_base_env_set(Version::major_minor(1, 32));
         let new = crd_with_rule(rule);
@@ -252,9 +254,9 @@ mod tests {
     const SEMVER_RULE: &str = "semver('1.2.3').major() > 0";
     const P: &str = "spec.versions[0].schema.openAPIV3Schema";
 
-    fn env_1_32() -> k3rs_common::cel_versions::EnvSet {
-        k3rs_common::cel_versions::EnvSet::must_base_env_set(
-            k3rs_common::feature_gates::Version::major_minor(1, 32),
+    fn env_1_32() -> kubernetes_rs_common::cel_versions::EnvSet {
+        kubernetes_rs_common::cel_versions::EnvSet::must_base_env_set(
+            kubernetes_rs_common::feature_gates::Version::major_minor(1, 32),
         )
     }
 

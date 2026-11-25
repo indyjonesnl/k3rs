@@ -2,15 +2,15 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::ingress::{
+    pub use kubernetes_rs_common::resources::ingress::{
         HTTPIngressPath, Ingress, IngressBackend, IngressLoadBalancerStatus, IngressRule,
         IngressSpec,
     };
-    pub use k3rs_common::validation::field::{Error, ErrorList, Path};
-    pub use k3rs_common::validation::metav1::{
+    pub use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::metav1::{
         is_dns1035_label, is_dns1123_label, is_dns1123_subdomain,
     };
-    pub use k3rs_common::validation::objectmeta::{
+    pub use kubernetes_rs_common::validation::objectmeta::{
         name_is_dns_subdomain, name_is_path_segment, validate_object_meta,
         validate_object_meta_update,
     };
@@ -21,7 +21,7 @@ mod __parent {
 
 mod tls_tests {
     use super::__parent::*;
-    use k3rs_common::validation::ingress::*;
+    use kubernetes_rs_common::validation::ingress::*;
 
     fn tls_errs(json: serde_json::Value) -> Vec<String> {
         let spec: IngressSpec = serde_json::from_value(json).unwrap();
@@ -70,7 +70,7 @@ mod tls_tests {
 
 mod spec_tests {
     use super::__parent::*;
-    use k3rs_common::validation::ingress::*;
+    use kubernetes_rs_common::validation::ingress::*;
 
     fn spec_errs(json: serde_json::Value) -> Vec<String> {
         let spec: IngressSpec = serde_json::from_value(json).unwrap();

@@ -8,7 +8,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::volume_plugins::csi_drivers_store::*;
+    use kubernetes_rs_kubelet::volume_plugins::csi_drivers_store::*;
 
     fn driver(endpoint: &str) -> Driver {
         Driver {

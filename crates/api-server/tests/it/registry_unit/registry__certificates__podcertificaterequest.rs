@@ -3,30 +3,30 @@
 
 mod __parent {
     pub use chrono::Utc;
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         reset_object_meta_for_status, GroupResource, NamespaceScopedStrategy, RequestContext,
         RestCreateStrategy, RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_common::resources::podcertificaterequest::PodCertificateRequest;
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_common::validation::podcertificaterequest::{
+    pub use kubernetes_rs_common::resources::podcertificaterequest::PodCertificateRequest;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_common::validation::podcertificaterequest::{
         validate_pod_certificate_request_create, validate_pod_certificate_request_status_update,
         validate_pod_certificate_request_update,
     };
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::certificates::podcertificaterequest::*;
+    use kubernetes_rs_api_server::registry::certificates::podcertificaterequest::*;
 
     /// strategy_test.go: create wipes status; update keeps the old status;
     /// the status strategy keeps the old spec.
     #[test]
     fn reset_fields_only_on_status_strategy() {
-        use k3rs_api_server::ssa::ResetFields;
+        use kubernetes_rs_api_server::ssa::ResetFields;
         assert_eq!(
             RestUpdateStrategy::<PodCertificateRequest>::get_reset_fields(&StatusStrategy),
             ResetFields::new().with("certificates.k8s.io/v1alpha1", &[&["spec"]])
@@ -63,10 +63,10 @@ mod tests {
     }
 
     use chrono::TimeZone;
-    use k3rs_common::resources::podcertificaterequest::{
+    use kubernetes_rs_common::resources::podcertificaterequest::{
         PodCertificateRequestSpec, PodCertificateRequestStatus,
     };
-    use k3rs_common::types::Condition;
+    use kubernetes_rs_common::types::Condition;
 
     fn cond(ty: &str, status: &str) -> Condition {
         Condition {

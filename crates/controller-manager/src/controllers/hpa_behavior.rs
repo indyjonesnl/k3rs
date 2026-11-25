@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use chrono::{DateTime, Duration, Utc};
-use k3rs_common::resources::{HPAScalingRules, HorizontalPodAutoscalerBehavior};
+use kubernetes_rs_common::resources::{HPAScalingRules, HorizontalPodAutoscalerBehavior};
 
 /// One recorded scale change (absolute, non-negative), timestamped. Mirrors
 /// upstream `timestampedScaleEvent`.

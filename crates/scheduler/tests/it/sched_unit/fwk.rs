@@ -1,7 +1,7 @@
 //! `fwk.Status`, `fwk.CycleState` and `fwk.NodeInfo` (`kube-scheduler/framework`).
-use k3rs_common::resources::{Node, Pod};
-use k3rs_scheduler::fwk::{Code, CycleState, NoHandle, NodeInfo, PreFilterResult, Status};
-use k3rs_scheduler::profile::Profile;
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_scheduler::fwk::{Code, CycleState, NoHandle, NodeInfo, PreFilterResult, Status};
+use kubernetes_rs_scheduler::profile::Profile;
 
 #[test]
 fn status_predicates_follow_the_code() {

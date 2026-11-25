@@ -3,12 +3,14 @@
 
 mod __parent {
     pub use hyper_util::rt::TokioIo;
-    pub use k3rs_kubelet::pluginmanager::cache::{ActualStateOfWorld, PluginHandler, PluginInfo};
-    pub use k3rs_kubelet::pluginmanager::operation::registerapi::registration_client::RegistrationClient;
-    pub use k3rs_kubelet::pluginmanager::operation::registerapi::{
+    pub use kubernetes_rs_kubelet::pluginmanager::cache::{
+        ActualStateOfWorld, PluginHandler, PluginInfo,
+    };
+    pub use kubernetes_rs_kubelet::pluginmanager::operation::registerapi::registration_client::RegistrationClient;
+    pub use kubernetes_rs_kubelet::pluginmanager::operation::registerapi::{
         InfoRequest, RegistrationStatus,
     };
-    pub use k3rs_kubelet::volume_plugins::util::exponential_backoff::ExponentialBackoff;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::exponential_backoff::ExponentialBackoff;
     pub use std::collections::HashMap;
     pub use std::sync::{Arc, Mutex};
     pub use std::time::Duration;
@@ -18,7 +20,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::pluginmanager::operation::*;
+    use kubernetes_rs_kubelet::pluginmanager::operation::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Notify;
 

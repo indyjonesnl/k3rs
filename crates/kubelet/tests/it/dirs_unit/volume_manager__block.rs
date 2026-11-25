@@ -5,13 +5,13 @@
 //! (`UnmountVolume`, `UnmountDevice`).
 
 use anyhow::Result;
-use k3rs_common::resources::{PersistentVolume, PersistentVolumeClaim, Pod};
-use k3rs_kubelet::podcertificate::PodManager;
-use k3rs_kubelet::volume_manager::populator::PodStateProvider;
-use k3rs_kubelet::volume_manager::VolumeManager as VolumeManagerShell;
-use k3rs_kubelet::volume_plugins::util::block_operations::BlockVolumePathHandler;
-use k3rs_kubelet::volumes::VolumeManager;
-use k3rs_storage::{build_key, Storage, StorageBackend};
+use kubernetes_rs_common::resources::{PersistentVolume, PersistentVolumeClaim, Pod};
+use kubernetes_rs_kubelet::podcertificate::PodManager;
+use kubernetes_rs_kubelet::volume_manager::populator::PodStateProvider;
+use kubernetes_rs_kubelet::volume_manager::VolumeManager as VolumeManagerShell;
+use kubernetes_rs_kubelet::volume_plugins::util::block_operations::BlockVolumePathHandler;
+use kubernetes_rs_kubelet::volumes::VolumeManager;
+use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
@@ -136,7 +136,7 @@ async fn fx() -> Fx {
     )
     .await
     .unwrap();
-    let node: k3rs_common::resources::Node = serde_json::from_value(json!({
+    let node: kubernetes_rs_common::resources::Node = serde_json::from_value(json!({
         "apiVersion": "v1", "kind": "Node", "metadata": {"name": "node-bk"}
     }))
     .unwrap();
@@ -152,7 +152,7 @@ async fn fx() -> Fx {
         VolumeManager::new_with_recording_empty_dir_mounts(
             dir.path().display().to_string(),
             Some(storage.clone()),
-            k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+            kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
         )
         .with_node_name("node-bk")
         .with_block_util(blk.clone()),
@@ -257,7 +257,7 @@ async fn reconciler_unmaps_and_releases_a_block_volume() {
 /// mounter and its device (the global map path) uncertain.
 #[tokio::test]
 async fn reconstruction_recovers_a_mapped_block_volume() {
-    use k3rs_kubelet::volume_plugins::util::operation_executor::DeviceMountState;
+    use kubernetes_rs_kubelet::volume_plugins::util::operation_executor::DeviceMountState;
     let f = fx().await;
     let link = f
         ._dir

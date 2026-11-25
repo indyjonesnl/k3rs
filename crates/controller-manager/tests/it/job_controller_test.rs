@@ -2,11 +2,11 @@
 // Tests the Job controller's ability to manage batch workloads
 
 use crate::stale_list_double::StaleListStorage;
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::workloads::*;
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::job::JobController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::workloads::*;
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::job::JobController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -704,7 +704,7 @@ fn indexed_job_pod(
             meta.uid = uuid::Uuid::new_v4().to_string();
             meta.labels = Some(labels);
             meta.annotations = Some(annotations);
-            meta.owner_references = Some(vec![k3rs_common::types::OwnerReference {
+            meta.owner_references = Some(vec![kubernetes_rs_common::types::OwnerReference {
                 api_version: "batch/v1".to_string(),
                 kind: "Job".to_string(),
                 name: job_name.to_string(),

@@ -9,19 +9,19 @@ mod __parent {
         response::Response,
         Extension,
     };
-    pub use k3rs_api_server::{middleware::AuthContext, state::ApiServerState};
-    pub use k3rs_common::{
+    pub use kubernetes_rs_api_server::{middleware::AuthContext, state::ApiServerState};
+    pub use kubernetes_rs_common::{
         authz::{Decision, RequestAttributes},
         Result,
     };
-    pub use k3rs_storage::Storage;
+    pub use kubernetes_rs_storage::Storage;
     pub use std::sync::Arc;
     pub use tracing::{debug, info, warn};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::proxy::*;
+    use kubernetes_rs_api_server::handlers::proxy::*;
 
     #[test]
     fn test_hop_by_hop_headers() {

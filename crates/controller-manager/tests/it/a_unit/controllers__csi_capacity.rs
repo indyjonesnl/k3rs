@@ -2,39 +2,41 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::quantity::{Format, Quantity};
-    pub use k3rs_common::resources::csi::{CSINode, CSIStorageCapacity};
-    pub use k3rs_common::resources::volume::LabelSelector;
-    pub use k3rs_common::resources::volume::{NodeSelectorTerm, StorageClass, VolumeBindingMode};
-    pub use k3rs_common::resources::Node;
-    pub use k3rs_common::types::{ObjectMeta, OwnerReference, TypeMeta};
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_controller_manager::controllers::csi_capacity_metrics::CapacityStats;
-    pub use k3rs_controller_manager::controllers::csi_capacity_refresh::{
+    pub use kubernetes_rs_common::quantity::{Format, Quantity};
+    pub use kubernetes_rs_common::resources::csi::{CSINode, CSIStorageCapacity};
+    pub use kubernetes_rs_common::resources::volume::LabelSelector;
+    pub use kubernetes_rs_common::resources::volume::{
+        NodeSelectorTerm, StorageClass, VolumeBindingMode,
+    };
+    pub use kubernetes_rs_common::resources::Node;
+    pub use kubernetes_rs_common::types::{ObjectMeta, OwnerReference, TypeMeta};
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_controller_manager::controllers::csi_capacity_metrics::CapacityStats;
+    pub use kubernetes_rs_controller_manager::controllers::csi_capacity_refresh::{
         ItemKey, QueueKey, State,
     };
-    pub use k3rs_csi::controller_client::CsiControllerClient;
-    pub use k3rs_csi::proto::{GetCapacityRequest, GetCapacityResponse, Topology};
-    pub use k3rs_storage::{build_key, build_prefix, Storage};
+    pub use kubernetes_rs_csi::controller_client::CsiControllerClient;
+    pub use kubernetes_rs_csi::proto::{GetCapacityRequest, GetCapacityResponse, Topology};
+    pub use kubernetes_rs_storage::{build_key, build_prefix, Storage};
     pub use std::cmp::Ordering;
     pub use std::collections::HashMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_client::ratelimit::RateLimiter;
-    use k3rs_common::resources::csi::{CSINodeDriver, CSINodeSpec};
-    use k3rs_common::resources::volume::VolumeNodeAffinity;
-    use k3rs_common::resources::volume::{
+    use kubernetes_rs_client::ratelimit::RateLimiter;
+    use kubernetes_rs_common::resources::csi::{CSINodeDriver, CSINodeSpec};
+    use kubernetes_rs_common::resources::volume::VolumeNodeAffinity;
+    use kubernetes_rs_common::resources::volume::{
         NodeSelectorRequirement, StorageClass, VolumeBindingMode,
     };
-    use k3rs_common::types::{ObjectMeta, TypeMeta};
-    use k3rs_controller_manager::controllers::csi_capacity::*;
-    use k3rs_controller_manager::controllers::csi_capacity_refresh::{
+    use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+    use kubernetes_rs_controller_manager::controllers::csi_capacity::*;
+    use kubernetes_rs_controller_manager::controllers::csi_capacity_refresh::{
         CapacityRefresher, ItemKey, QueueKey,
     };
-    use k3rs_storage::build_key;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_storage::build_key;
+    use kubernetes_rs_storage::memory::MemoryStorage;
     use std::collections::HashSet;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -67,7 +69,7 @@ mod tests {
 
     fn vna(pairs: &[(&str, &str)]) -> VolumeNodeAffinity {
         VolumeNodeAffinity {
-            required: Some(k3rs_common::resources::volume::NodeSelector {
+            required: Some(kubernetes_rs_common::resources::volume::NodeSelector {
                 node_selector_terms: vec![NodeSelectorTerm {
                     match_expressions: Some(
                         pairs.iter().map(|(k, v)| req(k, "In", &[v])).collect(),
@@ -471,7 +473,7 @@ mod tests {
             owner_namespace: NS.into(),
             immediate_binding: immediate,
             refresher: Default::default(),
-            limiter: std::sync::Arc::new(k3rs_client::ratelimit::RateLimiter::unlimited()),
+            limiter: std::sync::Arc::new(kubernetes_rs_client::ratelimit::RateLimiter::unlimited()),
         }
     }
 
@@ -560,7 +562,7 @@ mod tests {
         let c = ctl(&st, &cl, false);
         c.register_metrics();
         settle(&c, &st, &[seg(&[("zone", "a")])]).await;
-        let out = k3rs_controller_manager::controllers::csi_capacity_metrics::gather();
+        let out = kubernetes_rs_controller_manager::controllers::csi_capacity_metrics::gather();
         for (n, v) in [
             ("csistoragecapacities_desired_goal", 1),
             ("csistoragecapacities_desired_current", 1),
@@ -1328,7 +1330,9 @@ mod tests {
         let cl = FakeClient::default();
         put_sc(&st, sc("late", DRIVER, None)).await;
         let limited = |qps: f64, burst: f64| CapacityController {
-            limiter: std::sync::Arc::new(k3rs_client::ratelimit::RateLimiter::new(qps, burst)),
+            limiter: std::sync::Arc::new(kubernetes_rs_client::ratelimit::RateLimiter::new(
+                qps, burst,
+            )),
             ..ctl(&st, &cl, false)
         };
         let c = limited(1.0, 2.0);

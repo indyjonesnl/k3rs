@@ -5,14 +5,14 @@
 //! `scheduler.New` (`pkg/scheduler/scheduler.go:386-414`), and `NewFramework`'s
 //! "only one queue sort plugin" check (`framework.go:414`).
 
-use k3rs_common::resources::{Pod, PodSpec};
-use k3rs_scheduler::framework_runtime::{ExtensionPoint, PluginInstance, Registry};
-use k3rs_scheduler::fwk::{Code, Plugin, QueueSortPlugin, Status};
-use k3rs_scheduler::queue::scheduling_gates::build_pre_enqueue_plugin_map;
-use k3rs_scheduler::queue::scheduling_queue::{
+use kubernetes_rs_common::resources::{Pod, PodSpec};
+use kubernetes_rs_scheduler::framework_runtime::{ExtensionPoint, PluginInstance, Registry};
+use kubernetes_rs_scheduler::fwk::{Code, Plugin, QueueSortPlugin, Status};
+use kubernetes_rs_scheduler::queue::scheduling_gates::build_pre_enqueue_plugin_map;
+use kubernetes_rs_scheduler::queue::scheduling_queue::{
     PreEnqueuePlugin, PriorityQueue, PriorityQueueOptions, QueuedPodInfo,
 };
-use k3rs_scheduler::scheduler_config::profiles_from_config_with_registry;
+use kubernetes_rs_scheduler::scheduler_config::profiles_from_config_with_registry;
 use std::sync::Arc;
 
 /// Lowest priority first (the reverse of `PrioritySort`), so the test can tell
@@ -183,7 +183,7 @@ profiles:
 /// Default profile: PrioritySort and SchedulingGates are framework objects.
 #[test]
 fn default_profile_objects() {
-    let p = k3rs_scheduler::profile::Profile::named("default-scheduler");
+    let p = kubernetes_rs_scheduler::profile::Profile::named("default-scheduler");
     let names: Vec<_> = p
         .framework
         .pre_enqueue_plugins()

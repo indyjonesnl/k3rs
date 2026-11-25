@@ -1,0 +1,14 @@
+[Unit]
+Description=kubernetes-rs controller-manager
+After=kubernetes-rs-api-server.service
+ConditionPathExists=/usr/local/bin/controller-manager
+[Service]
+Environment=RUST_LOG=info
+# Flags mirror manifests/control-plane/kube-controller-manager.yaml with the
+# node-IPAM expansion from scripts/bootstrap-cluster.sh (cluster-cidr, /24 per node).
+ExecStart=/usr/local/bin/controller-manager --api-server-url https://api-server:6443 \
+  --kubeconfig /etc/kubernetes-rs/pki/controller-manager.conf --sync-interval 5 \
+  --allocate-node-cidrs --cluster-cidr 10.244.0.0/16 --node-cidr-mask-size 24
+Restart=always
+[Install]
+WantedBy=multi-user.target

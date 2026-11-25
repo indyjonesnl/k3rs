@@ -9,10 +9,10 @@
 //! from the strategies' `validate_async` / `validate_update_async` hooks, which
 //! `before_create` / `before_update` join with the synchronous validators.
 
-use k3rs_common::resources::dra::{DeviceRequest, DeviceRequestAllocationResult};
-use k3rs_common::resources::Namespace;
-use k3rs_common::validation::field::{Error as FieldError, ErrorList, Path};
-use k3rs_storage::{build_key, Storage, StorageBackend};
+use kubernetes_rs_common::resources::dra::{DeviceRequest, DeviceRequestAllocationResult};
+use kubernetes_rs_common::resources::Namespace;
+use kubernetes_rs_common::validation::field::{Error as FieldError, ErrorList, Path};
+use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
 
 /// `resource.DRAAdminNamespaceLabelKey` (pkg/apis/resource/types.go:778).
 const ADMIN_NAMESPACE_LABEL_KEY: &str = "resource.kubernetes.io/admin-access";

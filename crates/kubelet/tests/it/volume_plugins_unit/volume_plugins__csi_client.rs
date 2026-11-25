@@ -3,13 +3,13 @@
 
 mod __parent {
     pub use hyper_util::rt::TokioIo;
-    pub use k3rs_common::quantity::{Format, Quantity};
-    pub use k3rs_common::resources::PersistentVolumeAccessMode;
-    pub use k3rs_csi::normalize_endpoint;
-    pub use k3rs_csi::proto;
-    pub use k3rs_kubelet::volume_plugins::csi_drivers_store::csi_drivers;
-    pub use k3rs_kubelet::volume_plugins::plugin::{Metrics, Spec};
-    pub use k3rs_kubelet::volume_plugins::util::metrics::record_csi_operation_latency_metrics;
+    pub use kubernetes_rs_common::quantity::{Format, Quantity};
+    pub use kubernetes_rs_common::resources::PersistentVolumeAccessMode;
+    pub use kubernetes_rs_csi::normalize_endpoint;
+    pub use kubernetes_rs_csi::proto;
+    pub use kubernetes_rs_kubelet::volume_plugins::csi_drivers_store::csi_drivers;
+    pub use kubernetes_rs_kubelet::volume_plugins::plugin::{Metrics, Spec};
+    pub use kubernetes_rs_kubelet::volume_plugins::util::metrics::record_csi_operation_latency_metrics;
     pub use proto::node_client::NodeClient;
     pub use proto::node_service_capability::rpc::Type as NodeRpcType;
     pub use proto::volume_capability::access_mode::Mode as AccessModeKind;
@@ -29,9 +29,9 @@ mod __parent {
 mod tests {
     use super::__parent::*;
     use crate::csi_fake::*;
-    use k3rs_common::quantity::Format;
-    use k3rs_kubelet::volume_plugins::csi_client::proto::{NodeGetInfoResponse, Topology};
-    use k3rs_kubelet::volume_plugins::csi_client::*;
+    use kubernetes_rs_common::quantity::Format;
+    use kubernetes_rs_kubelet::volume_plugins::csi_client::proto::{NodeGetInfoResponse, Topology};
+    use kubernetes_rs_kubelet::volume_plugins::csi_client::*;
 
     fn caps(c: &[NodeRpcType]) -> FakeDriver {
         FakeDriver::with_capabilities(c)
@@ -489,8 +489,10 @@ mod tests {
         );
     }
 
-    fn spec_with_migrated(migrated: bool) -> k3rs_kubelet::volume_plugins::plugin::OwnedSpec {
-        k3rs_kubelet::volume_plugins::plugin::OwnedSpec {
+    fn spec_with_migrated(
+        migrated: bool,
+    ) -> kubernetes_rs_kubelet::volume_plugins::plugin::OwnedSpec {
+        kubernetes_rs_kubelet::volume_plugins::plugin::OwnedSpec {
             volume: serde_json::from_value(serde_json::json!({"name": "v"})).unwrap(),
             persistent_volume: None,
             read_only: false,
@@ -528,7 +530,7 @@ mod tests {
         c.node_supports_stage_unstage().await.unwrap();
         let c = CsiDriverClient::with_endpoint("plain.metrics.drv", &sock);
         c.node_supports_stage_unstage().await.unwrap();
-        let body = k3rs_common::observability::MetricsRegistry::new().gather();
+        let body = kubernetes_rs_common::observability::MetricsRegistry::new().gather();
         assert!(body.contains("csi_operations_seconds_count{driver_name=\"migrated.metrics.drv\",grpc_status_code=\"OK\",method_name=\"/csi.v1.Node/NodeGetCapabilities\",migrated=\"true\"} 1"), "{body}");
         assert!(body.contains("csi_operations_seconds_count{driver_name=\"plain.metrics.drv\",grpc_status_code=\"OK\",method_name=\"/csi.v1.Node/NodeGetCapabilities\",migrated=\"false\"} 1"), "{body}");
     }

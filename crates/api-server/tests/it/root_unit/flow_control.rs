@@ -2,24 +2,24 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::flow_control_conc_alloc::{
+    pub use kubernetes_rs_api_server::flow_control_conc_alloc::{
         compute_concurrency_allocation, AllocProblemItem,
     };
-    pub use k3rs_api_server::flow_control_integrator::{Integrator, IntegratorResults};
-    pub use k3rs_api_server::flow_control_metrics as fcmetrics;
-    pub use k3rs_api_server::flow_control_queueset::{
+    pub use kubernetes_rs_api_server::flow_control_integrator::{Integrator, IntegratorResults};
+    pub use kubernetes_rs_api_server::flow_control_metrics as fcmetrics;
+    pub use kubernetes_rs_api_server::flow_control_queueset::{
         Clock, DispatchingConfig, Execution, QueueSet, QueuingConfig, RealClock, RejectReason,
         WorkEstimate,
     };
-    pub use k3rs_common::resources::flowcontrol::{
+    pub use kubernetes_rs_common::resources::flowcontrol::{
         FlowDistinguisherMethodType, FlowSchema, FlowSchemaCondition, FlowSchemaSubject,
         LimitResponseType, NonResourcePolicyRule, PolicyRulesWithSubjects,
         PriorityLevelConfiguration, PriorityLevelType, ResourcePolicyRule, SubjectKind,
     };
-    pub use k3rs_common::validation::flowcontrol_bootstrap::{
+    pub use kubernetes_rs_common::validation::flowcontrol_bootstrap::{
         mandatory_flow_schema, mandatory_priority_level_configuration,
     };
-    pub use k3rs_storage::{build_key, Storage};
+    pub use kubernetes_rs_storage::{build_key, Storage};
     pub use sha2::{Digest, Sha256};
     pub use std::collections::HashMap;
     pub use std::sync::{Arc, Mutex, RwLock};
@@ -29,8 +29,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::flow_control::*;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_api_server::flow_control::*;
+    use kubernetes_rs_storage::memory::MemoryStorage;
 
     fn cls(fs: &str, pl: &str, dist: &str) -> Classification {
         Classification {
@@ -169,7 +169,7 @@ mod tests {
     /// 50%), `...WorkloadLow` (100, 90%) and the mandatory catch-all (5, 0%).
     #[test]
     fn update_borrowing_matches_upstream_exempt_borrowing_test() {
-        use k3rs_api_server::flow_control_integrator::test_clock::ManualClock;
+        use kubernetes_rs_api_server::flow_control_integrator::test_clock::ManualClock;
         let period = BORROWING_ADJUSTMENT_PERIOD;
         let clk = ManualClock::new();
         let server_cl = (40 + 100 + 5) * 6;
@@ -248,7 +248,7 @@ mod tests {
     /// lendable/2, and a level with no demand lends down to its minCL.
     #[test]
     fn digest_derives_min_max_and_initial_current_cl() {
-        use k3rs_api_server::flow_control_integrator::test_clock::ManualClock;
+        use kubernetes_rs_api_server::flow_control_integrator::test_clock::ManualClock;
         let e = FlowControlEngine::with_limits_and_clock(
             Arc::new(MemoryStorage::new()),
             100,
@@ -284,7 +284,7 @@ mod tests {
     /// tokio's paused clock. Requests are classified directly to their level
     /// (the upstream FlowSchemas only route `test-userN` to `test-plN`).
     async fn run_borrowing_scenario(lendable: [i32; 2], borrowing: [i32; 2]) {
-        use k3rs_api_server::flow_control_integrator::test_clock::TokioClock;
+        use kubernetes_rs_api_server::flow_control_integrator::test_clock::TokioClock;
         let clk = TokioClock::new();
         let st = Arc::new(MemoryStorage::new());
         let e = Arc::new(FlowControlEngine::with_limits_and_clock(
@@ -313,7 +313,8 @@ mod tests {
         }
         e.digest_config_objects(pls, vec![]);
         // `wait.Until(cfgCtlr.updateBorrowing, borrowingAdjustmentPeriod)`.
-        let updater = k3rs_api_server::flow_control_filter::spawn_borrowing_updater(e.clone());
+        let updater =
+            kubernetes_rs_api_server::flow_control_filter::spawn_borrowing_updater(e.clone());
         let integrators: Vec<Arc<Integrator>> = (0..2)
             .map(|_| Arc::new(Integrator::new(clk.clone())))
             .collect();
@@ -379,7 +380,7 @@ mod tests {
     /// `updateBorrowingLocked` completing the queueset with it).
     #[test]
     fn busy_level_borrows_from_idle_lendable_level() {
-        use k3rs_api_server::flow_control_integrator::test_clock::ManualClock;
+        use kubernetes_rs_api_server::flow_control_integrator::test_clock::ManualClock;
         let clk = ManualClock::new();
         let e = FlowControlEngine::with_limits_and_clock(
             Arc::new(MemoryStorage::new()),
@@ -417,10 +418,10 @@ mod tests {
 
     // ---- QueueSet wiring (#2741) ----
 
-    use k3rs_common::resources::flowcontrol::{
+    use kubernetes_rs_common::resources::flowcontrol::{
         LimitResponse, LimitResponseType, LimitedPriorityLevelConfiguration, QueuingConfiguration,
     };
-    use k3rs_common::types::ObjectMeta;
+    use kubernetes_rs_common::types::ObjectMeta;
 
     /// A `Limited`/`Queue` level named `test` (CL 1 when the server limit is 1).
     fn queueing_pl(queues: i32, hand: i32, len: i32) -> PriorityLevelConfiguration {
@@ -611,7 +612,7 @@ mod tests {
     async fn dangling_of(
         st: &Arc<MemoryStorage>,
         name: &str,
-    ) -> Option<k3rs_common::resources::flowcontrol::FlowSchemaCondition> {
+    ) -> Option<kubernetes_rs_common::resources::flowcontrol::FlowSchemaCondition> {
         let fs: FlowSchema = st.get(&build_key("flowschemas", None, name)).await.unwrap();
         fs.status
             .and_then(|s| s.conditions)
@@ -897,7 +898,7 @@ mod tests {
     // AddSeatConcurrencyInUse) and `apf_filter.go` `Handle` (:164-201:
     // AddDispatch, ObserveExecutionDuration, observeQueueWaitTime) make.
 
-    use k3rs_api_server::flow_control::metric_test_util::sample;
+    use kubernetes_rs_api_server::flow_control::metric_test_util::sample;
 
     #[tokio::test]
     async fn dispatch_counts_and_executing_gauges_follow_the_permit() {
@@ -1066,7 +1067,7 @@ mod tests {
 
     // ---- #2960: limit gauges, utilization and read-vs-write histograms ----
 
-    use k3rs_api_server::flow_control::metric_test_util::{has_series, sample_sum};
+    use kubernetes_rs_api_server::flow_control::metric_test_util::{has_series, sample_sum};
 
     const NS: &str = "apiserver_flowcontrol_";
 

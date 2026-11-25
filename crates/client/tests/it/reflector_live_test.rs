@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::stream::BoxStream;
-use k3rs_client::http::ApiClient;
-use k3rs_client::reflector::{ApiListWatch, ListWatch, Reflector, WatchItem};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_client::http::ApiClient;
+use kubernetes_rs_client::reflector::{ApiListWatch, ListWatch, Reflector, WatchItem};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::sync::watch;

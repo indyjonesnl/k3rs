@@ -19,7 +19,7 @@ target/
 *~
 .DS_Store
 
-# k3rs specific
+# kubernetes-rs specific
 *.log
 data/
 configs/local-*
@@ -32,7 +32,7 @@ configs/local-*
 # Podman/Docker volumes
 etcd-data/
 # Local development runtime state
-.k3rs/
+.kubernetes-rs/
 
 # Work tracking (local only)
 .work/

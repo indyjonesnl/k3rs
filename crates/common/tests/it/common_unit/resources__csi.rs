@@ -2,16 +2,16 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::service_account::ObjectReference;
-    pub use k3rs_common::resources::volume::LabelSelector;
-    pub use k3rs_common::types::{ObjectMeta, TypeMeta};
+    pub use kubernetes_rs_common::resources::service_account::ObjectReference;
+    pub use kubernetes_rs_common::resources::volume::LabelSelector;
+    pub use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
     pub use serde::{Deserialize, Serialize};
     pub use std::collections::HashMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::csi::*;
+    use kubernetes_rs_common::resources::csi::*;
 
     #[test]
     fn test_csi_driver_serialization() {

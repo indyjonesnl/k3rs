@@ -3,8 +3,8 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_storage::{Storage, WatchEvent, WatchStream};
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_storage::{Storage, WatchEvent, WatchStream};
     pub use serde::{de::DeserializeOwned, Serialize};
     pub use std::collections::HashMap;
     pub use std::collections::VecDeque;
@@ -14,7 +14,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_storage::memory::*;
+    use kubernetes_rs_storage::memory::*;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -396,14 +396,14 @@ mod tests {
         assert!(st.estimated_average_object_size_bytes > 0);
         assert_eq!(
             s.stats("/registry/none/").await.unwrap(),
-            k3rs_storage::ResourceStats::default()
+            kubernetes_rs_storage::ResourceStats::default()
         );
     }
 }
 
 mod preconditions_tests {
     use super::__parent::*;
-    use k3rs_storage::memory::*;
+    use kubernetes_rs_storage::memory::*;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn delete_with_preconditions_suite() {

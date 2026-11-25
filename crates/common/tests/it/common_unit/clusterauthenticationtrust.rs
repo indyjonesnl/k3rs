@@ -7,7 +7,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::clusterauthenticationtrust::*;
+    use kubernetes_rs_common::clusterauthenticationtrust::*;
 
     const SOME_RANDOM_CA: &str = r#"-----BEGIN CERTIFICATE-----
 MIIBqDCCAU2gAwIBAgIUfbqeieihh/oERbfvRm38XvS/xHAwCgYIKoZIzj0EAwIw

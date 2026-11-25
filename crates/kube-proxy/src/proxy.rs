@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use k3rs_common::resources::{EndpointSlice, Endpoints, Pod, Service, ServiceType};
-use k3rs_storage::Storage;
+use kubernetes_rs_common::resources::{EndpointSlice, Endpoints, Pod, Service, ServiceType};
+use kubernetes_rs_storage::Storage;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info};
@@ -413,8 +413,8 @@ impl<S: Storage> KubeProxy<S> {
         for service_port in &service.spec.ports {
             let protocol = service_port.protocol.as_str();
             let target_port = match &service_port.target_port {
-                Some(k3rs_common::resources::IntOrString::Int(p)) => *p as u16,
-                Some(k3rs_common::resources::IntOrString::String(s)) => {
+                Some(kubernetes_rs_common::resources::IntOrString::Int(p)) => *p as u16,
+                Some(kubernetes_rs_common::resources::IntOrString::String(s)) => {
                     s.parse::<u16>().unwrap_or(service_port.port)
                 }
                 None => service_port.port,
@@ -521,9 +521,9 @@ impl<S: Storage> Drop for KubeProxy<S> {
 
 #[cfg(test)]
 mod tests {
-    use k3rs_common::resources::endpointslice::EndpointPort as ESEndpointPort;
-    use k3rs_common::resources::{Endpoint, EndpointConditions, EndpointSlice};
-    use k3rs_common::types::ObjectMeta;
+    use kubernetes_rs_common::resources::endpointslice::EndpointPort as ESEndpointPort;
+    use kubernetes_rs_common::resources::{Endpoint, EndpointConditions, EndpointSlice};
+    use kubernetes_rs_common::types::ObjectMeta;
     use std::collections::HashMap;
 
     #[test]

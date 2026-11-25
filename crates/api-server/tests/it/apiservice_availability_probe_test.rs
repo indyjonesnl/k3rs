@@ -1,7 +1,9 @@
 //! The request half of the APIService availability controller's discovery
 //! check (`remote_available_controller.go:277-352`).
 
-use k3rs_api_server::handlers::aggregator::{availability_discovery_request, AggregatorTarget};
+use kubernetes_rs_api_server::handlers::aggregator::{
+    availability_discovery_request, AggregatorTarget,
+};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;

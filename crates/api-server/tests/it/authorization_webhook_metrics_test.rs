@@ -5,12 +5,12 @@
 //! and `authorization/cel/matcher.go:44-82` + `cel/metrics.go`.
 
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
-use k3rs_api_server::authorization_match_conditions::WebhookMatchCondition;
-use k3rs_api_server::authorization_webhook::{
+use kubernetes_rs_api_server::authorization_match_conditions::WebhookMatchCondition;
+use kubernetes_rs_api_server::authorization_webhook::{
     Backoff, FailurePolicy, WebhookAuthorizer, WebhookClientConfig,
 };
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, RequestAttributes};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Authorizer, RequestAttributes};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;

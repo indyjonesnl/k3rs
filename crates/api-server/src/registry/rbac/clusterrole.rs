@@ -8,16 +8,16 @@
 
 use std::sync::Arc;
 
-use k3rs_common::authz::Authorizer;
-use k3rs_common::resources::ClusterRole;
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{
+use kubernetes_rs_common::authz::Authorizer;
+use kubernetes_rs_common::resources::ClusterRole;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{
     name_is_path_segment, validate_object_meta, validate_object_meta_update,
 };
-use k3rs_common::validation::rbac::{
+use kubernetes_rs_common::validation::rbac::{
     has_invalid_label_value_in_label_selector, validate_cluster_role_with_options,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use super::policybased::{ClusterRolePolicyBased, PolicyBased};
 use super::rule::DefaultRuleResolver;

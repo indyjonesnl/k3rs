@@ -12,7 +12,7 @@
 //! `StorageBackend::watch_backend` instead.
 
 use crate::{WatchEvent, WatchStream};
-use k3rs_common::Error;
+use kubernetes_rs_common::Error;
 use tokio::sync::broadcast;
 
 /// Default broadcast capacity, matching the historical `MemoryStorage` value.

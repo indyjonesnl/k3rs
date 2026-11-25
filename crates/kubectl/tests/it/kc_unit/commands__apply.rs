@@ -3,9 +3,9 @@
 
 mod __parent {
     pub use anyhow::{Context, Result};
-    pub use k3rs_client::http::ApiClient;
-    pub use k3rs_kubectl::discovery::RestMapper;
-    pub use k3rs_kubectl::types::ApplyCommands;
+    pub use kubernetes_rs_client::http::ApiClient;
+    pub use kubernetes_rs_kubectl::discovery::RestMapper;
+    pub use kubernetes_rs_kubectl::types::ApplyCommands;
     pub use serde_json::{json, Value};
     pub use std::fs;
     pub use std::path::Path;
@@ -14,7 +14,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::apply::*;
+    use kubernetes_rs_kubectl::commands::apply::*;
     use std::fs;
     use tempfile::TempDir;
 

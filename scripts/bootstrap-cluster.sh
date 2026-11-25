@@ -66,7 +66,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # images must be put there one of two ways:
 #
 #   * CI prebuilt path — CONTROL_PLANE_IMAGE_REGISTRY is set (the
-#     bring-up-cluster action exports ghcr.io/indyjonesnl/rusternetes when the
+#     bring-up-cluster action exports ghcr.io/indyjonesnl/kubernetes-rs when the
 #     GHCR pull succeeds). We template that registry ref + tag into the static
 #     pod manifests / dns Deployment. The docker daemon already holds those
 #     images (`compose pull`, which retries), so they are imported into the
@@ -78,15 +78,15 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 #     as before.
 #
 #   * Local build path — registry unset. Images were built into the local
-#     docker/podman daemon as k3rs-<component>:latest, which the separate
+#     docker/podman daemon as kubernetes-rs-<component>:latest, which the separate
 #     containerd store cannot see, so we `save | ctr -n k8s.io images import`
 #     them over the CRI socket. Without this every static pod / dns pod fails
-#     with `pull access denied ... docker.io/library/k3rs-*` (the kubelet
+#     with `pull access denied ... docker.io/library/kubernetes-rs-*` (the kubelet
 #     falls back to docker.io for the unqualified local tag).
 CONTROL_PLANE_IMAGE_REGISTRY="${CONTROL_PLANE_IMAGE_REGISTRY:-}"
-CONTROL_PLANE_IMAGE_TAG="${K3RS_IMAGE_TAG:-main}"
+CONTROL_PLANE_IMAGE_TAG="${KUBERNETES_RS_IMAGE_TAG:-main}"
 # Explicit single-runtime override (scripts/run-node-conformance.sh sets this to
-# k3rs-nc-containerd). Empty means "discover the compose runtimes" — see
+# kubernetes-rs-nc-containerd). Empty means "discover the compose runtimes" — see
 # containerd_service_containers.
 CONTAINERD_SERVICE_CONTAINER="${CONTAINERD_SERVICE_CONTAINER:-}"
 
@@ -98,7 +98,7 @@ resolve_cluster_image() {
     if [ -n "$CONTROL_PLANE_IMAGE_REGISTRY" ]; then
         echo "${CONTROL_PLANE_IMAGE_REGISTRY}/${component}:${CONTROL_PLANE_IMAGE_TAG}"
     else
-        echo "k3rs-${component}:latest"
+        echo "kubernetes-rs-${component}:latest"
     fi
 }
 
@@ -107,7 +107,7 @@ resolve_cluster_image() {
 # when there is no separate containerd service (all-in-one stack) or the source
 # image was never built locally. `docker save` emits a docker-archive tarball
 # that `ctr images import` auto-detects; ctr normalizes the RepoTag
-# k3rs-X:latest to docker.io/library/k3rs-X:latest, the exact ref
+# kubernetes-rs-X:latest to docker.io/library/kubernetes-rs-X:latest, the exact ref
 # the CRI ImageService resolves the unqualified pod-spec name to, so the lookup
 # matches.
 # Every node's runtime that is currently up. Each containerd keeps its OWN image
@@ -123,7 +123,7 @@ containerd_service_containers() {
         return 0
     fi
     ${CONTAINER_RT:-docker} ps --format '{{.Names}}' 2>/dev/null \
-        | grep -E '^k3rs-containerd[0-9]*$' \
+        | grep -E '^kubernetes-rs-containerd[0-9]*$' \
         | sort
 }
 
@@ -133,7 +133,7 @@ containerd_service_containers() {
 stack_pod_subnet() {
     local names name cmd cidr
     names="$(${CONTAINER_RT:-docker} ps --format '{{.Names}}' 2>/dev/null \
-        | grep -E '^k3rs-kube-proxy[0-9]*$' \
+        | grep -E '^kubernetes-rs-kube-proxy[0-9]*$' \
         | sort)"
     for name in $names; do
         cmd="$(${CONTAINER_RT:-docker} inspect -f '{{join .Config.Cmd " "}}' "$name" 2>/dev/null || true)"
@@ -193,7 +193,7 @@ node_ipam_cluster_cidr() {
 # DirectoryOrCreate hostPath, "as it is used for third-party plugins to
 # integrate with their storage backends via unix domain socket"
 # (cmd/kubeadm/app/phases/controlplane/volumes.go:73-79). The in-process CSI
-# attacher itself is k3rs-only (upstream's controller-manager has no
+# attacher itself is kubernetes-rs-only (upstream's controller-manager has no
 # CSI socket; the external-attacher sidecar does); the mount follows kubeadm.
 #
 # csi_socket_dirs prints the unique parent directories of the CSI_ATTACHERS
@@ -284,7 +284,7 @@ import_image_into_containerd() {
 # upstream registry; the mirror copy is re-tagged to the upstream name first.
 # Best effort: on failure the pod's own pull is the fallback.
 import_addon_image() {
-    local image="$1" mirror_prefix="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/rusternetes/mirror}"
+    local image="$1" mirror_prefix="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/kubernetes-rs/mirror}"
     local path="${image#docker.io/}" src attempt
     if [ -z "$(containerd_service_containers)" ]; then
         return 0   # all-in-one / no separate containerd service
@@ -328,7 +328,7 @@ template_k3s_manifest() {
         -e 's|%{CLUSTER_DNS}%|10.96.0.10|g' \
         -e 's|%{CLUSTER_DNS_LIST}%|["10.96.0.10"]|g' \
         -e 's|%{CLUSTER_DNS_IPFAMILYPOLICY}%|SingleStack|g' \
-        -e 's|%{DEFAULT_LOCAL_STORAGE_PATH}%|/var/lib/k3rs/storage|g' \
+        -e 's|%{DEFAULT_LOCAL_STORAGE_PATH}%|/var/lib/kubernetes-rs/storage|g' \
         -e 's|%{PREFERRED_ADDRESS_TYPES}%|InternalIP,ExternalIP,Hostname|g' \
         "$1"
 }
@@ -357,21 +357,21 @@ import_sandbox_image() {
 # Discover the Docker bridge gateway (always [subnet].1) so we can
 # bootstrap cluster DNS and other resources without hardcoding an IP.
 # Uses the discover-bridge-gateway helper; callers can override via
-# K3RS_BRIDGE_GATEWAY env var if discovery fails.
+# KUBERNETES_RS_BRIDGE_GATEWAY env var if discovery fails.
 #
 # Invoke as a subprocess (not `source`): the helper prints the gateway
 # on stdout and ends with `exit 0`, which — if sourced — would terminate
 # this bootstrap script before the actual bootstrap work runs. Capturing
 # stdout gives us the value without that side-effect.
-if [ -z "${K3RS_BRIDGE_GATEWAY:-}" ]; then
+if [ -z "${KUBERNETES_RS_BRIDGE_GATEWAY:-}" ]; then
     if [ -f "$SCRIPT_DIR/discover-bridge-gateway.sh" ]; then
-        K3RS_BRIDGE_GATEWAY="$(bash "$SCRIPT_DIR/discover-bridge-gateway.sh" 2>/dev/null || true)"
-        export K3RS_BRIDGE_GATEWAY
+        KUBERNETES_RS_BRIDGE_GATEWAY="$(bash "$SCRIPT_DIR/discover-bridge-gateway.sh" 2>/dev/null || true)"
+        export KUBERNETES_RS_BRIDGE_GATEWAY
     fi
 fi
 
-if [ -n "${K3RS_BRIDGE_GATEWAY:-}" ]; then
-    echo "Docker bridge gateway: $K3RS_BRIDGE_GATEWAY"
+if [ -n "${KUBERNETES_RS_BRIDGE_GATEWAY:-}" ]; then
+    echo "Docker bridge gateway: $KUBERNETES_RS_BRIDGE_GATEWAY"
 fi
 
 echo "Using container runtime: $CONTAINER_RT"
@@ -418,7 +418,7 @@ if [ -z "$KUBECONFIG" ] || [ "$KUBECONFIG" = "/dev/null" ]; then
     KUBECTL_FLAGS="$KUBECTL_FLAGS --server https://localhost:6443"
 fi
 
-print_step "Bootstrapping k3rs cluster..."
+print_step "Bootstrapping kubernetes-rs cluster..."
 echo "Using kubectl: $KUBECTL"
 echo "Kubectl flags: $KUBECTL_FLAGS"
 echo ""
@@ -428,11 +428,11 @@ echo ""
 # The kube-scheduler and kube-controller-manager static pods
 # (manifests/control-plane/*.yaml) hostPath-mount the certs dir. Because the
 # kubelet runs inside a compose container, that hostPath must be the
-# HOST-absolute path of .k3rs/certs (Docker resolves pod hostPaths on the
+# HOST-absolute path of .kubernetes-rs/certs (Docker resolves pod hostPaths on the
 # host AND the kubelet stat()s it inside its own container — so it has to exist
 # at the same path on both sides; compose mounts CERTS_PATH:CERTS_PATH on the
 # node-1 kubelet). We rewrite the committed @CERTS_PATH@ placeholder into the
-# templated copies under .k3rs/manifests, which is what the node-1
+# templated copies under .kubernetes-rs/manifests, which is what the node-1
 # kubelet's --pod-manifest-path actually mounts. The loop below globs every
 # manifest, so new control-plane pods are picked up automatically.
 #
@@ -444,12 +444,12 @@ echo ""
 # (x509 authn, #1129). The controller-manager equivalent
 # (system:kube-controller-manager) is still TODO. See scripts/generate-certs.sh
 # for the full authn notes.
-CERTS_PATH="$PROJECT_ROOT/.k3rs/certs"
+CERTS_PATH="$PROJECT_ROOT/.kubernetes-rs/certs"
 export CERTS_PATH
 if [ -d "$PROJECT_ROOT/manifests/control-plane" ]; then
     import_sandbox_image
     print_step "Templating control-plane static pod manifests (CERTS_PATH=$CERTS_PATH)..."
-    mkdir -p "$PROJECT_ROOT/.k3rs/manifests"
+    mkdir -p "$PROJECT_ROOT/.kubernetes-rs/manifests"
     # Node IPAM follows the stack's declared pod subnet (see
     # node_ipam_cluster_cidr above, ported from kubeadm). When there is one,
     # expand the @NODE_IPAM_ARGS@ placeholder in the controller-manager manifest
@@ -467,13 +467,13 @@ if [ -d "$PROJECT_ROOT/manifests/control-plane" ]; then
     fi
     for src in "$PROJECT_ROOT/manifests/control-plane/"*.yaml; do
         [ -e "$src" ] || continue
-        dst="$PROJECT_ROOT/.k3rs/manifests/$(basename "$src")"
+        dst="$PROJECT_ROOT/.kubernetes-rs/manifests/$(basename "$src")"
         # Build the manifest outside the kubelet's watched manifest dir and
         # move it into place only after the image is imported: the kubelet
         # starts the static pod the moment the file appears, and a pull of a
         # not-yet-imported local image fails into an image back-off longer
         # than the bring-up wait.
-        staged="$PROJECT_ROOT/.k3rs/.staged-$(basename "$src")"
+        staged="$PROJECT_ROOT/.kubernetes-rs/.staged-$(basename "$src")"
         # Derive the component (and thus the image) from the manifest name:
         # kube-scheduler.yaml -> scheduler, kube-controller-manager.yaml ->
         # controller-manager. resolve_cluster_image picks GHCR vs local :latest.
@@ -519,24 +519,24 @@ fi
 sleep 1
 
 # Step 2: Apply ServiceAccounts and Secrets
-if [ -f "$PROJECT_ROOT/.k3rs/default-serviceaccounts.yaml" ]; then
+if [ -f "$PROJECT_ROOT/.kubernetes-rs/default-serviceaccounts.yaml" ]; then
     print_step "Applying ServiceAccounts and Secrets..."
-    $KUBECTL $KUBECTL_FLAGS apply -f "$PROJECT_ROOT/.k3rs/default-serviceaccounts.yaml"
+    $KUBECTL $KUBECTL_FLAGS apply -f "$PROJECT_ROOT/.kubernetes-rs/default-serviceaccounts.yaml"
     print_success "ServiceAccounts and Secrets created"
 else
-    print_warning "ServiceAccount YAML not found at .k3rs/default-serviceaccounts.yaml"
+    print_warning "ServiceAccount YAML not found at .kubernetes-rs/default-serviceaccounts.yaml"
     print_warning "Continuing with bootstrap, but pods may not have valid tokens"
 fi
 
 # Step 3: Drop the retired self-written cluster DNS. Earlier bootstraps ran a
-# `k3rs-dns` Deployment behind the kube-dns Service; the multi-container stacks
+# `kubernetes-rs-dns` Deployment behind the kube-dns Service; the multi-container stacks
 # now run upstream CoreDNS exactly as k3s ships it (Step 5), so a leftover
-# k3rs-dns pod would sit behind the same k8s-app=kube-dns selector and answer
-# for it. Absent on a fresh cluster, hence the swallowed failure (the k3rs
+# kubernetes-rs-dns pod would sit behind the same k8s-app=kube-dns selector and answer
+# for it. Absent on a fresh cluster, hence the swallowed failure (the kubernetes-rs
 # kubectl built in this workspace rejects --ignore-not-found).
-print_step "Removing any retired k3rs-dns Deployment (if present)..."
-$KUBECTL $KUBECTL_FLAGS delete deployment k3rs-dns -n kube-system 2>/dev/null \
-    && echo "  Deleted k3rs-dns Deployment" || echo "  No k3rs-dns Deployment to delete"
+print_step "Removing any retired kubernetes-rs-dns Deployment (if present)..."
+$KUBECTL $KUBECTL_FLAGS delete deployment kubernetes-rs-dns -n kube-system 2>/dev/null \
+    && echo "  Deleted kubernetes-rs-dns Deployment" || echo "  No kubernetes-rs-dns Deployment to delete"
 
 # Step 4: Apply bootstrap cluster resources
 # bootstrap-cluster.yaml carries namespaces, the kubernetes + kube-dns
@@ -549,12 +549,12 @@ print_step "Applying bootstrap resources (namespaces, services, priority classes
 if [ -f "$PROJECT_ROOT/bootstrap-cluster.yaml" ]; then
     # Fail fast if discovery did not give us a gateway — the cluster won't
     # be able to reach the API server without it after #787.
-    if [ -z "${K3RS_BRIDGE_GATEWAY:-}" ]; then
-        print_error "Bridge gateway discovery failed. Set K3RS_BRIDGE_GATEWAY or fix discover-bridge-gateway.sh"
+    if [ -z "${KUBERNETES_RS_BRIDGE_GATEWAY:-}" ]; then
+        print_error "Bridge gateway discovery failed. Set KUBERNETES_RS_BRIDGE_GATEWAY or fix discover-bridge-gateway.sh"
         exit 1
     fi
     $KUBECTL $KUBECTL_FLAGS apply -f "$PROJECT_ROOT/bootstrap-cluster.yaml"
-    print_success "Bootstrap resources created (gateway: $K3RS_BRIDGE_GATEWAY)"
+    print_success "Bootstrap resources created (gateway: $KUBERNETES_RS_BRIDGE_GATEWAY)"
 else
     print_error "bootstrap-cluster.yaml not found"
     exit 1
@@ -566,25 +566,25 @@ fi
 #
 # Only applies to the all-in-one stack — the multi-container stack
 # (compose.yml) doesn't substitute DOCKER_GATEWAY anywhere and the
-# `k3rs` container doesn't exist there, so attempting the restart
+# `kubernetes-rs` container doesn't exist there, so attempting the restart
 # would either no-op or, worse, race with a fresh `up -d` and bind-clash
-# on the 6443 host port. Gate the restart on the all-in-one `k3rs`
+# on the 6443 host port. Gate the restart on the all-in-one `kubernetes-rs`
 # container actually being up.
 if grep -q '\${DOCKER_GATEWAY}' "$PROJECT_ROOT/compose.all-in-one.yml" 2>/dev/null \
-    && "$CONTAINER_RT" ps --filter "name=^k3rs$" --format '{{.Names}}' 2>/dev/null \
-        | grep -qx 'k3rs'; then
+    && "$CONTAINER_RT" ps --filter "name=^kubernetes-rs$" --format '{{.Names}}' 2>/dev/null \
+        | grep -qx 'kubernetes-rs'; then
     print_step "Restarting cluster with discovered gateway..."
-    echo "DOCKER_GATEWAY=${K3RS_BRIDGE_GATEWAY}" > "$PROJECT_ROOT/.env"
+    echo "DOCKER_GATEWAY=${KUBERNETES_RS_BRIDGE_GATEWAY}" > "$PROJECT_ROOT/.env"
     echo "KUBELET_VOLUMES_PATH=${KUBELET_VOLUMES_PATH}" >> "$PROJECT_ROOT/.env"
     "$CONTAINER_RT" compose -f "$PROJECT_ROOT/compose.all-in-one.yml" up -d
-    print_success "Cluster restarted with gateway $K3RS_BRIDGE_GATEWAY"
+    print_success "Cluster restarted with gateway $KUBERNETES_RS_BRIDGE_GATEWAY"
     echo "  .env file written: $PROJECT_ROOT/.env"
 fi
 
 # Step 5: Wire the kube-dns Service to its backend.
 #
 # The backend depends on the stack:
-#   - All-in-one stack (`k3rs` container on the bridge): the DNS
+#   - All-in-one stack (`kubernetes-rs` container on the bridge): the DNS
 #     server is an in-process task inside that container, so the script
 #     creates a hand-written EndpointSlice pointing `kube-dns` at the
 #     container's bridge IP (kube-proxy then DNATs 10.96.0.10:53 to it).
@@ -609,17 +609,17 @@ if [ "${SKIP_DNS_WIRING:-0}" = "1" ]; then
 else
     # The kube-dns Service stays (created in Step 4) so the ClusterIP is stable.
 
-    # All-in-one stack detection: the `k3rs` container runs the DNS
+    # All-in-one stack detection: the `kubernetes-rs` container runs the DNS
     # server as an in-process task binding 0.0.0.0:53 — there is no dns pod
     # image on that stack, so kube-dns is wired manually to the container IP.
-    # The compose files pin the network name to `k3rs-network`.
-    DNS_NETWORK="k3rs-network"
+    # The compose files pin the network name to `kubernetes-rs-network`.
+    DNS_NETWORK="kubernetes-rs-network"
     # The all-in-one container joins the bundled containerd container's network
     # namespace (network_mode: service:containerd), so it has no network
     # settings of its own: its address is the containerd container's.
     AIO_DNS_IP=""
-    if $CONTAINER_RT inspect k3rs >/dev/null 2>&1; then
-        for aio_net_container in k3rs k3rs-containerd; do
+    if $CONTAINER_RT inspect kubernetes-rs >/dev/null 2>&1; then
+        for aio_net_container in kubernetes-rs kubernetes-rs-containerd; do
             AIO_DNS_IP=$($CONTAINER_RT inspect "$aio_net_container" \
                 --format "{{(index .NetworkSettings.Networks \"$DNS_NETWORK\").IPAddress}}" \
                 2>/dev/null || true)
@@ -631,8 +631,8 @@ else
     fi
 
     if [ -n "$AIO_DNS_IP" ] && [ "$AIO_DNS_IP" != "<no value>" ]; then
-        print_step "Wiring kube-dns Service to the all-in-one k3rs container..."
-        echo "  Found k3rs at $AIO_DNS_IP"
+        print_step "Wiring kube-dns Service to the all-in-one kubernetes-rs container..."
+        echo "  Found kubernetes-rs at $AIO_DNS_IP"
 
         # Wire up the EndpointSlice that backs the kube-dns Service.
         # Without this kube-proxy has nothing to DNAT 10.96.0.10:53 to.
@@ -645,7 +645,7 @@ else
 apiVersion: discovery.k8s.io/v1
 kind: EndpointSlice
 metadata:
-  name: kube-dns-k3rs
+  name: kube-dns-kubernetes-rs
   namespace: kube-system
   labels:
     kubernetes.io/service-name: kube-dns
@@ -666,7 +666,7 @@ endpoints:
       serving: true
       terminating: false
 EOF
-        print_success "k3rs wired up at $AIO_DNS_IP for kube-dns Service"
+        print_success "kubernetes-rs wired up at $AIO_DNS_IP for kube-dns Service"
     else
         # Multi-container stack: upstream CoreDNS runs as the kube-system
         # `coredns` Deployment, reading cluster state from the api-server.
@@ -682,8 +682,8 @@ EOF
         # A previous bootstrap may have wired kube-dns manually to a (now
         # stale) compose-container IP — drop that slice; the endpoints
         # controller owns the Service's endpoints from here on.
-        $KUBECTL $KUBECTL_FLAGS delete endpointslice kube-dns-k3rs -n kube-system 2>/dev/null \
-            && echo "  Deleted stale kube-dns-k3rs EndpointSlice" || true
+        $KUBECTL $KUBECTL_FLAGS delete endpointslice kube-dns-kubernetes-rs -n kube-system 2>/dev/null \
+            && echo "  Deleted stale kube-dns-kubernetes-rs EndpointSlice" || true
 
         # The addon pods run inside containerd too (same store problem as the
         # static pods): side-load every upstream addon image under the exact
@@ -728,7 +728,7 @@ EOF
         # manifests/local-storage.yaml): the `local-path` default StorageClass
         # (rancher.io/local-path, WaitForFirstConsumer, Delete) + RBAC +
         # config. Replaces the old api-server-seeded `standard` class served
-        # by the in-tree k3rs.io/hostpath provisioner.
+        # by the in-tree kubernetes-rs.io/hostpath provisioner.
         print_step "Applying local-path-provisioner (deploy/addons/local-storage.yaml, from k3s manifests/local-storage.yaml)..."
         local_storage_manifest="$PROJECT_ROOT/deploy/addons/local-storage.yaml"
         if [ ! -f "$local_storage_manifest" ]; then
@@ -782,7 +782,7 @@ EOF
         # (deploy/addons/traefik.yaml, k3s manifests/traefik.yaml) reconciled by
         # the upstream helm-controller, whose klipper-helm job installs the
         # traefik-crd and traefik charts the api-server serves at
-        # /static/charts/ (K3RS_STATIC_DIR). The helm.cattle.io CRDs k3s
+        # /static/charts/ (KUBERNETES_RS_STATIC_DIR). The helm.cattle.io CRDs k3s
         # registers in-process (pkg/server/context.go registerCRDs) are applied
         # from deploy/addons/helm-controller/.
         print_step "Applying the helm.cattle.io CRDs and helm-controller (deploy/addons/helm-controller/)..."

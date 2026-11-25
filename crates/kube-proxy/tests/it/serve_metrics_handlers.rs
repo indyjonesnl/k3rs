@@ -1,6 +1,6 @@
 //! Upstream handler regressions for cmd/kube-proxy/app/server.go:465-481.
 use axum::{body::Body, http::Request, Router};
-use k3rs_kube_proxy::serve_metrics::metrics_router;
+use kubernetes_rs_kube_proxy::serve_metrics::metrics_router;
 use tower::ServiceExt;
 
 async fn request(app: Router, method: &str, path: &str) -> (u16, axum::http::HeaderMap, String) {
@@ -58,7 +58,7 @@ async fn configz_serves_registered_configs_as_json() {
 #[tokio::test]
 #[serial_test::serial]
 async fn legacy_metrics_and_separate_sli_registry() {
-    k3rs_common::compat_version_metrics::record_compat_version_info(
+    kubernetes_rs_common::compat_version_metrics::record_compat_version_info(
         "serve-metrics-regression",
         "1.35",
         "1.35",

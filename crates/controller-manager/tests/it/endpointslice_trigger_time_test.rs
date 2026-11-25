@@ -10,9 +10,9 @@
 
 use super::endpoints_controller_test::{create_test_pod, create_test_service};
 use chrono::TimeZone;
-use k3rs_common::resources::{EndpointSlice, Pod};
-use k3rs_controller_manager::controllers::endpointslice::EndpointSliceController;
-use k3rs_storage::{build_key, build_prefix, MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{EndpointSlice, Pod};
+use kubernetes_rs_controller_manager::controllers::endpointslice::EndpointSliceController;
+use kubernetes_rs_storage::{build_key, build_prefix, MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -1,6 +1,6 @@
-use k3rs_common::resources::Node;
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, etcd::EtcdStorage, Storage};
+use kubernetes_rs_common::resources::Node;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, etcd::EtcdStorage, Storage};
 use std::collections::HashMap;
 
 /// Create a test node in etcd
@@ -20,13 +20,13 @@ pub async fn create_test_node(storage: &EtcdStorage, name: &str) -> Node {
             });
             meta
         },
-        spec: k3rs_common::resources::node::NodeSpec {
+        spec: kubernetes_rs_common::resources::node::NodeSpec {
             pod_cidr: Some("10.244.0.0/24".to_string()),
             taints: None,
             unschedulable: None,
         },
-        status: Some(k3rs_common::resources::node::NodeStatus {
-            conditions: vec![k3rs_common::resources::node::NodeCondition {
+        status: Some(kubernetes_rs_common::resources::node::NodeStatus {
+            conditions: vec![kubernetes_rs_common::resources::node::NodeCondition {
                 condition_type: "Ready".to_string(),
                 status: "True".to_string(),
                 last_heartbeat_time: Some(chrono::Utc::now().to_rfc3339()),

@@ -84,7 +84,7 @@
 //! and drive it through `tower::ServiceExt::oneshot`. This is the same
 //! handler stack the production api-server uses for kubectl traffic.
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 // ---------------------------------------------------------------------------

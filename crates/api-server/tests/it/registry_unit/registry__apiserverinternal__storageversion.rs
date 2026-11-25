@@ -2,26 +2,28 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         reset_object_meta_for_status, GroupResource, NamespaceScopedStrategy, RequestContext,
         RestCreateStrategy, RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_api_server::ssa::ResetFields;
-    pub use k3rs_common::resources::storageversion::{StorageVersion, StorageVersionStatus};
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_common::validation::storageversion::{
+    pub use kubernetes_rs_api_server::ssa::ResetFields;
+    pub use kubernetes_rs_common::resources::storageversion::{
+        StorageVersion, StorageVersionStatus,
+    };
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_common::validation::storageversion::{
         validate_storage_version, validate_storage_version_status_update,
         validate_storage_version_update,
     };
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::apiserverinternal::storageversion::*;
-    use k3rs_common::resources::storageversion::ServerStorageVersion;
+    use kubernetes_rs_api_server::registry::apiserverinternal::storageversion::*;
+    use kubernetes_rs_common::resources::storageversion::ServerStorageVersion;
 
     fn paths(rf: &ResetFields) -> Vec<Vec<String>> {
         let mut v = rf.for_version(API_VERSION).to_vec();

@@ -3,12 +3,12 @@
 
 mod __parent {
     pub use anyhow::{Context, Result};
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::resources::{
         service::{LoadBalancerIngress, LoadBalancerStatus, ServiceStatus},
         Event, EventType, Node, ObjectReference, Service, ServiceType,
     };
-    pub use k3rs_storage::event_recorder::process_event_ttl;
-    pub use k3rs_storage::{extract_key, Storage, WorkQueue};
+    pub use kubernetes_rs_storage::event_recorder::process_event_ttl;
+    pub use kubernetes_rs_storage::{extract_key, Storage, WorkQueue};
     pub use std::collections::HashSet;
     pub use std::sync::Arc;
     pub use std::time::Duration;
@@ -18,8 +18,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_controller_manager::controllers::loadbalancer::*;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_controller_manager::controllers::loadbalancer::*;
+    use kubernetes_rs_storage::memory::MemoryStorage;
 
     #[test]
     fn test_controller_creation() {

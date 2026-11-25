@@ -1,6 +1,6 @@
-# k3rs Scripts
+# kubernetes-rs Scripts
 
-This directory contains scripts for development setup, production deployment, and testing of k3rs.
+This directory contains scripts for development setup, production deployment, and testing of kubernetes-rs.
 
 ## Script Categories
 
@@ -22,7 +22,7 @@ Automated development environment setup for macOS with Docker Desktop.
 - Installs Homebrew (if needed)
 - Installs Rust toolchain
 - Installs Docker Desktop
-- Builds k3rs binaries and images
+- Builds kubernetes-rs binaries and images
 - Creates helper scripts
 - Production-ready workflow
 
@@ -67,7 +67,7 @@ sudo ./scripts/installers/fedora-install.sh [--docker] [--ha]
 ```
 
 **Features:**
-- Installs to `/opt/k3rs`
+- Installs to `/opt/kubernetes-rs`
 - Creates systemd service
 - Production-ready configuration
 

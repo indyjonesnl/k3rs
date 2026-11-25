@@ -4,13 +4,13 @@
 
 use std::sync::Arc;
 
-use k3rs_common::quantity::Quantity;
-use k3rs_common::resources::{ResourceQuota, ResourceQuotaStatus};
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::resourcequota::{
+use kubernetes_rs_common::quantity::Quantity;
+use kubernetes_rs_common::resources::{ResourceQuota, ResourceQuotaStatus};
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::resourcequota::{
     validate_resource_quota, validate_resource_quota_status_update, validate_resource_quota_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

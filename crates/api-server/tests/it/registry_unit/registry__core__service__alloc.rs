@@ -2,28 +2,30 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::core::service::ipallocator::cidr::MetaAllocator;
-    pub use k3rs_api_server::registry::core::service::ipallocator::IpError;
-    pub use k3rs_api_server::registry::core::service::portallocator::operation::PortAllocationOperation;
-    pub use k3rs_api_server::registry::core::service::portallocator::{PortAllocator, PortError};
-    pub use k3rs_api_server::registry::rest::internal_error;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_api_server::registry::core::service::ipallocator::cidr::MetaAllocator;
+    pub use kubernetes_rs_api_server::registry::core::service::ipallocator::IpError;
+    pub use kubernetes_rs_api_server::registry::core::service::portallocator::operation::PortAllocationOperation;
+    pub use kubernetes_rs_api_server::registry::core::service::portallocator::{
+        PortAllocator, PortError,
+    };
+    pub use kubernetes_rs_api_server::registry::rest::internal_error;
+    pub use kubernetes_rs_common::resources::{
         IPFamily, IPFamilyPolicy, Service, ServiceExternalTrafficPolicy, ServiceType,
     };
-    pub use k3rs_common::validation::field;
-    pub use k3rs_common::validation::service::{
+    pub use kubernetes_rs_common::validation::field;
+    pub use kubernetes_rs_common::validation::service::{
         parse_ip_sloppy, validate_service_cluster_ips_related_fields,
     };
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_storage::Storage;
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_storage::Storage;
     pub use std::net::IpAddr;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::core::service::alloc::*;
-    use k3rs_api_server::registry::core::service::portallocator::PortRange;
+    use kubernetes_rs_api_server::registry::core::service::alloc::*;
+    use kubernetes_rs_api_server::registry::core::service::portallocator::PortRange;
     use serde_json::json;
 
     fn pa() -> Arc<PortAllocator> {
@@ -346,8 +348,8 @@ mod tests {
     /// therefore leaves the IPv4 address allocated.
     #[tokio::test]
     async fn failed_cluster_ip_alloc_leaves_partial_allocation_to_repair() {
-        use k3rs_common::resources::ServiceCIDR;
-        use k3rs_storage::{build_key, MemoryStorage};
+        use kubernetes_rs_common::resources::ServiceCIDR;
+        use kubernetes_rs_storage::{build_key, MemoryStorage};
 
         let storage = Arc::new(MemoryStorage::new());
         // Only the IPv4 family has a ServiceCIDR, so the IPv6 allocation

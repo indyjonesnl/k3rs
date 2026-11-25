@@ -3,7 +3,7 @@
 
 mod __parent {
     pub use anyhow::{Context, Result};
-    pub use k3rs_common::label_selector::{LabelOperator, LabelSelector};
+    pub use kubernetes_rs_common::label_selector::{LabelOperator, LabelSelector};
     pub use prometheus_http_query::Client;
     pub use std::collections::HashMap;
     pub use std::sync::Arc;
@@ -14,7 +14,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::prometheus_client::*;
+    use kubernetes_rs_api_server::prometheus_client::*;
 
     #[test]
     fn test_extract_resource_name_label() {

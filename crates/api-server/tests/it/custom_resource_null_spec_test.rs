@@ -7,7 +7,7 @@
 //! and a non-nullable null with a default is replaced by the default.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const CRDS: &str = "/apis/apiextensions.k8s.io/v1/customresourcedefinitions";

@@ -3,23 +3,25 @@
 
 mod __parent {
     pub use anyhow::{anyhow, Error};
-    pub use k3rs_common::quantity::{Format, Quantity};
-    pub use k3rs_common::resources::volume::{
+    pub use kubernetes_rs_common::quantity::{Format, Quantity};
+    pub use kubernetes_rs_common::resources::volume::{
         PersistentVolume, PersistentVolumeAccessMode, PersistentVolumeClaim,
     };
-    pub use k3rs_common::resources::{EventSource, EventType, ObjectReference};
-    pub use k3rs_kubelet::events::{FILE_SYSTEM_RESIZE_SUCCESS, KUBELET_COMPONENT};
-    pub use k3rs_kubelet::volume_manager::cache::actual_state_of_world::ActualStateOfWorld;
-    pub use k3rs_kubelet::volume_plugins::plugin::{NodeExpandableVolumePlugin, NodeResizeOptions};
-    pub use k3rs_kubelet::volume_plugins::util::operation_executor::VolumeToMount;
-    pub use k3rs_kubelet::volume_plugins::util::resize_util::{
+    pub use kubernetes_rs_common::resources::{EventSource, EventType, ObjectReference};
+    pub use kubernetes_rs_kubelet::events::{FILE_SYSTEM_RESIZE_SUCCESS, KUBELET_COMPONENT};
+    pub use kubernetes_rs_kubelet::volume_manager::cache::actual_state_of_world::ActualStateOfWorld;
+    pub use kubernetes_rs_kubelet::volume_plugins::plugin::{
+        NodeExpandableVolumePlugin, NodeResizeOptions,
+    };
+    pub use kubernetes_rs_kubelet::volume_plugins::util::operation_executor::VolumeToMount;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::resize_util::{
         self, CLAIM_NODE_RESIZE_IN_PROGRESS, CLAIM_NODE_RESIZE_PENDING, RESOURCE_STORAGE,
     };
-    pub use k3rs_kubelet::volume_plugins::util::types::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::types::{
         is_failed_precondition_error, is_infeasible_error, is_operation_finished_error,
         is_operation_not_supported_error, NODE_EXPANSION_NOT_REQUIRED,
     };
-    pub use k3rs_storage::{EventRecorder, Storage};
+    pub use kubernetes_rs_storage::{EventRecorder, Storage};
     pub use tracing::{debug, error, info};
 }
 
@@ -31,15 +33,15 @@ pub(crate) mod tests {
     //! error to return directly.
     use super::__parent::*;
     use async_trait::async_trait;
-    use k3rs_common::resources::{Pod, Volume};
-    use k3rs_kubelet::volume_manager::cache::actual_state_of_world::ActualStateOfWorld;
-    use k3rs_kubelet::volume_plugins::plugin::{Mounter, OwnedSpec, Spec, VolumePlugin};
-    use k3rs_kubelet::volume_plugins::registry::VolumePluginMgr;
-    use k3rs_kubelet::volume_plugins::util::node_expander::*;
-    use k3rs_kubelet::volume_plugins::util::types::{
+    use kubernetes_rs_common::resources::{Pod, Volume};
+    use kubernetes_rs_kubelet::volume_manager::cache::actual_state_of_world::ActualStateOfWorld;
+    use kubernetes_rs_kubelet::volume_plugins::plugin::{Mounter, OwnedSpec, Spec, VolumePlugin};
+    use kubernetes_rs_kubelet::volume_plugins::registry::VolumePluginMgr;
+    use kubernetes_rs_kubelet::volume_plugins::util::node_expander::*;
+    use kubernetes_rs_kubelet::volume_plugins::util::types::{
         UniquePodName, UniqueVolumeName, VolumeOperationError,
     };
-    use k3rs_storage::StorageBackend;
+    use kubernetes_rs_storage::StorageBackend;
     use serde_json::json;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
@@ -101,14 +103,16 @@ pub(crate) mod tests {
             &self,
             _n: &str,
             _u: &str,
-        ) -> anyhow::Result<Box<dyn k3rs_kubelet::volume_plugins::plugin::Unmounter>> {
+        ) -> anyhow::Result<Box<dyn kubernetes_rs_kubelet::volume_plugins::plugin::Unmounter>>
+        {
             Err(anyhow!("not used"))
         }
         fn construct_volume_spec(
             &self,
             _n: &str,
             _p: &str,
-        ) -> anyhow::Result<k3rs_kubelet::volume_plugins::plugin::ReconstructedVolume> {
+        ) -> anyhow::Result<kubernetes_rs_kubelet::volume_plugins::plugin::ReconstructedVolume>
+        {
             Err(anyhow!("not used"))
         }
     }
@@ -116,8 +120,10 @@ pub(crate) mod tests {
     /// `FakeVolume`'s mounter: only `GetPath` is read by node expansion.
     struct FakeMounter;
 
-    impl k3rs_kubelet::volume_plugins::plugin::MetricsProvider for FakeMounter {
-        fn get_metrics(&self) -> anyhow::Result<k3rs_kubelet::volume_plugins::plugin::Metrics> {
+    impl kubernetes_rs_kubelet::volume_plugins::plugin::MetricsProvider for FakeMounter {
+        fn get_metrics(
+            &self,
+        ) -> anyhow::Result<kubernetes_rs_kubelet::volume_plugins::plugin::Metrics> {
             Ok(Default::default())
         }
     }
@@ -130,11 +136,11 @@ pub(crate) mod tests {
         async fn set_up_at(
             &self,
             _dir: &str,
-            _args: &k3rs_kubelet::volume_plugins::MounterArgs,
+            _args: &kubernetes_rs_kubelet::volume_plugins::MounterArgs,
         ) -> anyhow::Result<()> {
             Ok(())
         }
-        fn get_attributes(&self) -> k3rs_kubelet::volume_plugins::plugin::Attributes {
+        fn get_attributes(&self) -> kubernetes_rs_kubelet::volume_plugins::plugin::Attributes {
             Default::default()
         }
     }
@@ -380,7 +386,8 @@ pub(crate) mod tests {
         for case in cases {
             let storage = StorageBackend::new_memory();
             let recorder = EventRecorder::new(Arc::new(StorageBackend::new_memory()));
-            let key = k3rs_storage::build_key("persistentvolumeclaims", Some("ns"), "test-vol0");
+            let key =
+                kubernetes_rs_storage::build_key("persistentvolumeclaims", Some("ns"), "test-vol0");
             let pvc = storage.create(&key, &case.pvc).await.unwrap();
             let pv = test_pv("2G");
             let vmt = test_vmt(&pv, "2G");

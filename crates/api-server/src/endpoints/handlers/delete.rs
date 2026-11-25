@@ -5,10 +5,10 @@ use std::collections::HashMap;
 
 use axum::http::StatusCode;
 use axum::response::Response;
-use k3rs_common::auth::UserInfo;
-use k3rs_common::deletion::DeleteOptions;
-use k3rs_common::validation::metav1::validate_delete_options;
-use k3rs_common::{Error, List, Result, Status};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::deletion::DeleteOptions;
+use kubernetes_rs_common::validation::metav1::validate_delete_options;
+use kubernetes_rs_common::{Error, List, Result, Status};
 
 use super::admission::{Admission, DeleteValidation};
 use super::rest::{dry_run_param, is_dry_run, respond, respond_object, RequestScope};
@@ -42,7 +42,7 @@ pub fn decode_delete_options(
                 .map_err(|e| bad_request(&e))?,
             orphan_dependents: params
                 .get("orphanDependents")
-                .map(|v| k3rs_common::query::k8s_query_bool(v)),
+                .map(|v| kubernetes_rs_common::query::k8s_query_bool(v)),
             dry_run: dry_run_param(params),
             ..zero_delete_options()
         }

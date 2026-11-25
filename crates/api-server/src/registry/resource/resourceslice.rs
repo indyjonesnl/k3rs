@@ -7,16 +7,16 @@
 
 use std::sync::Arc;
 
-use k3rs_common::feature_gates::{self, Feature};
-use k3rs_common::resources::ResourceSlice;
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{
+use kubernetes_rs_common::feature_gates::{self, Feature};
+use kubernetes_rs_common::resources::ResourceSlice;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{
     name_is_dns_subdomain, validate_object_meta, validate_object_meta_update,
 };
-use k3rs_common::validation::resourceslice::{
+use kubernetes_rs_common::validation::resourceslice::{
     validate_resource_slice, validate_resource_slice_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

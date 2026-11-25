@@ -10,13 +10,13 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::ClusterTrustBundle;
-use k3rs_common::validation::clustertrustbundle::{
+use kubernetes_rs_common::resources::ClusterTrustBundle;
+use kubernetes_rs_common::validation::clustertrustbundle::{
     validate_cluster_trust_bundle, validate_cluster_trust_bundle_update,
     ValidateClusterTrustBundleOptions,
 };
-use k3rs_common::validation::field::ErrorList;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

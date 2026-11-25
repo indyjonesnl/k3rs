@@ -14,9 +14,9 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::StreamExt;
-use k3rs_common::resources::{Event, PersistentVolume, Pod};
-use k3rs_common::types::Phase;
-use k3rs_storage::{build_key, Storage, WatchEvent};
+use kubernetes_rs_common::resources::{Event, PersistentVolume, Pod};
+use kubernetes_rs_common::types::Phase;
+use kubernetes_rs_storage::{build_key, Storage, WatchEvent};
 use std::sync::Arc;
 
 /// `PersistentVolumeRecyclerConfiguration`
@@ -265,7 +265,7 @@ pub fn new_persistent_volume_recycler_pod_template() -> Pod {
 
 /// `hostPathPlugin.Recycle` pod construction (`host_path.go:156-169`).
 pub fn host_path_recycler_pod(pv: &PersistentVolume, config: &VolumeConfig) -> Result<Pod, String> {
-    use k3rs_common::resources::pod::HostPathVolumeSource;
+    use kubernetes_rs_common::resources::pod::HostPathVolumeSource;
     let Some(hp) = pv.spec.host_path.as_ref() else {
         return Err("spec.PersistentVolume.Spec.HostPath is nil".to_string());
     };
@@ -516,7 +516,9 @@ impl<S: Storage + 'static> RecyclerClient for StorageRecyclerClient<S> {
         }
         match self.storage.create(&key, &pod).await {
             Ok(_) => Ok(()),
-            Err(k3rs_common::Error::AlreadyExists(_)) => Err(CreatePodError::AlreadyExists),
+            Err(kubernetes_rs_common::Error::AlreadyExists(_)) => {
+                Err(CreatePodError::AlreadyExists)
+            }
             Err(e) => Err(CreatePodError::Other(e.to_string())),
         }
     }
@@ -524,7 +526,7 @@ impl<S: Storage + 'static> RecyclerClient for StorageRecyclerClient<S> {
     async fn delete_pod(&self, name: &str, namespace: &str) -> Result<(), String> {
         let key = build_key("pods", Some(namespace), name);
         match self.storage.delete(&key).await {
-            Ok(()) | Err(k3rs_common::Error::NotFound(_)) => Ok(()),
+            Ok(()) | Err(kubernetes_rs_common::Error::NotFound(_)) => Ok(()),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -544,7 +546,10 @@ impl<S: Storage + 'static> RecyclerClient for StorageRecyclerClient<S> {
             .map_err(|e| e.to_string())?;
         let events = self
             .storage
-            .watch(&k3rs_storage::build_prefix("events", Some(namespace)))
+            .watch(&kubernetes_rs_storage::build_prefix(
+                "events",
+                Some(namespace),
+            ))
             .await
             .map_err(|e| e.to_string())?;
         let name = name.to_string();

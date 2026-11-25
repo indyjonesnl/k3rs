@@ -2,12 +2,12 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::admission::Operation;
+    pub use kubernetes_rs_common::admission::Operation;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::plugin_metrics::*;
+    use kubernetes_rs_api_server::admission::plugin_metrics::*;
 
     #[test]
     fn handlers_match_upstream_new_handler() {

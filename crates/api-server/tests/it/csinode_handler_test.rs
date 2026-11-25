@@ -3,9 +3,11 @@
 //! Tests all CRUD operations, edge cases, and error handling for csinodes.
 //! CSINode holds information about all CSI drivers installed on a node.
 
-use k3rs_common::resources::csi::{CSINode, CSINodeDriver, CSINodeSpec, VolumeNodeResources};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::csi::{
+    CSINode, CSINodeDriver, CSINodeSpec, VolumeNodeResources,
+};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

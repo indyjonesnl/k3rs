@@ -4,9 +4,9 @@
 mod __parent {
     pub use chrono::{DateTime, Utc};
     pub use futures::StreamExt;
-    pub use k3rs_api_server::registry::apiextensions::customresourcedefinition::ItemExponentialFailureRateLimiter;
-    pub use k3rs_common::resources::ConfigMap;
-    pub use k3rs_storage::{build_key, Storage, StorageBackend, WatchEvent};
+    pub use kubernetes_rs_api_server::registry::apiextensions::customresourcedefinition::ItemExponentialFailureRateLimiter;
+    pub use kubernetes_rs_common::resources::ConfigMap;
+    pub use kubernetes_rs_storage::{build_key, Storage, StorageBackend, WatchEvent};
     pub use std::sync::Arc;
     pub use std::time::Duration;
     pub use tracing::{info, warn};
@@ -17,7 +17,7 @@ mod __parent {
 mod tests {
     use super::__parent::*;
     use chrono::TimeZone;
-    use k3rs_api_server::legacy_token_tracking::*;
+    use kubernetes_rs_api_server::legacy_token_tracking::*;
 
     const THROTTLE: Duration = Duration::from_secs(30);
 
@@ -129,7 +129,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            k3rs_api_server::post_start_hooks::global().check(LEGACY_TOKEN_TRACKING_HOOK),
+            kubernetes_rs_api_server::post_start_hooks::global().check(LEGACY_TOKEN_TRACKING_HOOK),
             Some(Ok(()))
         );
         for _ in 0..200 {

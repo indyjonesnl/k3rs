@@ -3,14 +3,14 @@
 
 mod __parent {
     pub use chrono::Utc;
-    pub use k3rs_common::types::DeletionPropagation;
+    pub use kubernetes_rs_common::types::DeletionPropagation;
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::Value;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::deletion::*;
+    use kubernetes_rs_common::deletion::*;
     use serde_json::json;
 
     #[test]

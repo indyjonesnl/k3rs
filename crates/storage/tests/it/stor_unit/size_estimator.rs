@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_storage::ResourceStats;
+    pub use kubernetes_rs_storage::ResourceStats;
     pub use std::collections::{HashMap, HashSet};
     pub use std::sync::Mutex;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_storage::size_estimator::*;
+    use kubernetes_rs_storage::size_estimator::*;
 
     fn keys(ks: &[&str]) -> Vec<String> {
         ks.iter().map(|s| s.to_string()).collect()

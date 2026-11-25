@@ -14,7 +14,7 @@
 //! documents are folded into per-group-version resource lists; the mirror
 //! issues the same GETs and folds them the same way.
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 /// aggregated_discovery.go:49 `aggregatedAccept`.

@@ -14,9 +14,9 @@ use crate::authorization_config_metrics as metrics;
 use async_trait::async_trait;
 use futures::StreamExt;
 use inotify::{EventMask, Inotify, WatchMask};
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
-use k3rs_common::Result;
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
+use kubernetes_rs_common::Result;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -196,7 +196,7 @@ impl Authorizer for ReloadableAuthorizer {
     async fn authorize_outcome(
         &self,
         attrs: &RequestAttributes,
-    ) -> Result<k3rs_common::authz::AuthorizationOutcome> {
+    ) -> Result<kubernetes_rs_common::authz::AuthorizationOutcome> {
         self.current().authorize_outcome(attrs).await
     }
 
@@ -205,7 +205,7 @@ impl Authorizer for ReloadableAuthorizer {
         &self,
         user: &UserInfo,
         namespace: &str,
-    ) -> Result<k3rs_common::authz::UserRulesOutcome> {
+    ) -> Result<kubernetes_rs_common::authz::UserRulesOutcome> {
         self.current().get_user_rules_outcome(user, namespace).await
     }
 }

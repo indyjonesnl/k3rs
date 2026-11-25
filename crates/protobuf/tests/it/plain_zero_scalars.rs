@@ -7,7 +7,7 @@
 //! A plain (non-pointer) `omitempty` field decodes to the JSON form, i.e.
 //! absent; a pointer field (`*bool`) keeps an explicit `false`, which Go's
 //! marshaller only writes when the pointer is non-nil.
-use k3rs_protobuf::PROTO_REGISTRY;
+use kubernetes_rs_protobuf::PROTO_REGISTRY;
 use serde_json::Value;
 
 fn decode(msg: &str, data: &[u8]) -> Value {

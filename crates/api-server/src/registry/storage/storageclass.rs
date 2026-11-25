@@ -4,13 +4,13 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::volume::{PersistentVolumeReclaimPolicy, VolumeBindingMode};
-use k3rs_common::resources::StorageClass;
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::storageclass::{
+use kubernetes_rs_common::resources::volume::{PersistentVolumeReclaimPolicy, VolumeBindingMode};
+use kubernetes_rs_common::resources::StorageClass;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::storageclass::{
     get_warnings_for_storage_class, validate_storage_class, validate_storage_class_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

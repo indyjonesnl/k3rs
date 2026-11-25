@@ -2,27 +2,27 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::batch::job::warnings_for_job_spec;
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::batch::job::warnings_for_job_spec;
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GarbageCollectionPolicy, GroupResource, NamespaceScopedStrategy, RequestContext,
         RestCreateStrategy, RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_api_server::ssa::ResetFields;
-    pub use k3rs_common::equality::semantic_equal;
-    pub use k3rs_common::resources::{CronJob, CronJobStatus};
-    pub use k3rs_common::validation::cronjob::{
+    pub use kubernetes_rs_api_server::ssa::ResetFields;
+    pub use kubernetes_rs_common::equality::semantic_equal;
+    pub use kubernetes_rs_common::resources::{CronJob, CronJobStatus};
+    pub use kubernetes_rs_common::validation::cronjob::{
         validate_cron_job_create, validate_cron_job_update,
     };
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_common::validation::metav1::is_dns1123_label;
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_common::validation::metav1::is_dns1123_label;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::batch::cronjob::*;
+    use kubernetes_rs_api_server::registry::batch::cronjob::*;
 
     fn cron_job() -> CronJob {
         let mut cj: CronJob = serde_json::from_value(serde_json::json!({

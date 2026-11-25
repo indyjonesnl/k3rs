@@ -8,7 +8,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::self_signed::*;
+    use kubernetes_rs_common::self_signed::*;
     use x509_parser::prelude::*;
 
     fn certs(pem_bytes: &[u8]) -> Vec<Vec<u8>> {
@@ -119,7 +119,10 @@ mod tests {
         let blocks = ::pem::parse_many(&key).unwrap();
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].tag(), "RSA PRIVATE KEY");
-        assert_eq!(k3rs_common::tls::x509_key_pair(&cert, &key), Ok(()));
+        assert_eq!(
+            kubernetes_rs_common::tls::x509_key_pair(&cert, &key),
+            Ok(())
+        );
     }
 
     // cert.go:161-171, 254-263: a fixture directory caches the pair and the

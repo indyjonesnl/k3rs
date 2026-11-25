@@ -22,11 +22,11 @@ use super::{
     Routes, Zone, Zones,
 };
 use async_trait::async_trait;
-use k3rs_common::resources::service::{
+use kubernetes_rs_common::resources::service::{
     LoadBalancerIngress, LoadBalancerStatus, PortStatus, ServicePort,
 };
-use k3rs_common::resources::volume::PersistentVolume;
-use k3rs_common::resources::{Node, NodeAddress, Service};
+use kubernetes_rs_common::resources::volume::PersistentVolume;
+use kubernetes_rs_common::resources::{Node, NodeAddress, Service};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};

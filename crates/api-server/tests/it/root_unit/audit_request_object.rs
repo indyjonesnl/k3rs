@@ -3,10 +3,10 @@
 //! audit filter: level gating, ObjectRef completion, managedFields omission.
 
 use axum::{body::Body, routing::post, Router};
-use k3rs_api_server::audit::{
+use kubernetes_rs_api_server::audit::{
     log_request_object, log_request_patch, with_audit, AuditConfig, Policy,
 };
-use k3rs_common::audit::{AuditBackend, AuditEvent};
+use kubernetes_rs_common::audit::{AuditBackend, AuditEvent};
 use std::sync::Arc;
 use tower::ServiceExt;
 

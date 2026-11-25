@@ -3,13 +3,13 @@
 //! `volumeAttachLimitExceededError`), and the kubelet's side of it
 //! (`kubelet.go:2126-2131`).
 
-use k3rs_common::resources::Pod;
-use k3rs_kubelet::podcertificate::PodManager;
-use k3rs_kubelet::volume_manager::populator::PodStateProvider;
-use k3rs_kubelet::volume_manager::{VolumeAttachLimitExceededError, VolumeManager};
-use k3rs_kubelet::volume_plugins::csi::get_attachment_name;
-use k3rs_kubelet::volume_plugins::nodeinfomanager::NodeInfoInstaller;
-use k3rs_storage::{build_key, Storage, StorageBackend};
+use kubernetes_rs_common::resources::Pod;
+use kubernetes_rs_kubelet::podcertificate::PodManager;
+use kubernetes_rs_kubelet::volume_manager::populator::PodStateProvider;
+use kubernetes_rs_kubelet::volume_manager::{VolumeAttachLimitExceededError, VolumeManager};
+use kubernetes_rs_kubelet::volume_plugins::csi::get_attachment_name;
+use kubernetes_rs_kubelet::volume_plugins::nodeinfomanager::NodeInfoInstaller;
+use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -143,10 +143,10 @@ async fn started(attach_error_code: i32) -> (Arc<VolumeManager>, Pod, Arc<Instal
 
     let dir = tempfile::tempdir().unwrap();
     let mounter = Arc::new(
-        k3rs_kubelet::volumes::VolumeManager::new(
+        kubernetes_rs_kubelet::volumes::VolumeManager::new(
             dir.path().display().to_string(),
             Some(storage.clone()),
-            k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+            kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
         )
         .with_node_name(NODE),
     );
@@ -183,7 +183,7 @@ async fn exhausted_attachment_rejects_the_pod() {
         "Node has reached its volume attachment limit, rejecting pod. unmounted volumes=[\"data\"]"
     ));
     assert!(
-        !k3rs_kubelet::lifecycle::is_volume_wait_anyhow(&err),
+        !kubernetes_rs_kubelet::lifecycle::is_volume_wait_anyhow(&err),
         "a rejection, not a wait"
     );
 }
@@ -198,7 +198,7 @@ async fn other_attach_failure_is_a_volume_wait() {
         .await
         .unwrap_err();
     assert!(
-        k3rs_kubelet::lifecycle::is_volume_wait_anyhow(&err),
+        kubernetes_rs_kubelet::lifecycle::is_volume_wait_anyhow(&err),
         "{err:#}"
     );
     assert!(

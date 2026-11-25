@@ -2,33 +2,33 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::core::persistentvolumeclaim::get_warnings_for_persistent_volume_claim_spec;
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::core::persistentvolumeclaim::get_warnings_for_persistent_volume_claim_spec;
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GarbageCollectionPolicy, GroupResource, NamespaceScopedStrategy, RequestContext,
         RestCreateStrategy, RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_api_server::registry::scale::{Scalable, ScaleRest};
-    pub use k3rs_api_server::ssa::ResetFields;
-    pub use k3rs_common::equality::semantic_equal;
-    pub use k3rs_common::feature_gates::{self, Feature};
-    pub use k3rs_common::pod_warnings::get_warnings_for_pod_template;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_api_server::registry::scale::{Scalable, ScaleRest};
+    pub use kubernetes_rs_api_server::ssa::ResetFields;
+    pub use kubernetes_rs_common::equality::semantic_equal;
+    pub use kubernetes_rs_common::feature_gates::{self, Feature};
+    pub use kubernetes_rs_common::pod_warnings::get_warnings_for_pod_template;
+    pub use kubernetes_rs_common::resources::{
         Scale, ScaleSpec, ScaleStatus, StatefulSet, StatefulSetStatus,
     };
-    pub use k3rs_common::types::{ObjectMeta, TypeMeta};
-    pub use k3rs_common::validation::apps::{
+    pub use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+    pub use kubernetes_rs_common::validation::apps::{
         validate_statefulset, validate_statefulset_status_update, validate_statefulset_update,
     };
-    pub use k3rs_common::validation::field::{ErrorList, Path};
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::field::{ErrorList, Path};
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::apps::statefulset::*;
-    use k3rs_common::resources::policy::IntOrString;
+    use kubernetes_rs_api_server::registry::apps::statefulset::*;
+    use kubernetes_rs_common::resources::policy::IntOrString;
     use std::collections::HashMap;
 
     fn stateful_set() -> StatefulSet {

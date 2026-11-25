@@ -4,15 +4,17 @@
 
 use std::sync::Arc;
 
-use k3rs_common::equality::semantic_equal;
-use k3rs_common::resources::{ReplicaSet, ReplicaSetStatus, Scale, ScaleSpec, ScaleStatus};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_common::validation::apps::{
+use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::resources::{
+    ReplicaSet, ReplicaSetStatus, Scale, ScaleSpec, ScaleStatus,
+};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_common::validation::apps::{
     validate_replicaset, validate_replicaset_status_update, validate_replicaset_update,
 };
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::metav1::is_dns1123_label;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::metav1::is_dns1123_label;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{
@@ -43,7 +45,10 @@ impl RestCreateStrategy<ReplicaSet> for Strategy {
     fn prepare_for_create(&self, _ctx: &RequestContext, obj: &mut ReplicaSet) {
         obj.status = Some(ReplicaSetStatus::default());
         obj.metadata.generation = Some(1);
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(&mut obj.spec.template, None);
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
+            &mut obj.spec.template,
+            None,
+        );
     }
 
     fn validate(&self, _ctx: &RequestContext, obj: &ReplicaSet) -> ErrorList {
@@ -73,7 +78,7 @@ impl RestUpdateStrategy<ReplicaSet> for Strategy {
     /// generation. Unlike a Deployment, annotations do not.
     fn prepare_for_update(&self, _ctx: &RequestContext, obj: &mut ReplicaSet, old: &ReplicaSet) {
         obj.status = old.status.clone();
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
             &mut obj.spec.template,
             Some(&old.spec.template),
         );
@@ -214,8 +219,8 @@ fn drop_disabled_status_fields(
     status: &mut Option<ReplicaSetStatus>,
     old: &Option<ReplicaSetStatus>,
 ) {
-    if !k3rs_common::feature_gates::enabled(
-        k3rs_common::feature_gates::Feature::DeploymentReplicaSetTerminatingReplicas,
+    if !kubernetes_rs_common::feature_gates::enabled(
+        kubernetes_rs_common::feature_gates::Feature::DeploymentReplicaSetTerminatingReplicas,
     ) && old
         .as_ref()
         .is_none_or(|o| o.terminating_replicas.is_none())

@@ -6,17 +6,17 @@
 
 use std::sync::Arc;
 
-use k3rs_common::quantity::{Format, Quantity};
-use k3rs_common::resources::node::{NodeSpec, Taint};
-use k3rs_common::resources::volume::PersistentVolumeClaimPhase;
-use k3rs_common::resources::{
+use kubernetes_rs_common::quantity::{Format, Quantity};
+use kubernetes_rs_common::resources::node::{NodeSpec, Taint};
+use kubernetes_rs_common::resources::volume::PersistentVolumeClaimPhase;
+use kubernetes_rs_common::resources::{
     Ingress, IngressClass, Node, PersistentVolumeClaim, Pod, Service, StorageClass,
 };
-use k3rs_common::tolerations::TAINT_NODE_NOT_READY;
-use k3rs_common::types::{ObjectMeta, Status};
-use k3rs_common::validation::field;
-use k3rs_common::{Error, Result};
-use k3rs_storage::Storage;
+use kubernetes_rs_common::tolerations::TAINT_NODE_NOT_READY;
+use kubernetes_rs_common::types::{ObjectMeta, Status};
+use kubernetes_rs_common::validation::field;
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::Storage;
 
 /// `admission.NewForbidden(a, err)` (apiserver/pkg/admission/errors.go:53-63):
 /// `<resource> "<name>" is forbidden: <err>`.

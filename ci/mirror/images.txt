@@ -1,5 +1,5 @@
 # Single source of truth for the images mirrored from registry.k8s.io to
-# ghcr.io/indyjonesnl/rusternetes/mirror/<path> by .github/workflows/mirror-images.yml.
+# ghcr.io/indyjonesnl/kubernetes-rs/mirror/<path> by .github/workflows/mirror-images.yml.
 # One "<path>:<tag>" per line, <path> relative to registry.k8s.io, tag pinned.
 #
 # Conformance runs use these copies explicitly: scripts/conformance-target-run.sh

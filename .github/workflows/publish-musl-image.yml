@@ -47,7 +47,7 @@ env:
   # One line per build step instead of an in-place redraw; the redraw becomes
   # thousands of lines in a non-TTY job log.
   BUILDKIT_PROGRESS: plain
-  IMAGE: ghcr.io/indyjonesnl/rusternetes/all-in-one-musl
+  IMAGE: ghcr.io/indyjonesnl/kubernetes-rs/all-in-one-musl
   # Push-by-digest cannot emit a manifest list, and the per-arch merge attaches
   # nothing extra — same reasoning as publish-images.yml.
   BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
@@ -100,10 +100,10 @@ jobs:
           set -euo pipefail
           docker buildx build \
             -f all-in-one-musl.Dockerfile \
-            --build-arg "K3RS_GIT_SHA=${{ github.event.pull_request.head.sha }}" \
-            --load -t "k3rs-all-in-one:musl-${{ matrix.arch }}" \
+            --build-arg "KUBERNETES_RS_GIT_SHA=${{ github.event.pull_request.head.sha }}" \
+            --load -t "kubernetes-rs-all-in-one:musl-${{ matrix.arch }}" \
             .
-          size=$(docker image inspect "k3rs-all-in-one:musl-${{ matrix.arch }}" \
+          size=$(docker image inspect "kubernetes-rs-all-in-one:musl-${{ matrix.arch }}" \
                    --format '{{.Size}}')
           echo "uncompressed image size (${{ matrix.arch }}): $((size / 1024 / 1024)) MiB"
 
@@ -113,7 +113,7 @@ jobs:
           set -euo pipefail
           docker buildx build \
             -f all-in-one-musl.Dockerfile \
-            --build-arg "K3RS_GIT_SHA=${{ github.sha }}" \
+            --build-arg "KUBERNETES_RS_GIT_SHA=${{ github.sha }}" \
             --platform "linux/${{ matrix.arch }}" \
             --output "type=image,name=${IMAGE},push-by-digest=true,name-canonical=true,push=true" \
             --metadata-file /tmp/build-meta.json \

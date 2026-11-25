@@ -2,10 +2,10 @@
 //! `TestRotateLogs`, `TestClean`, `TestCleanupUnusedLog`, `TestRemoveExcessLog`,
 //! `TestCompressLog`, `TestRotateLatestLog`), plus tests that the
 //! `KubeletConfiguration` fields reach the manager (`kubelet.go:714-721`).
-use k3rs_cri::fake::FakeCri;
-use k3rs_cri::{v1, CriClient};
-use k3rs_kubelet::config::KubeletConfiguration;
-use k3rs_kubelet::container_log_manager::*;
+use kubernetes_rs_cri::fake::FakeCri;
+use kubernetes_rs_cri::{v1, CriClient};
+use kubernetes_rs_kubelet::config::KubeletConfiguration;
+use kubernetes_rs_kubelet::container_log_manager::*;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -504,9 +504,9 @@ async fn wait_for(mut f: impl FnMut() -> bool) {
 async fn kubelet_builder_carries_container_log_config() {
     let dir = tempfile::tempdir().unwrap();
     let mk = || async {
-        k3rs_kubelet::kubelet::Kubelet::new(
+        kubernetes_rs_kubelet::kubelet::Kubelet::new(
             "node-log".into(),
-            Arc::new(k3rs_storage::StorageBackend::new_memory()),
+            Arc::new(kubernetes_rs_storage::StorageBackend::new_memory()),
             10,
             dir.path().join("vols").display().to_string(),
             "10.96.0.10".into(),

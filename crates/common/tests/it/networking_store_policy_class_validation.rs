@@ -2,8 +2,8 @@
 //! pkg/apis/networking/validation/validation_test.go:71,401,1899,2030 and
 //! staging/src/k8s.io/apimachinery/pkg/util/validation/validation.go:96,321.
 
-use k3rs_common::resources::{ingressclass::IngressClass, networking::NetworkPolicy};
-use k3rs_common::validation::{
+use kubernetes_rs_common::resources::{ingressclass::IngressClass, networking::NetworkPolicy};
+use kubernetes_rs_common::validation::{
     ingressclass::{validate_ingress_class, validate_ingress_class_update},
     networkpolicy::{validate_network_policy, validate_network_policy_update},
 };

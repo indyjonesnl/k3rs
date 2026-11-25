@@ -4,12 +4,14 @@
 
 use std::sync::Arc;
 
-use k3rs_common::equality::semantic_equal;
-use k3rs_common::resources::{CronJob, CronJobStatus};
-use k3rs_common::validation::cronjob::{validate_cron_job_create, validate_cron_job_update};
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::metav1::is_dns1123_label;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::resources::{CronJob, CronJobStatus};
+use kubernetes_rs_common::validation::cronjob::{
+    validate_cron_job_create, validate_cron_job_update,
+};
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::metav1::is_dns1123_label;
+use kubernetes_rs_storage::StorageBackend;
 
 use super::job::warnings_for_job_spec;
 use crate::registry::generic::Store;
@@ -43,7 +45,7 @@ impl RestCreateStrategy<CronJob> for Strategy {
     fn prepare_for_create(&self, _ctx: &RequestContext, obj: &mut CronJob) {
         obj.status = Some(CronJobStatus::default());
         obj.metadata.generation = Some(1);
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
             &mut obj.spec.job_template.spec.template,
             None,
         );
@@ -80,7 +82,7 @@ impl RestUpdateStrategy<CronJob> for Strategy {
     /// change bumps the generation.
     fn prepare_for_update(&self, _ctx: &RequestContext, obj: &mut CronJob, old: &CronJob) {
         obj.status = old.status.clone();
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
             &mut obj.spec.job_template.spec.template,
             Some(&old.spec.job_template.spec.template),
         );

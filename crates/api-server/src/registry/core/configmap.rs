@@ -4,10 +4,12 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::ConfigMap;
-use k3rs_common::validation::configmap::{validate_config_map, validate_config_map_update};
-use k3rs_common::validation::field::ErrorList;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::resources::ConfigMap;
+use kubernetes_rs_common::validation::configmap::{
+    validate_config_map, validate_config_map_update,
+};
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

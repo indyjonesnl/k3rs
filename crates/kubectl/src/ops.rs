@@ -1,6 +1,6 @@
 use crate::discovery::ResourceMapping;
 use anyhow::{Context, Result};
-use k3rs_client::http::ApiClient;
+use kubernetes_rs_client::http::ApiClient;
 use serde_json::Value;
 
 /// Build the API path for a resource. When `name` is `None` the collection

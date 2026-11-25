@@ -15,7 +15,7 @@
 //!   success -> `Forget`; error -> `AddRateLimited`.
 //! * `reconcile`: skipped when `generation <= status.observedGeneration`;
 //!   otherwise type-checks the policy (`TypeChecker.Check`, ported in
-//!   `k3rs_discovery::vap_typechecking::check`) and applies
+//!   `kubernetes_rs_discovery::vap_typechecking::check`) and applies
 //!   `status.observedGeneration = generation` and
 //!   `status.typeChecking.expressionWarnings`.
 //!
@@ -33,13 +33,13 @@
 
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
-use k3rs_common::cel_versions::{self, EnvSet};
-use k3rs_common::resources::{
+use kubernetes_rs_common::cel_versions::{self, EnvSet};
+use kubernetes_rs_common::resources::{
     TypeChecking, ValidatingAdmissionPolicy, ValidatingAdmissionPolicyStatus,
 };
-use k3rs_controller_core::worker_pool::spawn_workers;
-use k3rs_discovery::vap_typechecking::check;
-use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
+use kubernetes_rs_controller_core::worker_pool::spawn_workers;
+use kubernetes_rs_discovery::vap_typechecking::check;
+use kubernetes_rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
@@ -98,7 +98,7 @@ impl<S: Storage + 'static> VapStatusController<S> {
                     event = watch.next() => match event {
                         Some(Ok(ev)) => {
                             // `AddFunc` / `UpdateFunc` only (controller.go:86-93).
-                            if !matches!(ev, k3rs_storage::WatchEvent::Deleted(..)) {
+                            if !matches!(ev, kubernetes_rs_storage::WatchEvent::Deleted(..)) {
                                 queue.add(extract_key(&ev)).await;
                             }
                         }
@@ -171,7 +171,7 @@ impl<S: Storage + 'static> VapStatusController<S> {
         let policy: ValidatingAdmissionPolicy =
             match self.storage.get(&build_key(PLURAL, None, name)).await {
                 Ok(p) => p,
-                Err(k3rs_common::Error::NotFound(_)) => return Ok(()),
+                Err(kubernetes_rs_common::Error::NotFound(_)) => return Ok(()),
                 Err(e) => return Err(anyhow!("failed to get policy {name:?}: {e}")),
             };
         self.reconcile(&policy).await

@@ -3,9 +3,9 @@
 //! Mirrors the core of upstream `ValidatePersistentVolume`
 //! (`pkg/apis/core/validation/validation.go`, release-1.35).
 
-use k3rs_common::resources::volume::PersistentVolume;
-use k3rs_common::validation::field::{Error, ErrorType};
-use k3rs_common::validation::persistentvolume::validate_persistent_volume;
+use kubernetes_rs_common::resources::volume::PersistentVolume;
+use kubernetes_rs_common::validation::field::{Error, ErrorType};
+use kubernetes_rs_common::validation::persistentvolume::validate_persistent_volume;
 use serde_json::json;
 
 fn pv(spec: serde_json::Value) -> PersistentVolume {

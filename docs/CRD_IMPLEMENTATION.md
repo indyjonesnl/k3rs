@@ -1,6 +1,6 @@
 # Custom Resource Definitions (CRDs)
 
-k3rs supports Custom Resource Definitions (CRDs), allowing you to extend the Kubernetes API with your own resource types. This includes full CRUD operations, watch, status/scale subresources, OpenAPI v3 schema validation, and defaulting/pruning.
+kubernetes-rs supports Custom Resource Definitions (CRDs), allowing you to extend the Kubernetes API with your own resource types. This includes full CRUD operations, watch, status/scale subresources, OpenAPI v3 schema validation, and defaulting/pruning.
 
 > **Tip:** CRDs and custom resources are fully browsable in the [web console](CONSOLE_USER_GUIDE.md) — the Resource Explorer auto-discovers them and lets you create, view, edit, and delete instances.
 
@@ -333,17 +333,17 @@ See `examples/crd-example.yaml` for complete examples including:
 
 **CRD Validation** (`crates/api-server/src/handlers/crd.rs`):
 ```bash
-cargo test --package k3rs-api-server --lib crd::tests
+cargo test --package kubernetes-rs-api-server --lib crd::tests
 ```
 
 **Schema Validation** (`crates/common/src/schema_validation.rs`):
 ```bash
-cargo test --package k3rs-common --lib schema_validation::tests
+cargo test --package kubernetes-rs-common --lib schema_validation::tests
 ```
 
 **Custom Resource Validation** (`crates/api-server/src/handlers/custom_resource.rs`):
 ```bash
-cargo test --package k3rs-api-server --lib custom_resource::tests
+cargo test --package kubernetes-rs-api-server --lib custom_resource::tests
 ```
 
 ### Integration Tests
@@ -473,7 +473,7 @@ crates/
 
 ## Comparison with Kubernetes
 
-| Feature | Kubernetes | k3rs |
+| Feature | Kubernetes | kubernetes-rs |
 |---------|-----------|-------------|
 | CRD Definition | ✅ | ✅ |
 | Multiple Versions | ✅ | ✅ |
@@ -529,7 +529,7 @@ If migrating from Kubernetes:
 
 ## Conclusion
 
-Custom Resource Definitions are fully functional in k3rs, including watch, status/scale subresources, schema validation with defaulting and pruning, RBAC integration, and Kubernetes-compatible API conventions.
+Custom Resource Definitions are fully functional in kubernetes-rs, including watch, status/scale subresources, schema validation with defaulting and pruning, RBAC integration, and Kubernetes-compatible API conventions.
 
 **Next Steps:**
 1. Conversion webhooks for multi-version CRDs

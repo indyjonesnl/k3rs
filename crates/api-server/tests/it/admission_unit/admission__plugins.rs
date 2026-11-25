@@ -7,7 +7,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::plugins::*;
+    use kubernetes_rs_api_server::admission::plugins::*;
 
     fn help_of(flag: &str) -> String {
         use clap::Args;

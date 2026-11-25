@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::feature_gates::{self, Version};
+    pub use kubernetes_rs_common::feature_gates::{self, Version};
     pub use std::collections::BTreeMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::compatibility::*;
-    use k3rs_common::feature_gates::{self, Feature};
+    use kubernetes_rs_common::compatibility::*;
+    use kubernetes_rs_common::feature_gates::{self, Feature};
     use serial_test::serial;
 
     fn v(major: u32, minor: u32) -> Version {
@@ -441,8 +441,10 @@ mod tests {
         assert!(!cmd.is_empty() && !cmd.contains('/'), "{ua}");
         assert!(rest.starts_with("v1.35.0 (linux/"), "{ua}");
         assert!(
-            rest.ends_with("/amd64) kubernetes/k3rs-v0")
-                || rest.ends_with("/arm64) kubernetes/k3rs-v0"),
+            // adjustCommit keeps the first 7 characters of the stamped commit
+            // ("kubernetes-rs-v0.1.0" -> "kuberne").
+            rest.ends_with("/amd64) kubernetes/kuberne")
+                || rest.ends_with("/arm64) kubernetes/kuberne"),
             "{ua}"
         );
     }

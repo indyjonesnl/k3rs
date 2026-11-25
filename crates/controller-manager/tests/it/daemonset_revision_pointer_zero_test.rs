@@ -7,11 +7,11 @@
 // SecurityContext.Privileged; staging/src/k8s.io/api/core/v1/types.go:2749,
 // 4826, 8197) are omitted only when nil: an explicit 0/false is kept.
 
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::*;
-use k3rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::daemonset::DaemonSetController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::*;
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::daemonset::DaemonSetController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

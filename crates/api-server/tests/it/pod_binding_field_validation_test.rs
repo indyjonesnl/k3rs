@@ -5,7 +5,7 @@
 //! warns on unknown fields for Warn and rejects them for Strict.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const NS: &str = "default";

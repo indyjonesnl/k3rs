@@ -2,12 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::admission::builtin_plugins::{attr_name, new_forbidden};
-    pub use k3rs_api_server::authorization_webhook::{is_connection_reset, WebhookClientConfig};
-    pub use k3rs_common::lru_expire_cache::LruExpireCache;
-    pub use k3rs_common::resources::Pod;
-    pub use k3rs_common::wait::Backoff;
-    pub use k3rs_common::Error;
+    pub use kubernetes_rs_api_server::admission::builtin_plugins::{attr_name, new_forbidden};
+    pub use kubernetes_rs_api_server::authorization_webhook::{
+        is_connection_reset, WebhookClientConfig,
+    };
+    pub use kubernetes_rs_common::lru_expire_cache::LruExpireCache;
+    pub use kubernetes_rs_common::resources::Pod;
+    pub use kubernetes_rs_common::wait::Backoff;
+    pub use kubernetes_rs_common::Error;
     pub use serde::{Deserialize, Serialize};
     pub use std::collections::BTreeMap;
     pub use std::path::Path;
@@ -17,7 +19,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::image_policy::*;
+    use kubernetes_rs_api_server::admission::image_policy::*;
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -213,15 +215,15 @@ mod tests {
     fn good_pod(image: &str) -> Pod {
         Pod::new(
             "",
-            k3rs_common::resources::PodSpec {
+            kubernetes_rs_common::resources::PodSpec {
                 containers: vec![container(image)],
                 ..Default::default()
             },
         )
     }
 
-    fn container(image: &str) -> k3rs_common::resources::Container {
-        k3rs_common::resources::Container {
+    fn container(image: &str) -> kubernetes_rs_common::resources::Container {
+        kubernetes_rs_common::resources::Container {
             name: "c".into(),
             image: image.into(),
             ..Default::default()
@@ -267,7 +269,7 @@ mod tests {
 
     #[test]
     fn missing_config_and_missing_kubeconfig_fail() {
-        let _g = k3rs_api_server::admission::plugins::EnabledForTest::new(&[PLUGIN_NAME]);
+        let _g = kubernetes_rs_api_server::admission::plugins::EnabledForTest::new(&[PLUGIN_NAME]);
         assert!(install_from_config(None)
             .unwrap_err()
             .to_string()
@@ -278,7 +280,7 @@ mod tests {
 
     #[test]
     fn disabled_plugin_needs_no_config() {
-        let _g = k3rs_api_server::admission::plugins::EnabledForTest::new(&[]);
+        let _g = kubernetes_rs_api_server::admission::plugins::EnabledForTest::new(&[]);
         install_from_config(None).unwrap();
     }
 
@@ -357,11 +359,12 @@ mod tests {
         let mut pod = good_pod("a");
         let spec = pod.spec.as_mut().unwrap();
         spec.init_containers = Some(vec![container("i")]);
-        spec.ephemeral_containers = Some(vec![k3rs_common::resources::EphemeralContainer {
-            name: "e".into(),
-            image: "eph".into(),
-            ..Default::default()
-        }]);
+        spec.ephemeral_containers =
+            Some(vec![kubernetes_rs_common::resources::EphemeralContainer {
+                name: "e".into(),
+                image: "eph".into(),
+                ..Default::default()
+            }]);
         run(&wh, &pod, "ns1", None).await.unwrap();
         run(&wh, &pod, "ns1", Some("ephemeralcontainers"))
             .await

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use k3rs_client::http::{ApiClient, GetError};
+use kubernetes_rs_client::http::{ApiClient, GetError};
 use serde_json::Value;
 use std::time::{Duration, Instant};
 

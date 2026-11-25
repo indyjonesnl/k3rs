@@ -16,14 +16,14 @@
 //! }
 //! ```
 //!
-//! k3rs declared `api_version: String` / `kind: String` with no
+//! kubernetes-rs declared `api_version: String` / `kind: String` with no
 //! `#[serde(default)]` — so a body omitting them failed to decode, the trap
 //! that made a created CRD unreadable (#1913) — and a bespoke three-field
 //! `NodeMetricsMetadata` / `PodMetricsMetadata`, so labels, annotations, uid
 //! and resourceVersion were silently dropped and every generic metadata rule
 //! skipped these types (#1916).
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     ExternalMetricValue, ExternalMetricValueList, MetricValue, MetricValueList, NodeMetrics,
     PodMetrics,
 };

@@ -9,7 +9,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::pagination::*;
+    use kubernetes_rs_common::pagination::*;
 
     #[test]
     fn test_no_pagination() {

@@ -1,9 +1,9 @@
 //! InterPodAffinity PreScore/Score/NormalizeScore through the plugin object
 //! (`interpodaffinity/scoring_test.go` TestPreferredAffinity).
 use super::listers::EmptyListers;
-use k3rs_common::resources::{Node, Pod};
-use k3rs_scheduler::fwk::{Code, CycleState};
-use k3rs_scheduler::profile::Profile;
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_scheduler::fwk::{Code, CycleState};
+use kubernetes_rs_scheduler::profile::Profile;
 use serde_json::{json, Value};
 
 fn node(name: &str, zone: &str) -> Node {

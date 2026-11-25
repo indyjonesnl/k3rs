@@ -7,7 +7,7 @@
 //! plain HTTP here makes every such proxied request fail with
 //! `http: server gave HTTP response to HTTPS client`, which cascades across
 //! NodeConformance (a vanilla api-server proxying `kubectl logs` to a
-//! k3rs kubelet) — see #1644.
+//! kubernetes-rs kubelet) — see #1644.
 //!
 //! We present a freshly generated self-signed serving certificate. The
 //! api-server does not verify the kubelet serving cert unless
@@ -65,9 +65,9 @@ pub fn kubelet_serving_tls_with_options(
     // generate_self_signed() installs the process-wide rustls crypto provider,
     // so it must run before ServerConfig::builder() below.
     let tls = match tls_files {
-        Some((cert, key)) => k3rs_common::tls::TlsConfig::from_pem_files(cert, key)
+        Some((cert, key)) => kubernetes_rs_common::tls::TlsConfig::from_pem_files(cert, key)
             .map_err(|e| anyhow!("unable to load kubelet serving cert {cert}/{key}: {e}"))?,
-        None => k3rs_common::tls::TlsConfig::generate_self_signed(node_name, sans)?,
+        None => kubernetes_rs_common::tls::TlsConfig::generate_self_signed(node_name, sans)?,
     };
 
     let builder = rustls::ServerConfig::builder();
@@ -75,7 +75,7 @@ pub fn kubelet_serving_tls_with_options(
         None => builder.with_no_client_auth(),
         Some(ca) => {
             // `certutil.NewPool(kc.Authentication.X509.ClientCAFile)`
-            let inner = k3rs_common::tls::client_cert_verifier_for_ca_file(ca)
+            let inner = kubernetes_rs_common::tls::client_cert_verifier_for_ca_file(ca)
                 .map_err(|e| anyhow!("unable to load client CA file {ca}: {e}"))?;
             builder.with_client_cert_verifier(Arc::new(RequestClientCert { inner }))
         }
@@ -145,7 +145,7 @@ impl rustls::server::danger::ClientCertVerifier for RequestClientCert {
 }
 
 /// Surfaces the connection's peer certificate chain to handlers as a
-/// [`k3rs_middleware::PeerCertificates`] request extension (`req.TLS.PeerCertificates`). The
+/// [`kubernetes_rs_middleware::PeerCertificates`] request extension (`req.TLS.PeerCertificates`). The
 /// chain is unverified here; see [`RequestClientCert`]. Shared with the other
 /// plain-TLS servers (#3535).
-pub use k3rs_middleware::secure_serving::serve::PeerCertAcceptor;
+pub use kubernetes_rs_middleware::secure_serving::serve::PeerCertAcceptor;

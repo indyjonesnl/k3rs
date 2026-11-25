@@ -4,12 +4,12 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::RuntimeClass;
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::runtimeclass::{
+use kubernetes_rs_common::resources::RuntimeClass;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::runtimeclass::{
     get_warnings_for_runtime_class, validate_runtime_class, validate_runtime_class_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

@@ -8,14 +8,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use k3rs_api_server::admission::inject_service_account_token;
-use k3rs_api_server::admission::service_account::{
+use kubernetes_rs_api_server::admission::inject_service_account_token;
+use kubernetes_rs_api_server::admission::service_account::{
     enforce_mountable_secrets, get_service_account_with,
     limit_ephemeral_container_secret_references, limit_secret_references, should_automount,
     should_ignore, validate, ValidateError,
 };
-use k3rs_common::resources::{Pod, ServiceAccount};
-use k3rs_storage::{MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{Pod, ServiceAccount};
+use kubernetes_rs_storage::{MemoryStorage, Storage};
 use serde_json::{json, Value};
 
 const NS: &str = "myns";

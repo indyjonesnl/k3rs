@@ -36,11 +36,11 @@ use crate::volume_plugins::util::types::{
 };
 use crate::volume_plugins::util::{check_device_mount_refs, fs_group_from};
 use anyhow::{anyhow, Error};
-use k3rs_common::quantity::{Format, Quantity};
-use k3rs_common::resources::volume::{PersistentVolume, PersistentVolumeClaim};
-use k3rs_common::resources::EventType;
-use k3rs_common::resources::Pod;
-use k3rs_storage::{build_key, EventRecorder, Storage};
+use kubernetes_rs_common::quantity::{Format, Quantity};
+use kubernetes_rs_common::resources::volume::{PersistentVolume, PersistentVolumeClaim};
+use kubernetes_rs_common::resources::EventType;
+use kubernetes_rs_common::resources::Pod;
+use kubernetes_rs_storage::{build_key, EventRecorder, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -511,7 +511,8 @@ pub async fn mount_volume_with_attributes(
             &st.volume_to_mount.volume_name,
             &st.volume_to_mount.pod_name,
         ) && modes.len() == 1
-            && modes[0] == k3rs_common::resources::PersistentVolumeAccessMode::ReadWriteOncePod
+            && modes[0]
+                == kubernetes_rs_common::resources::PersistentVolumeAccessMode::ReadWriteOncePod
         {
             return Err(anyhow!(
                 "MountVolume.SetUp failed for volume {}: volume uses the ReadWriteOncePod access mode and is already in use by another pod",
@@ -758,7 +759,7 @@ pub(crate) fn check_volume_mode_filesystem(spec: &Spec<'_>) -> anyhow::Result<bo
     let mode = crate::volume_plugins::iscsi::get_volume_mode(spec)?;
     Ok(!matches!(
         mode,
-        k3rs_common::resources::volume::PersistentVolumeMode::Block
+        kubernetes_rs_common::resources::volume::PersistentVolumeMode::Block
     ))
 }
 

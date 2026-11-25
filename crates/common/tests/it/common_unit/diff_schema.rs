@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::diff::GoJson;
-    pub use k3rs_common::quantity::Quantity;
+    pub use kubernetes_rs_common::diff::GoJson;
+    pub use kubernetes_rs_common::quantity::Quantity;
     pub use serde_json::Value;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::diff_schema::*;
+    use kubernetes_rs_common::diff_schema::*;
     use serde_json::json;
 
     /// Nested internal types render with Go field names, `null` for nil

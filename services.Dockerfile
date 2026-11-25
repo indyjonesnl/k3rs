@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 #
-# Combined Dockerfile for all five long-running k3rs service
+# Combined Dockerfile for all five long-running kubernetes-rs service
 # components: api-server, kubelet, scheduler, controller-manager,
 # kube-proxy.
 #
@@ -23,7 +23,7 @@
 #
 # Compose selects the target stage via `build.target: <name>`.
 # Cargo features can be plumbed through with `--build-arg
-# CARGO_FEATURES=...` (e.g. `--features k3rs-storage/sqlite`).
+# CARGO_FEATURES=...` (e.g. `--features kubernetes-rs-storage/sqlite`).
 #
 # ---- TWO-STAGE CARGO BUILD ----
 #
@@ -61,7 +61,7 @@
 #
 # Current workspace members (Cargo.toml [workspace] members):
 #   api-server, common, controller-manager, dns,
-#   kubectl, kubelet, kube-proxy, k3rs, scheduler,
+#   kubectl, kubelet, kube-proxy, kubernetes-rs, scheduler,
 #   storage
 
 # ---------------------------------------------------------------------
@@ -166,7 +166,7 @@ COPY Cargo.toml Cargo.lock* ./
 # CRATE-ENUMERATION (1/3): one COPY per crate's Cargo.toml.
 # Must mirror `[workspace] members` in Cargo.toml.
 # Crates: api-server, common, controller-manager, dns,
-#         kubectl, kubelet, kube-proxy, k3rs, scheduler,
+#         kubectl, kubelet, kube-proxy, kubernetes-rs, scheduler,
 #         storage
 COPY crates/admission-webhook/Cargo.toml  crates/admission-webhook/Cargo.toml
 COPY crates/api-server/Cargo.toml         crates/api-server/Cargo.toml
@@ -182,7 +182,7 @@ COPY crates/kubelet/Cargo.toml            crates/kubelet/Cargo.toml
 COPY crates/kube-proxy/Cargo.toml         crates/kube-proxy/Cargo.toml
 COPY crates/middleware/Cargo.toml         crates/middleware/Cargo.toml
 COPY crates/protobuf/Cargo.toml           crates/protobuf/Cargo.toml
-COPY crates/k3rs/Cargo.toml        crates/k3rs/Cargo.toml
+COPY crates/kubernetes-rs/Cargo.toml        crates/kubernetes-rs/Cargo.toml
 COPY crates/scheduler/Cargo.toml          crates/scheduler/Cargo.toml
 COPY crates/storage/Cargo.toml            crates/storage/Cargo.toml
 COPY crates/streamproxy/Cargo.toml        crates/streamproxy/Cargo.toml
@@ -211,7 +211,7 @@ COPY crates/kubelet/proto        crates/kubelet/proto
 # CRATE-ENUMERATION (2/3): dummy lib.rs / main.rs per crate. Lib vs
 # bin choice MUST match each Cargo.toml's [lib] + [[bin]] entries.
 #   - lib only:   common, controller-core, storage, cri, test_support
-#   - bin only:   kubectl, k3rs
+#   - bin only:   kubectl, kubernetes-rs
 #   - lib + bin:  api-server, controller-manager, dns, kubelet, kube-proxy,
 #                 scheduler
 # `echo "fn main(){}"` in every main.rs; empty lib.rs is fine.
@@ -219,7 +219,7 @@ RUN set -eux; \
     for c in client common controller-core storage protobuf middleware admission-webhook discovery cri streamproxy cel-checker csi test_support; do \
         mkdir -p crates/$c/src && : > crates/$c/src/lib.rs; \
     done; \
-    for c in kubectl k3rs; do \
+    for c in kubectl kubernetes-rs; do \
         mkdir -p crates/$c/src && echo "fn main(){}" > crates/$c/src/main.rs; \
     done; \
     for c in api-server controller-manager dns kubelet kube-proxy scheduler; do \
@@ -250,7 +250,7 @@ ARG CARGO_FEATURES=""
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-kubernetes-rs,sharing=locked \
     if [ "$USE_SCCACHE" = "1" ]; then \
         export RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0; \
     else \
@@ -262,27 +262,27 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
         --bin scheduler \
         --bin controller-manager \
         --bin kube-proxy \
-        --bin k3rs-dns \
+        --bin kubernetes-rs-dns \
  && cargo clean --profile release-fast \
-        -p k3rs-admission-webhook \
-        -p k3rs-api-server \
-        -p k3rs-client \
-        -p k3rs-common \
-        -p k3rs-cel-checker \
-        -p k3rs-cri \
-        -p k3rs-middleware \
-        -p k3rs-protobuf \
-        -p k3rs-controller-manager \
-        -p k3rs-discovery \
-        -p k3rs-dns \
-        -p k3rs-kubectl \
-        -p k3rs-kubelet \
-        -p k3rs-kube-proxy \
-        -p k3rs \
-        -p k3rs-scheduler \
-        -p k3rs-storage \
-        -p k3rs-streamproxy \
-        -p k3rs-csi \
+        -p kubernetes-rs-admission-webhook \
+        -p kubernetes-rs-api-server \
+        -p kubernetes-rs-client \
+        -p kubernetes-rs-common \
+        -p kubernetes-rs-cel-checker \
+        -p kubernetes-rs-cri \
+        -p kubernetes-rs-middleware \
+        -p kubernetes-rs-protobuf \
+        -p kubernetes-rs-controller-manager \
+        -p kubernetes-rs-discovery \
+        -p kubernetes-rs-dns \
+        -p kubernetes-rs-kubectl \
+        -p kubernetes-rs-kubelet \
+        -p kubernetes-rs-kube-proxy \
+        -p kubernetes-rs \
+        -p kubernetes-rs-scheduler \
+        -p kubernetes-rs-storage \
+        -p kubernetes-rs-streamproxy \
+        -p kubernetes-rs-csi \
  && { [ "$USE_SCCACHE" = "1" ] && sccache --show-stats || true; }
 
 # ----- PASS 2: real source compile (only changed workspace crates rebuild) -----
@@ -316,7 +316,7 @@ COPY crates/kubelet/src              crates/kubelet/src
 COPY crates/kubelet/tests            crates/kubelet/tests
 COPY crates/kube-proxy/src           crates/kube-proxy/src
 COPY crates/kube-proxy/tests         crates/kube-proxy/tests
-COPY crates/k3rs/src          crates/k3rs/src
+COPY crates/kubernetes-rs/src          crates/kubernetes-rs/src
 COPY crates/scheduler/src            crates/scheduler/src
 COPY crates/scheduler/tests          crates/scheduler/tests
 COPY crates/storage/src              crates/storage/src
@@ -347,12 +347,12 @@ COPY crates/test_support/src         crates/test_support/src
 # commit into every binary — `.git` is dockerignored, so without this the
 # version banner would read "unknown". Scoped to Pass 2 to keep the Pass-1
 # dependency cache from busting on every commit.
-ARG K3RS_GIT_SHA=""
-ENV K3RS_GIT_SHA=${K3RS_GIT_SHA}
+ARG KUBERNETES_RS_GIT_SHA=""
+ENV KUBERNETES_RS_GIT_SHA=${KUBERNETES_RS_GIT_SHA}
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-kubernetes-rs,sharing=locked \
     if [ "$USE_SCCACHE" = "1" ]; then \
         export RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0; \
     else \
@@ -364,7 +364,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
         --bin scheduler \
         --bin controller-manager \
         --bin kube-proxy \
-        --bin k3rs-dns \
+        --bin kubernetes-rs-dns \
  && { [ "$USE_SCCACHE" = "1" ] && sccache --show-stats || true; } \
  && mkdir -p /out \
  && cp target/release-fast/api-server         /out/api-server \
@@ -372,7 +372,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && cp target/release-fast/scheduler          /out/scheduler \
  && cp target/release-fast/controller-manager /out/controller-manager \
  && cp target/release-fast/kube-proxy         /out/kube-proxy \
- && cp target/release-fast/k3rs-dns    /out/k3rs-dns
+ && cp target/release-fast/kubernetes-rs-dns    /out/kubernetes-rs-dns
 
 # ---------------------------------------------------------------------
 # Stage 3: api-server runtime.
@@ -390,7 +390,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Bundled addon charts, served at /static/charts/ (K3RS_STATIC_DIR) for the
+# Bundled addon charts, served at /static/charts/ (KUBERNETES_RS_STATIC_DIR) for the
 # traefik HelmChart specs (deploy/addons/traefik.yaml, from k3s
 # manifests/traefik.yaml: `chart: https://%{KUBERNETES_API}%/static/charts/...`).
 # k3s fetches the same files in scripts/download (CHARTS_URL
@@ -399,7 +399,7 @@ WORKDIR /app
 # deploy/addons/traefik.yaml.
 ARG TRAEFIK_CHART=40.1.5+up40.1.0
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && mkdir -p /var/lib/k3rs/static/charts && cd /var/lib/k3rs/static/charts \
+    && mkdir -p /var/lib/kubernetes-rs/static/charts && cd /var/lib/kubernetes-rs/static/charts \
     && for c in traefik:d4d0e818284d310372d38adfce9a1cfb3179a69fc9f3ca8bfadb33581000b778 \
                 traefik-crd:749676684b53240c9024578b8e211053d4e6881c3d54dccb66d5308a01bcb489; do \
          n="${c%%:*}"; sum="${c##*:}"; \
@@ -408,7 +408,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
          && echo "${sum}  ${n}-${TRAEFIK_CHART}.tgz" | sha256sum -c - || exit 1; \
        done \
     && rm -rf /var/lib/apt/lists/*
-ENV K3RS_STATIC_DIR=/var/lib/k3rs/static
+ENV KUBERNETES_RS_STATIC_DIR=/var/lib/kubernetes-rs/static
 
 COPY --from=cargo-builder /out/api-server /app/api-server
 # Upstream's server images install the binary at /usr/local/bin/<name>
@@ -426,7 +426,7 @@ CMD ["--bind-address", "0.0.0.0:6443", "--etcd-servers", "http://etcd:2379"]
 
 # ---------------------------------------------------------------------
 # Stage 4: kubelet runtime. Needs CNI plugins on /opt/cni/bin and the
-# k3rs CNI conflist on /etc/cni/net.d/.
+# kubernetes-rs CNI conflist on /etc/cni/net.d/.
 # ---------------------------------------------------------------------
 FROM debian:sid-slim AS kubelet
 
@@ -467,7 +467,7 @@ RUN mkdir -p /opt/cni/bin && \
     rm /tmp/cni-plugins.tgz
 
 RUN mkdir -p /etc/cni/net.d
-COPY cni-config/10-k3rs.conflist /etc/cni/net.d/
+COPY cni-config/10-kubernetes-rs.conflist /etc/cni/net.d/
 
 COPY --from=cargo-builder /out/kubelet /app/kubelet
 RUN ln -s /app/kubelet /usr/local/bin/kubelet
@@ -477,7 +477,7 @@ RUN ln -s /app/kubelet /usr/local/bin/kubelet
 # `kubectl version` inside the server container). The release-1.35 binary from
 # dl.k8s.io, sha256-verified. Pinned to the patch k3s v1.35.9+k3s1 vendors.
 # It reaches the api-server with the kubelet's own client kubeconfig, mounted at
-# /root/.k3rs/certs (compose), via kubectl's default ~/.kube/config.
+# /root/.kubernetes-rs/certs (compose), via kubectl's default ~/.kube/config.
 ARG KUBECTL_VERSION=v1.35.9
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fSL --retry 5 --retry-all-errors --retry-delay 5 \
@@ -486,7 +486,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
         "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" -o /tmp/kubectl.sha256 && \
     echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c - && \
     chmod +x /usr/local/bin/kubectl && rm /tmp/kubectl.sha256 && \
-    mkdir -p /root/.kube && ln -s /root/.k3rs/certs/kubelet.conf /root/.kube/config
+    mkdir -p /root/.kube && ln -s /root/.kubernetes-rs/certs/kubelet.conf /root/.kube/config
 
 # Entrypoint installs a route to the pod CIDR via the containerd container so
 # the kubelet can dial pod IPs for probes + HTTP lifecycle hooks (mirrors the
@@ -584,14 +584,14 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY --from=cargo-builder /out/k3rs-dns /app/k3rs-dns
+COPY --from=cargo-builder /out/kubernetes-rs-dns /app/kubernetes-rs-dns
 
 # 53 is privileged on Linux. The compose entry adds NET_BIND_SERVICE
 # (or runs as root) so this works without sysctl knobs.
 EXPOSE 53/udp
 EXPOSE 53/tcp
 
-ENTRYPOINT ["/app/k3rs-dns"]
+ENTRYPOINT ["/app/kubernetes-rs-dns"]
 # No CMD: the in-cluster Deployment runs arg-free so the binary
 # autodetects ClientConfig::in_cluster(); a baked-in --etcd-servers
 # default would defeat that detection (clap sees an explicit flag).

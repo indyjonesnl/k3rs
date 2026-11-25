@@ -1,6 +1,6 @@
 use crate::types::AuthCommands;
 use anyhow::{Context, Result};
-use k3rs_client::http::ApiClient;
+use kubernetes_rs_client::http::ApiClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;

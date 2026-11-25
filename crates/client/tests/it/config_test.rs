@@ -1,4 +1,4 @@
-use k3rs_client::config::ClientConfig;
+use kubernetes_rs_client::config::ClientConfig;
 
 #[test]
 fn in_cluster_reads_token_and_host_from_paths_and_env() {

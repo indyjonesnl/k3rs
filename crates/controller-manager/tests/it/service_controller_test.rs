@@ -1,9 +1,11 @@
 //! Integration tests for ServiceController
 
-use k3rs_common::resources::{IntOrString, Service, ServicePort, ServiceSpec, ServiceType};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::service::ServiceController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{
+    IntOrString, Service, ServicePort, ServiceSpec, ServiceType,
+};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::service::ServiceController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::sync::Arc;
 
 #[tokio::test]

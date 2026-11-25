@@ -65,7 +65,7 @@ RUN mkdir -p /opt/cni/bin && \
     rm /tmp/cni-plugins.tgz
 
 RUN mkdir -p /etc/cni/net.d
-COPY cni-config/10-k3rs.conflist /etc/cni/net.d/
+COPY cni-config/10-kubernetes-rs.conflist /etc/cni/net.d/
 
 COPY target/release/kubelet /app/kubelet
 RUN ln -s /app/kubelet /usr/local/bin/kubelet

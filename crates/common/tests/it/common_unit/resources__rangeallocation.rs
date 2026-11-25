@@ -2,13 +2,13 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::types::{ObjectMeta, TypeMeta};
+    pub use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
     pub use serde::{Deserialize, Serialize};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::rangeallocation::*;
+    use kubernetes_rs_common::resources::rangeallocation::*;
 
     #[test]
     fn data_round_trips_as_base64() {

@@ -3,7 +3,7 @@
 //! default to TCP. K8s ref: pkg/apis/networking/v1/defaults.go.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const NS: &str = "default";

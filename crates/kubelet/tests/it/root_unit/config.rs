@@ -9,7 +9,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::config::*;
+    use kubernetes_rs_kubelet::config::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -66,7 +66,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_crashloop_max_gate_off() {
-        use k3rs_common::feature_gates::{with_feature, Feature};
+        use kubernetes_rs_common::feature_gates::{with_feature, Feature};
         let _g = with_feature(Feature::KubeletCrashLoopBackOffMax, false);
         let set: KubeletConfiguration =
             serde_yaml::from_str("crashLoopBackOff:\n  maxContainerRestartPeriod: 45s\n").unwrap();

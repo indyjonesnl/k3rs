@@ -8,17 +8,17 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use k3rs_common::feature_gates::{self, Feature};
-use k3rs_common::resources::dra::ResourceClaimStatus;
-use k3rs_common::resources::ResourceClaim;
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{
+use kubernetes_rs_common::feature_gates::{self, Feature};
+use kubernetes_rs_common::resources::dra::ResourceClaimStatus;
+use kubernetes_rs_common::resources::ResourceClaim;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{
     name_is_dns_subdomain, validate_object_meta, validate_object_meta_update,
 };
-use k3rs_common::validation::resourceclaim::{
+use kubernetes_rs_common::validation::resourceclaim::{
     validate_resource_claim, validate_resource_claim_status_update, validate_resource_claim_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use super::admin::{authorized_for_admin, authorized_for_admin_status};
 use super::spec::drop_disabled_fields as drop_disabled_spec_fields;

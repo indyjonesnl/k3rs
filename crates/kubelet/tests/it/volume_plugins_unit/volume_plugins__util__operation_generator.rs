@@ -3,54 +3,54 @@
 
 mod __parent {
     pub use anyhow::{anyhow, Error};
-    pub use k3rs_common::quantity::{Format, Quantity};
-    pub use k3rs_common::resources::volume::{PersistentVolume, PersistentVolumeClaim};
-    pub use k3rs_common::resources::EventType;
-    pub use k3rs_common::resources::Pod;
-    pub use k3rs_kubelet::events::{
+    pub use kubernetes_rs_common::quantity::{Format, Quantity};
+    pub use kubernetes_rs_common::resources::volume::{PersistentVolume, PersistentVolumeClaim};
+    pub use kubernetes_rs_common::resources::EventType;
+    pub use kubernetes_rs_common::resources::Pod;
+    pub use kubernetes_rs_kubelet::events::{
         FILE_SYSTEM_RESIZE_FAILED, FILE_SYSTEM_RESIZE_SUCCESS, VOLUME_RESIZE_FAILED,
     };
-    pub use k3rs_kubelet::volume_manager::cache::actual_state_of_world::ActualStateOfWorld;
-    pub use k3rs_kubelet::volume_manager::cache::desired_state_of_world::{
+    pub use kubernetes_rs_kubelet::volume_manager::cache::actual_state_of_world::ActualStateOfWorld;
+    pub use kubernetes_rs_kubelet::volume_manager::cache::desired_state_of_world::{
         desired_size_limit, effective_selinux_mount_label, get_selinux_label,
     };
-    pub use k3rs_kubelet::volume_plugins::plugin::{
+    pub use kubernetes_rs_kubelet::volume_plugins::plugin::{
         DeviceMountableVolumePlugin, DeviceMounter, DeviceMounterArgs, DeviceUnmounter,
         NodeExpandableVolumePlugin, NodeResizeOptions, Spec,
     };
-    pub use k3rs_kubelet::volume_plugins::registry::VolumePluginMgr;
-    pub use k3rs_kubelet::volume_plugins::util::hostutil::HostUtils;
-    pub use k3rs_kubelet::volume_plugins::util::node_expander::{
+    pub use kubernetes_rs_kubelet::volume_plugins::registry::VolumePluginMgr;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::hostutil::HostUtils;
+    pub use kubernetes_rs_kubelet::volume_plugins::util::node_expander::{
         pvc_object_reference, record_event, NodeExpander, NodeResizeOperationOpts,
     };
-    pub use k3rs_kubelet::volume_plugins::util::operation_executor::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::operation_executor::{
         AttachedVolume, VolumeToMount,
     };
-    pub use k3rs_kubelet::volume_plugins::util::resize_util::{self, RESOURCE_STORAGE};
-    pub use k3rs_kubelet::volume_plugins::util::types::{
+    pub use kubernetes_rs_kubelet::volume_plugins::util::resize_util::{self, RESOURCE_STORAGE};
+    pub use kubernetes_rs_kubelet::volume_plugins::util::types::{
         is_failed_precondition_error, is_operation_not_supported_error, OperationContext,
     };
-    pub use k3rs_kubelet::volume_plugins::util::{check_device_mount_refs, fs_group_from};
-    pub use k3rs_storage::{build_key, EventRecorder, Storage};
+    pub use kubernetes_rs_kubelet::volume_plugins::util::{check_device_mount_refs, fs_group_from};
+    pub use kubernetes_rs_storage::{build_key, EventRecorder, Storage};
     pub use std::collections::HashMap;
     pub use tracing::{debug, error, info, warn};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::{PersistentVolume, Volume};
-    use k3rs_kubelet::volume_plugins::csi::CsiPlugin;
-    use k3rs_kubelet::volume_plugins::util::operation_generator::*;
-    use k3rs_kubelet::volume_plugins::KubeletVolumeHost;
+    use kubernetes_rs_common::resources::{PersistentVolume, Volume};
+    use kubernetes_rs_kubelet::volume_plugins::csi::CsiPlugin;
+    use kubernetes_rs_kubelet::volume_plugins::util::operation_generator::*;
+    use kubernetes_rs_kubelet::volume_plugins::KubeletVolumeHost;
     use serde_json::json;
     use std::collections::HashMap;
     use std::sync::Arc;
 
     fn mgr() -> VolumePluginMgr {
         let host = Arc::new(KubeletVolumeHost::new_for_tests(
-            "/var/lib/k3rs".to_string(),
+            "/var/lib/kubernetes-rs".to_string(),
             None,
-            k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+            kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
             HashMap::new(),
         ));
         VolumePluginMgr::new(vec![Box::new(CsiPlugin::new(host))])
@@ -143,8 +143,8 @@ mod tests {
     use crate::volume_plugins_unit::volume_plugins__util__node_expander::tests::{
         q, test_asow, test_pv, test_pvc, test_vmt, FakeExpandPlugin,
     };
-    use k3rs_common::resources::volume::PersistentVolumeClaim;
-    use k3rs_storage::StorageBackend;
+    use kubernetes_rs_common::resources::volume::PersistentVolumeClaim;
+    use kubernetes_rs_storage::StorageBackend;
     use std::sync::atomic::Ordering;
 
     struct Fixture {
@@ -281,7 +281,7 @@ mod tests {
     /// block the mount (`:2112-2120`); any other error is returned.
     #[tokio::test]
     async fn legacy_failed_precondition_marks_in_use_and_finishes() {
-        use k3rs_kubelet::volume_plugins::util::types::VolumeOperationError;
+        use kubernetes_rs_kubelet::volume_plugins::util::types::VolumeOperationError;
         fn fp() -> anyhow::Error {
             VolumeOperationError::FailedPrecondition("in use".into()).into()
         }
@@ -524,12 +524,12 @@ mod tests {
     /// mount is expanded on the node, and the actual state records the new size.
     #[tokio::test]
     async fn reconciler_expands_a_mounted_volume_whose_pv_grew() {
-        use k3rs_kubelet::volume_manager::cache::DesiredStateOfWorld;
-        use k3rs_kubelet::volume_manager::reconciler::Reconciler;
-        use k3rs_kubelet::volume_plugins::util::operation_executor::{
+        use kubernetes_rs_kubelet::volume_manager::cache::DesiredStateOfWorld;
+        use kubernetes_rs_kubelet::volume_manager::reconciler::Reconciler;
+        use kubernetes_rs_kubelet::volume_plugins::util::operation_executor::{
             MarkVolumeOpts, VolumeMountState,
         };
-        use k3rs_kubelet::volume_plugins::util::selinux::Translator;
+        use kubernetes_rs_kubelet::volume_plugins::util::selinux::Translator;
 
         let pvc = test_pvc("2G", "1G", "", "", false, false);
         let f = Fixture::new(&pvc, FakeExpandPlugin::ok()).await;
@@ -542,10 +542,10 @@ mod tests {
             .await
             .unwrap();
         let tmp = tempfile::tempdir().unwrap();
-        let mut vm = k3rs_kubelet::volumes::VolumeManager::new(
+        let mut vm = kubernetes_rs_kubelet::volumes::VolumeManager::new(
             tmp.path().display().to_string(),
             Some(storage.clone()),
-            k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+            kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
         );
         let mgr = Arc::new(VolumePluginMgr::new(vec![Box::new(f.plugin.sharing())]));
         vm.plugin_mgr = mgr.clone();
@@ -639,9 +639,9 @@ mod tests {
     // ---- `MounterArgs` population (`operation_generator.go:582-589`, #2900) ----
 
     use async_trait::async_trait;
-    use k3rs_common::feature_gates::{with_feature, Feature};
-    use k3rs_kubelet::volume_plugins::plugin::{Mounter, Unmounter, VolumePlugin};
-    use k3rs_kubelet::volume_plugins::util::selinux::FakeSELinuxLabelTranslator;
+    use kubernetes_rs_common::feature_gates::{with_feature, Feature};
+    use kubernetes_rs_kubelet::volume_plugins::plugin::{Mounter, Unmounter, VolumePlugin};
+    use kubernetes_rs_kubelet::volume_plugins::util::selinux::FakeSELinuxLabelTranslator;
 
     fn pod_json(v: serde_json::Value) -> Pod {
         serde_json::from_value(v).unwrap()
@@ -649,17 +649,20 @@ mod tests {
 
     fn empty_dir_mgr() -> VolumePluginMgr {
         let host = Arc::new(KubeletVolumeHost::new_for_tests(
-            "/var/lib/k3rs".to_string(),
+            "/var/lib/kubernetes-rs".to_string(),
             None,
-            k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+            kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
             HashMap::new(),
         ));
         VolumePluginMgr::new(vec![Box::new(
-            k3rs_kubelet::volume_plugins::empty_dir::EmptyDirPlugin::new(host),
+            kubernetes_rs_kubelet::volume_plugins::empty_dir::EmptyDirPlugin::new(host),
         )])
     }
 
-    fn args_of(pod: &Pod, vol: serde_json::Value) -> k3rs_kubelet::volume_plugins::MounterArgs {
+    fn args_of(
+        pod: &Pod,
+        vol: serde_json::Value,
+    ) -> kubernetes_rs_kubelet::volume_plugins::MounterArgs {
         let v: Volume = serde_json::from_value(vol).unwrap();
         let spec = Spec {
             volume: &v,
@@ -747,7 +750,7 @@ mod tests {
             &self,
             _: &str,
             _: &str,
-        ) -> anyhow::Result<k3rs_kubelet::volume_plugins::ReconstructedVolume> {
+        ) -> anyhow::Result<kubernetes_rs_kubelet::volume_plugins::ReconstructedVolume> {
             unimplemented!()
         }
     }
@@ -755,7 +758,7 @@ mod tests {
     fn selinux_args(
         plugin_supports: bool,
         access_mode: &str,
-    ) -> k3rs_kubelet::volume_plugins::MounterArgs {
+    ) -> kubernetes_rs_kubelet::volume_plugins::MounterArgs {
         let _g = with_feature(Feature::SELinuxMountReadWriteOncePod, true);
         let mgr = VolumePluginMgr::new(vec![Box::new(SelinuxPlugin(plugin_supports))]);
         let pod = pod_json(json!({

@@ -9,13 +9,15 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::DeviceClass;
-use k3rs_common::validation::deviceclass::{validate_device_class, validate_device_class_update};
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{
+use kubernetes_rs_common::resources::DeviceClass;
+use kubernetes_rs_common::validation::deviceclass::{
+    validate_device_class, validate_device_class_update,
+};
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{
     name_is_dns_subdomain, validate_object_meta, validate_object_meta_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

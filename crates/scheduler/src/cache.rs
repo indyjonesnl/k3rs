@@ -22,7 +22,7 @@
 //! (`UpdatePod`, `RemovePod`, `cleanupAssumedPods`) this returns an error and
 //! leaves the state untouched.
 
-use k3rs_common::resources::Pod;
+use kubernetes_rs_common::resources::Pod;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

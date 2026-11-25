@@ -4,18 +4,18 @@
 //! `pkg/scheduler/framework/plugins/volumebinding/{volume_binding.go,binder.go}`
 //! and `staging/src/k8s.io/component-helpers/storage/volume/pv_helpers.go`.
 
-use k3rs_common::affinity::matches_node_selector;
-use k3rs_common::csi_translation::CsiTranslator;
-use k3rs_common::quantity::{Format, Quantity};
-use k3rs_common::resources::volume::{
+use kubernetes_rs_common::affinity::matches_node_selector;
+use kubernetes_rs_common::csi_translation::CsiTranslator;
+use kubernetes_rs_common::quantity::{Format, Quantity};
+use kubernetes_rs_common::resources::volume::{
     PersistentVolumeClaimPhase, PersistentVolumeMode, PersistentVolumePhase, TopologySelectorTerm,
     VolumeBindingMode,
 };
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     CSIDriver, CSINode, CSIStorageCapacity, Node, PersistentVolume, PersistentVolumeClaim, Pod,
     StorageClass, Volume,
 };
-use k3rs_common::types::{label_selector_as_selector, LabelSelector};
+use kubernetes_rs_common::types::{label_selector_as_selector, LabelSelector};
 use std::collections::HashMap;
 
 pub const ERR_REASON_BIND_CONFLICT: &str =

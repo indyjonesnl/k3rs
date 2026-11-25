@@ -8,7 +8,7 @@
 //! (hot-loop), so a Certificate is never issued.
 
 use axum::http::{Method, StatusCode};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::time::Duration;
 

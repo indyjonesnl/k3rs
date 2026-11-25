@@ -3,16 +3,18 @@
 
 mod __parent {
     pub use base64::Engine;
-    pub use k3rs_common::resource_encoding::storage_codec_versions;
-    pub use k3rs_common::resource_encoding::{Example, GroupResource, ResourceEncodingConfig};
+    pub use kubernetes_rs_common::resource_encoding::storage_codec_versions;
+    pub use kubernetes_rs_common::resource_encoding::{
+        Example, GroupResource, ResourceEncodingConfig,
+    };
     pub use sha2::{Digest, Sha256};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::compatibility::EffectiveVersion;
-    use k3rs_common::resource_encoding::storage_version_hash::*;
-    use k3rs_common::resource_encoding::{
+    use kubernetes_rs_common::compatibility::EffectiveVersion;
+    use kubernetes_rs_common::resource_encoding::storage_version_hash::*;
+    use kubernetes_rs_common::resource_encoding::{
         DefaultResourceEncodingConfig, Scheme, StorageFactoryConfig,
     };
 
@@ -29,7 +31,7 @@ mod tests {
     fn config(emulation: &str) -> DefaultResourceEncodingConfig {
         let mut e = EffectiveVersion::from_string("1.35.0", "", "").unwrap();
         e.set_emulation_version(
-            k3rs_common::compatibility::parse_version(emulation)
+            kubernetes_rs_common::compatibility::parse_version(emulation)
                 .unwrap()
                 .major_minor(),
         );

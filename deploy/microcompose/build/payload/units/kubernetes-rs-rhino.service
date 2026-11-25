@@ -1,0 +1,9 @@
+[Unit]
+Description=rhino (etcd API over SQLite) for kubernetes-rs
+ConditionPathExists=/usr/local/bin/rhino-server
+[Service]
+ExecStartPre=/bin/mkdir -p /var/lib/kubernetes-rs/db
+ExecStart=/usr/local/bin/rhino-server --listen-address 127.0.0.1:2379 --endpoint /var/lib/kubernetes-rs/db/state.db --max-connections 20
+Restart=always
+[Install]
+WantedBy=multi-user.target

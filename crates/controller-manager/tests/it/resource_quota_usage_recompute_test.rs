@@ -18,12 +18,12 @@
 //! reconciles, so `.status.used` never decrements and the upstream e2e
 //! times out.
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     Container, Pod, PodSpec, PodStatus, ResourceQuota, ResourceQuotaSpec,
 };
-use k3rs_common::types::{ObjectMeta, Phase, ResourceRequirements, TypeMeta};
-use k3rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{ObjectMeta, Phase, ResourceRequirements, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::resource_quota::ResourceQuotaController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;

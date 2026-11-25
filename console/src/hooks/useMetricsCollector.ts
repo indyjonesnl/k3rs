@@ -70,7 +70,7 @@ export function useMetricsCollector() {
   useEffect(() => {
     const collect = async () => {
       const headers: Record<string, string> = { Accept: "application/json" };
-      const token = sessionStorage.getItem("k3rs-token");
+      const token = sessionStorage.getItem("kubernetes-rs-token");
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
       try {

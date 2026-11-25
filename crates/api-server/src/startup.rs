@@ -12,7 +12,7 @@
 use crate::{
     apiserver_identity, bootstrap, legacy_token_tracking, registry, storage_readiness_hook,
 };
-use k3rs_storage::{Storage, StorageBackend};
+use kubernetes_rs_storage::{Storage, StorageBackend};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -79,7 +79,7 @@ pub async fn register_post_start_hooks(
     // boot-sequence check (upstream pkg/controlplane/apiserver/aggregator.go:150-193).
     crate::autoregister::spawn_autoregistration(
         storage.clone(),
-        k3rs_discovery::delegate_listed_paths(),
+        kubernetes_rs_discovery::delegate_listed_paths(),
     );
 
     // start-kube-aggregator-informers (kube-aggregator apiserver.go:316).
@@ -147,12 +147,12 @@ pub async fn register_post_start_hooks(
     // (`local-path`) from the bundled local-path-provisioner manifest
     // (manifests/local-storage.yaml). The multi-container stacks apply exactly
     // that manifest from scripts/bootstrap-cluster.sh and set
-    // `K3RS_NO_DEFAULT_STORAGE_CLASS=1` on the api-server so two defaults never
-    // coexist. This seeded `standard` class (k3rs-only, served by the in-tree
-    // k3rs.io/hostpath provisioner) remains for the all-in-one binary, which
+    // `KUBERNETES_RS_NO_DEFAULT_STORAGE_CLASS=1` on the api-server so two defaults never
+    // coexist. This seeded `standard` class (kubernetes-rs-only, served by the in-tree
+    // kubernetes-rs.io/hostpath provisioner) remains for the all-in-one binary, which
     // has no addon bootstrap yet.
-    if std::env::var_os("K3RS_NO_DEFAULT_STORAGE_CLASS").is_none() {
-        let sc_key = k3rs_storage::build_key("storageclasses", None, "standard");
+    if std::env::var_os("KUBERNETES_RS_NO_DEFAULT_STORAGE_CLASS").is_none() {
+        let sc_key = kubernetes_rs_storage::build_key("storageclasses", None, "standard");
         if storage.get::<serde_json::Value>(&sc_key).await.is_err() {
             let storage_class = serde_json::json!({
                 "apiVersion": "storage.k8s.io/v1",
@@ -165,14 +165,14 @@ pub async fn register_post_start_hooks(
                         "storageclass.kubernetes.io/is-default-class": "true"
                     }
                 },
-                "provisioner": "k3rs.io/hostpath",
+                "provisioner": "kubernetes-rs.io/hostpath",
                 "reclaimPolicy": "Delete",
                 "volumeBindingMode": "WaitForFirstConsumer"
             });
             if let Err(e) = storage.create(&sc_key, &storage_class).await {
                 warn!("Failed to create default StorageClass: {}", e);
             } else {
-                info!("Created default StorageClass 'standard' with k3rs.io/hostpath provisioner");
+                info!("Created default StorageClass 'standard' with kubernetes-rs.io/hostpath provisioner");
             }
         }
     }

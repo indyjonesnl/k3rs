@@ -5,21 +5,23 @@ mod __parent {
     pub use axum::extract::{Extension, Request};
     pub use axum::middleware::Next;
     pub use axum::response::Response;
-    pub use k3rs_api_server::admission::builtin_plugins::new_forbidden;
-    pub use k3rs_api_server::admission::plugins::enabled;
-    pub use k3rs_api_server::registry::core::namespace;
-    pub use k3rs_api_server::registry::generic::CreateOptions;
-    pub use k3rs_api_server::registry::rest::{GroupResource, RequestContext, RestStorage};
-    pub use k3rs_common::admission::{GroupVersionKind, Operation};
-    pub use k3rs_common::resources::Namespace;
-    pub use k3rs_common::{Error, Result};
-    pub use k3rs_storage::{build_key, Storage, StorageBackend};
+    pub use kubernetes_rs_api_server::admission::builtin_plugins::new_forbidden;
+    pub use kubernetes_rs_api_server::admission::plugins::enabled;
+    pub use kubernetes_rs_api_server::registry::core::namespace;
+    pub use kubernetes_rs_api_server::registry::generic::CreateOptions;
+    pub use kubernetes_rs_api_server::registry::rest::{
+        GroupResource, RequestContext, RestStorage,
+    };
+    pub use kubernetes_rs_common::admission::{GroupVersionKind, Operation};
+    pub use kubernetes_rs_common::resources::Namespace;
+    pub use kubernetes_rs_common::{Error, Result};
+    pub use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::namespace_plugins::*;
+    use kubernetes_rs_api_server::admission::namespace_plugins::*;
 
     #[test]
     fn lifecycle_operation_is_create_update_delete_not_connect() {
@@ -100,7 +102,7 @@ mod tests {
         assert_eq!(ns.metadata.name, "test");
         assert_eq!(
             ns.status.and_then(|s| s.phase),
-            Some(k3rs_common::types::Phase::Active)
+            Some(kubernetes_rs_common::types::Phase::Active)
         );
     }
 

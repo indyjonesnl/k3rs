@@ -2,18 +2,20 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::quantity::Quantity;
-    pub use k3rs_common::resources::policy::{LimitRange, LimitRangeItem};
-    pub use k3rs_common::validation::field::{Error, ErrorList, Path};
-    pub use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
+    pub use kubernetes_rs_common::quantity::Quantity;
+    pub use kubernetes_rs_common::resources::policy::{LimitRange, LimitRangeItem};
+    pub use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::objectmeta::{
+        name_is_dns_subdomain, validate_object_meta,
+    };
     pub use std::cmp::Ordering;
     pub use std::collections::{HashMap, HashSet};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::policy::{LimitRange, LimitRangeItem, LimitRangeSpec};
-    use k3rs_common::validation::limitrange::*;
+    use kubernetes_rs_common::resources::policy::{LimitRange, LimitRangeItem, LimitRangeSpec};
+    use kubernetes_rs_common::validation::limitrange::*;
 
     fn map(pairs: &[(&str, &str)]) -> Option<HashMap<String, String>> {
         Some(
@@ -65,7 +67,7 @@ mod tests {
 
     #[test]
     fn limit_range_duplicate_type_rejected() {
-        use k3rs_common::validation::field::ErrorType;
+        use kubernetes_rs_common::validation::field::ErrorType;
         let errs = validate_limit_range(&lr(vec![item("Container"), item("Container")]));
         assert!(
             errs.iter()

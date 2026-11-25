@@ -7,8 +7,8 @@
 
 use axum::http::StatusCode;
 use futures::StreamExt;
-use k3rs_storage::Storage;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_storage::Storage;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::time::Duration;
 

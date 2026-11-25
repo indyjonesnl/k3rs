@@ -11,14 +11,14 @@ mod __parent {
     };
     pub use futures::future::BoxFuture;
     pub use futures::StreamExt;
-    pub use k3rs_api_server::registry::rest::HasMetadata;
-    pub use k3rs_api_server::{middleware::AuthContext, state::ApiServerState};
-    pub use k3rs_common::{
+    pub use kubernetes_rs_api_server::registry::rest::HasMetadata;
+    pub use kubernetes_rs_api_server::{middleware::AuthContext, state::ApiServerState};
+    pub use kubernetes_rs_common::{
         authz::{Decision, RequestAttributes},
         types::{ObjectMeta, Status},
         Error, Result,
     };
-    pub use k3rs_storage::{build_prefix, Storage, WatchEvent};
+    pub use kubernetes_rs_storage::{build_prefix, Storage, WatchEvent};
     pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
     pub use std::sync::Arc;
     pub use std::time::Duration;
@@ -28,7 +28,7 @@ mod __parent {
 }
 
 mod kind_table_tests {
-    use k3rs_api_server::handlers::watch::resource_type_to_kind_and_version;
+    use kubernetes_rs_api_server::handlers::watch::resource_type_to_kind_and_version;
 
     /// APIService must map to the correct Kind + apiVersion. The CamelCase
     /// fallback produced "Apiservice", which made client-go's APIService
@@ -51,7 +51,7 @@ mod kind_table_tests {
 }
 
 mod watch_bool_tests {
-    use k3rs_api_server::handlers::watch::{is_watch_request, parse_k8s_bool};
+    use kubernetes_rs_api_server::handlers::watch::{is_watch_request, parse_k8s_bool};
     use std::collections::HashMap;
 
     /// Kubernetes resolves `?watch=` via `runtime.Convert_Slice_string_To_bool`
@@ -111,7 +111,7 @@ mod watch_bool_tests {
     /// `?allowWatchBookmarks=1` was silently dropped rather than honoured.
     #[test]
     fn watch_params_from_query_accepts_k8s_query_bools() {
-        use k3rs_api_server::handlers::watch::watch_params_from_query;
+        use kubernetes_rs_api_server::handlers::watch::watch_params_from_query;
         for v in ["1", "true", "t", "yes", ""] {
             let mut p = HashMap::new();
             p.insert("allowWatchBookmarks".to_string(), v.to_string());
@@ -146,7 +146,7 @@ mod watch_bool_tests {
 
     #[test]
     fn watch_params_accepts_k8s_query_bools() {
-        use k3rs_api_server::handlers::watch::WatchParams;
+        use kubernetes_rs_api_server::handlers::watch::WatchParams;
         // The typed Query<WatchParams> path (services, endpoints,
         // endpointslices -- 53 call sites) deserialized `watch` as a strict
         // Rust bool, so `?watch=1` was rejected outright with
@@ -212,9 +212,9 @@ mod watch_bool_tests {
 /// the assertions stay timing-free.
 mod selector_transition_tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::watch::*;
-    use k3rs_common::resources::CustomResource;
-    use k3rs_common::types::ObjectMeta;
+    use kubernetes_rs_api_server::handlers::watch::*;
+    use kubernetes_rs_common::resources::CustomResource;
+    use kubernetes_rs_common::types::ObjectMeta;
     use std::collections::HashSet;
 
     /// A custom resource with a top-level selectable field `color`, matching the

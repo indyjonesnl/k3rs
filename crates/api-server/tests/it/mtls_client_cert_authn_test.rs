@@ -19,15 +19,15 @@
 
 use std::sync::Arc;
 
-use k3rs_api_server::peer_cert_acceptor::PeerCertAcceptor;
-use k3rs_api_server::router::build_router;
-use k3rs_api_server::state::ApiServerState;
-use k3rs_common::auth::{ServiceAccountClaims, TokenManager};
-use k3rs_common::authz::AlwaysAllowAuthorizer;
-use k3rs_common::observability::MetricsRegistry;
-use k3rs_common::tls::TlsConfig;
-use k3rs_storage::memory::MemoryStorage;
-use k3rs_storage::{build_key, Storage, StorageBackend};
+use kubernetes_rs_api_server::peer_cert_acceptor::PeerCertAcceptor;
+use kubernetes_rs_api_server::router::build_router;
+use kubernetes_rs_api_server::state::ApiServerState;
+use kubernetes_rs_common::auth::{ServiceAccountClaims, TokenManager};
+use kubernetes_rs_common::authz::AlwaysAllowAuthorizer;
+use kubernetes_rs_common::observability::MetricsRegistry;
+use kubernetes_rs_common::tls::TlsConfig;
+use kubernetes_rs_storage::memory::MemoryStorage;
+use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
 use rcgen::{BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair};
 use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use serde_json::{json, Value};
@@ -54,7 +54,7 @@ impl TestCa {
         params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         params
             .distinguished_name
-            .push(DnType::CommonName, "k3rs-test-ca");
+            .push(DnType::CommonName, "kubernetes-rs-test-ca");
         let key = KeyPair::generate().unwrap();
         let cert = params.self_signed(&key).unwrap();
         Self { cert, key }
@@ -132,7 +132,12 @@ async fn mtls_client_cert_resolves_user_anonymous_and_token() {
     let ca_pem = ca.cert.pem();
 
     // Server leaf valid for 127.0.0.1, and a client leaf CN=test-user/O=test-group.
-    let server = ca.issue("k3rs-apiserver", &[], vec!["127.0.0.1".to_string()], false);
+    let server = ca.issue(
+        "kubernetes-rs-apiserver",
+        &[],
+        vec!["127.0.0.1".to_string()],
+        false,
+    );
     let client = ca.issue("test-user", &["test-group"], vec![], true);
 
     // Real mTLS server config via the production path. The CA must be a file

@@ -1,12 +1,12 @@
 [package]
-name = "k3rs-kube-proxy"
+name = "kubernetes-rs-kube-proxy"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [lib]
-name = "k3rs_kube_proxy"
+name = "kubernetes_rs_kube_proxy"
 path = "src/lib.rs"
 
 [[bin]]
@@ -16,16 +16,16 @@ path = "src/main.rs"
 [features]
 mimalloc = ["dep:mimalloc"]
 default = []
-sqlite = ["k3rs-storage/sqlite"]
-redis = ["k3rs-storage/redis"]
+sqlite = ["kubernetes-rs-storage/sqlite"]
+redis = ["kubernetes-rs-storage/redis"]
 
 [dependencies]
 mimalloc = { version = "0.1", optional = true }
-k3rs-common = { path = "../common", features = ["axum-support", "clap-support"] }
+kubernetes-rs-common = { path = "../common", features = ["axum-support", "clap-support"] }
 # api-client: StorageBackend::Api + the shared ApiStorage adapter (now lives in
 # the storage crate; resolves the old controller-manager dependency, #1146).
-k3rs-storage = { path = "../storage", features = ["api-client"] }
-k3rs-client = { path = "../client" }
+kubernetes-rs-storage = { path = "../storage", features = ["api-client"] }
+kubernetes-rs-client = { path = "../client" }
 tokio.workspace = true
 axum.workspace = true
 anyhow.workspace = true
@@ -48,4 +48,4 @@ serial_test = { workspace = true }
 # Integration tests drive the Endpoints/EndpointSlice controllers to populate
 # state kube-proxy then programs. (The lib no longer depends on it — ApiStorage
 # now lives in the storage crate.)
-k3rs-controller-manager = { path = "../controller-manager" }
+kubernetes-rs-controller-manager = { path = "../controller-manager" }

@@ -2,25 +2,25 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::admission_webhook::{
+    pub use kubernetes_rs_common::resources::admission_webhook::{
         FailurePolicy, LabelSelector as WebhookLabelSelector, MatchCondition, MatchPolicy,
         MutatingWebhook, MutatingWebhookConfiguration, ReinvocationPolicy, RuleWithOperations,
         SideEffectClass, ValidatingWebhook, ValidatingWebhookConfiguration,
     };
-    pub use k3rs_common::resources::WebhookClientConfig;
-    pub use k3rs_common::validation::field::{Error, ErrorList, Path};
-    pub use k3rs_common::validation::metav1::{
+    pub use kubernetes_rs_common::resources::WebhookClientConfig;
+    pub use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::metav1::{
         is_dns1035_label, is_dns1123_subdomain, validate_label_selector,
         LabelSelectorValidationOptions,
     };
-    pub use k3rs_common::validation::validating_admission_policy::validate_match_conditions;
-    pub use k3rs_common::validation::validating_admission_policy::PreexistingExpressions;
+    pub use kubernetes_rs_common::validation::validating_admission_policy::validate_match_conditions;
+    pub use kubernetes_rs_common::validation::validating_admission_policy::PreexistingExpressions;
     pub use std::collections::HashSet;
 }
 
 mod deep_validation_tests {
     use super::__parent::*;
-    use k3rs_common::validation::webhookconfiguration::*;
+    use kubernetes_rs_common::validation::webhookconfiguration::*;
 
     fn p() -> Path {
         Path::new("clientConfig")
@@ -104,7 +104,7 @@ mod deep_validation_tests {
 
 mod match_condition_update_tests {
     use super::__parent::*;
-    use k3rs_common::validation::webhookconfiguration::*;
+    use kubernetes_rs_common::validation::webhookconfiguration::*;
     use serde_json::json;
 
     fn config(conditions: serde_json::Value) -> ValidatingWebhookConfiguration {

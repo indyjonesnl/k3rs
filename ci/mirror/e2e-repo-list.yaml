@@ -3,7 +3,7 @@
 # --test-repo-list, which mounts it into the conformance pod and sets
 # KUBE_TEST_REPO_LIST (hydrophone pkg/conformance/deploy.go); e2e.test reads it in
 # test/utils/image/manifest.go (readRepoList / RegistryList, kubernetes
-# release-1.35). Mirror path = ghcr.io/indyjonesnl/rusternetes/mirror/<path
+# release-1.35). Mirror path = ghcr.io/indyjonesnl/kubernetes-rs/mirror/<path
 # under registry.k8s.io>, so each key keeps its upstream suffix.
 #
 # Redirected: promoterE2eRegistry, buildImageRegistry, gcEtcdRegistry,
@@ -12,9 +12,9 @@
 # private authenticated-registry and invalid-registry images, which tests use to
 # exercise pull failures / credentials and are not mirrorable, and
 # dockerLibraryRegistry (docker.io/library).
-promoterE2eRegistry: ghcr.io/indyjonesnl/rusternetes/mirror/e2e-test-images
-buildImageRegistry: ghcr.io/indyjonesnl/rusternetes/mirror/build-image
-gcEtcdRegistry: ghcr.io/indyjonesnl/rusternetes/mirror
-gcRegistry: ghcr.io/indyjonesnl/rusternetes/mirror
-sigStorageRegistry: ghcr.io/indyjonesnl/rusternetes/mirror/sig-storage
-cloudProviderGcpRegistry: ghcr.io/indyjonesnl/rusternetes/mirror/cloud-provider-gcp
+promoterE2eRegistry: ghcr.io/indyjonesnl/kubernetes-rs/mirror/e2e-test-images
+buildImageRegistry: ghcr.io/indyjonesnl/kubernetes-rs/mirror/build-image
+gcEtcdRegistry: ghcr.io/indyjonesnl/kubernetes-rs/mirror
+gcRegistry: ghcr.io/indyjonesnl/kubernetes-rs/mirror
+sigStorageRegistry: ghcr.io/indyjonesnl/kubernetes-rs/mirror/sig-storage
+cloudProviderGcpRegistry: ghcr.io/indyjonesnl/kubernetes-rs/mirror/cloud-provider-gcp

@@ -1,6 +1,6 @@
 # TLS/HTTPS Configuration Guide
 
-The k3rs API server supports HTTPS with TLS 1.3, self-signed or custom certificates, and mutual TLS (mTLS) for client certificate authentication.
+The kubernetes-rs API server supports HTTPS with TLS 1.3, self-signed or custom certificates, and mutual TLS (mTLS) for client certificate authentication.
 
 > **Tip:** The [web console](CONSOLE_USER_GUIDE.md) is also served over TLS at `https://localhost:6443/console/`. For authentication beyond TLS, see [AUTHENTICATION.md](AUTHENTICATION.md).
 
@@ -17,8 +17,8 @@ The cluster is configured with auto-generated self-signed certificates:
 - **Protocol:** TLS 1.3
 - **Cipher:** AEAD-CHACHA20-POLY1305-SHA256
 - **Certificate Type:** Self-signed (generated at startup)
-- **Subject:** CN=k3rs-api; O=k3rs; C=US
-- **SANs:** localhost, 127.0.0.1, api-server, k3rs-api-server
+- **Subject:** CN=kubernetes-rs-api; O=kubernetes-rs; C=US
+- **SANs:** localhost, 127.0.0.1, api-server, kubernetes-rs-api-server
 
 ### Configuration in docker-compose.yml
 
@@ -28,7 +28,7 @@ api-server:
     - "--tls"                    # Enable TLS
     - "--tls-self-signed"        # Auto-generate self-signed cert
     - "--tls-san"                # Subject Alternative Names
-    - "localhost,127.0.0.1,api-server,k3rs-api-server"
+    - "localhost,127.0.0.1,api-server,kubernetes-rs-api-server"
 ```
 
 ## Connecting to the API Server
@@ -110,7 +110,7 @@ openssl genrsa -out tls.key 2048
 
 # Generate certificate signing request
 openssl req -new -key tls.key -out tls.csr \
-  -subj "/CN=k3rs-api/O=k3rs/C=US"
+  -subj "/CN=kubernetes-rs-api/O=kubernetes-rs/C=US"
 
 # Generate self-signed certificate
 openssl x509 -req -in tls.csr -signkey tls.key -out tls.crt \
@@ -133,7 +133,7 @@ cat > ca-config.json <<EOF
       "expiry": "8760h"
     },
     "profiles": {
-      "k3rs": {
+      "kubernetes-rs": {
         "usages": ["signing", "key encipherment", "server auth"],
         "expiry": "8760h"
       }
@@ -145,19 +145,19 @@ EOF
 # Create certificate request
 cat > api-server-csr.json <<EOF
 {
-  "CN": "k3rs-api",
+  "CN": "kubernetes-rs-api",
   "hosts": [
     "localhost",
     "127.0.0.1",
     "api-server",
-    "k3rs-api-server"
+    "kubernetes-rs-api-server"
   ],
   "key": {
     "algo": "rsa",
     "size": 2048
   },
   "names": [{
-    "O": "k3rs",
+    "O": "kubernetes-rs",
     "C": "US"
   }]
 }
@@ -169,7 +169,7 @@ cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
   -config=ca-config.json \
-  -profile=k3rs \
+  -profile=kubernetes-rs \
   api-server-csr.json | cfssljson -bare api-server
 ```
 
@@ -297,7 +297,7 @@ When TLS is enabled, the API server logs:
 ```
 INFO TLS enabled - starting HTTPS server
 WARN Generating self-signed certificate - NOT suitable for production!
-INFO Self-signed cert SANs: ["localhost", "127.0.0.1", "api-server", "k3rs-api-server"]
+INFO Self-signed cert SANs: ["localhost", "127.0.0.1", "api-server", "kubernetes-rs-api-server"]
 INFO HTTPS server listening on 0.0.0.0:6443
 ```
 
@@ -344,7 +344,7 @@ For client authentication, you can extend the API server to require client certi
 
 ## Summary
 
-✅ **TLS is now enabled** in the k3rs development environment
+✅ **TLS is now enabled** in the kubernetes-rs development environment
 ✅ **Self-signed certificates** are auto-generated for convenience
 ✅ **TLS 1.3** provides modern, secure encryption
 ✅ **Easy to upgrade** to production certificates

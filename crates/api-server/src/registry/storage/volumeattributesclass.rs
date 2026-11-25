@@ -4,12 +4,12 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::csi::VolumeAttributesClass;
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::volumeattributesclass::{
+use kubernetes_rs_common::resources::csi::VolumeAttributesClass;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::volumeattributesclass::{
     validate_volume_attributes_class, validate_volume_attributes_class_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

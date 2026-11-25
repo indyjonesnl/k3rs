@@ -19,16 +19,16 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use k3rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
-use k3rs_common::resources::validating_admission_policy::{
+use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
+use kubernetes_rs_common::resources::validating_admission_policy::{
     MatchPolicyType, MatchResources, NamedRuleWithOperations, OperationType, RuleWithOperations,
 };
-use k3rs_common::resources::{LabelSelector, LabelSelectorOperator};
-use k3rs_common::types::{
+use kubernetes_rs_common::resources::{LabelSelector, LabelSelectorOperator};
+use kubernetes_rs_common::types::{
     label_selector_as_selector, LabelSelector as MetaLabelSelector,
     LabelSelectorRequirement as MetaLabelSelectorRequirement, Selector,
 };
-use k3rs_common::{Error, Result};
+use kubernetes_rs_common::{Error, Result};
 use serde_json::Value;
 
 /// The part of `admission.Attributes` the matchers read.
@@ -45,7 +45,7 @@ pub struct Attributes {
     pub object: Option<Value>,
     pub old_object: Option<Value>,
     /// `GetUserInfo`; `None` is upstream's nil `user.Info`.
-    pub user_info: Option<k3rs_common::auth::UserInfo>,
+    pub user_info: Option<kubernetes_rs_common::auth::UserInfo>,
     /// `IsDryRun`.
     pub dry_run: bool,
     /// `GetOperationOptions` (the `CreateOptions`/`UpdateOptions`/

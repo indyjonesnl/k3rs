@@ -2,26 +2,26 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::abac::PolicyList;
-    pub use k3rs_api_server::authorization_config::{
+    pub use kubernetes_rs_api_server::abac::PolicyList;
+    pub use kubernetes_rs_api_server::authorization_config::{
         name_for_authorizer_mode, AuthorizationConfiguration, AuthorizerConfiguration,
     };
-    pub use k3rs_api_server::authorization_reload::ChainBuilder;
-    pub use k3rs_common::authz::{
+    pub use kubernetes_rs_api_server::authorization_reload::ChainBuilder;
+    pub use kubernetes_rs_common::authz::{
         node_graph::NodeGraph, superuser_then, AlwaysAllowAuthorizer, AlwaysDenyAuthorizer,
         Authorizer, AuthzStorage, NodeAuthorizer, NodeAuthorizerFeatures, RBACAuthorizer,
     };
-    pub use k3rs_storage::Storage;
+    pub use kubernetes_rs_storage::Storage;
     pub use std::path::Path;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::authorizer::*;
-    use k3rs_common::auth::UserInfo;
-    use k3rs_common::authz::{Decision, RequestAttributes};
-    use k3rs_storage::MemoryStorage;
+    use kubernetes_rs_api_server::authorizer::*;
+    use kubernetes_rs_common::auth::UserInfo;
+    use kubernetes_rs_common::authz::{Decision, RequestAttributes};
+    use kubernetes_rs_storage::MemoryStorage;
 
     fn user(name: &str, groups: &[&str]) -> UserInfo {
         UserInfo {
@@ -387,7 +387,7 @@ mod tests {
 
     mod args {
         use clap::{CommandFactory, FromArgMatches, Parser};
-        use k3rs_api_server::authorizer::AuthorizationArgs;
+        use kubernetes_rs_api_server::authorizer::AuthorizationArgs;
 
         #[derive(Parser, Debug)]
         struct Wrap {

@@ -8,9 +8,11 @@
 //! `migratedPlugins`) and `UpdateCSIDriver`.
 
 use async_trait::async_trait;
-use k3rs_common::resources::{CSINode, CSINodeDriver, CSINodeSpec, Node, VolumeNodeResources};
-use k3rs_common::types::{ObjectMeta, OwnerReference, TypeMeta};
-use k3rs_storage::{build_key, Storage};
+use kubernetes_rs_common::resources::{
+    CSINode, CSINodeDriver, CSINodeSpec, Node, VolumeNodeResources,
+};
+use kubernetes_rs_common::types::{ObjectMeta, OwnerReference, TypeMeta};
+use kubernetes_rs_storage::{build_key, Storage};
 use sha1::{Digest, Sha1};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
@@ -206,7 +208,9 @@ impl<S: Storage> NodeInfoManager<S> {
                 .map_err(|e| e.to_string())?;
             *self.node_uid.lock().unwrap() = node.metadata.uid.clone();
             match self.storage.get::<CSINode>(&self.csinode_key()).await {
-                Err(k3rs_common::Error::NotFound(_)) => self.create_csi_node().await.map(|_| ()),
+                Err(kubernetes_rs_common::Error::NotFound(_)) => {
+                    self.create_csi_node().await.map(|_| ())
+                }
                 Err(e) => Err(e.to_string()),
                 Ok(mut info) => {
                     self.ensure_node_owns_csi_node(&info).await?;
@@ -259,7 +263,7 @@ impl<S: Storage> NodeInfoManager<S> {
         // server is reachable.
         loop {
             match self.storage.get::<CSINode>(&self.csinode_key()).await {
-                Ok(_) | Err(k3rs_common::Error::NotFound(_)) => break,
+                Ok(_) | Err(kubernetes_rs_common::Error::NotFound(_)) => break,
                 Err(e) => {
                     tracing::debug!(
                         "Failed to contact API server when waiting for CSINode publishing: {e}"
@@ -427,7 +431,7 @@ impl<S: Storage> NodeInfoManager<S> {
             let _g = self.lock.lock().await;
             let info = match self.storage.get::<CSINode>(&self.csinode_key()).await {
                 Ok(i) => i,
-                Err(k3rs_common::Error::NotFound(_)) => self.create_csi_node().await?,
+                Err(kubernetes_rs_common::Error::NotFound(_)) => self.create_csi_node().await?,
                 Err(e) => return Err(e.to_string()),
             };
             self.ensure_node_owns_csi_node(&info).await?;
@@ -522,7 +526,7 @@ impl<S: Storage> NodeInfoManager<S> {
             let _g = self.lock.lock().await;
             let mut info = match self.storage.get::<CSINode>(&self.csinode_key()).await {
                 Ok(i) => i,
-                Err(k3rs_common::Error::NotFound(_)) => return Ok(()),
+                Err(kubernetes_rs_common::Error::NotFound(_)) => return Ok(()),
                 Err(e) => return Err(e.to_string()),
             };
             let before = info.spec.drivers.len();

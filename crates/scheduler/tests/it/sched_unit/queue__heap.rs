@@ -7,7 +7,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_scheduler::queue::heap::*;
+    use kubernetes_rs_scheduler::queue::heap::*;
 
     fn int_heap() -> Heap<(String, i64)> {
         Heap::new(

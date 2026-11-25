@@ -3,13 +3,13 @@
 
 mod __parent {
     pub use cel::common::ast::{operators, EntryExpr, Expr, IdedExpr, LiteralValue};
-    pub use k3rs_common::cel_dra_decls::{self, DType};
+    pub use kubernetes_rs_common::cel_dra_decls::{self, DType};
     pub use std::collections::HashMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::cel_dra::*;
+    use kubernetes_rs_common::cel_dra::*;
 
     fn invalid(x: &str) -> Option<String> {
         match compile_selector(x) {

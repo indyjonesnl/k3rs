@@ -11,8 +11,8 @@
 //! (schema/objectmeta/coerce.go:94-131).
 
 use axum::http::StatusCode;
-use k3rs_storage::{build_key, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_storage::{build_key, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const GROUP: &str = "stable.example.com";

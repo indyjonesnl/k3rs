@@ -33,14 +33,14 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::StreamExt;
-use k3rs_common::resources::storageversionmigration::{
+use kubernetes_rs_common::resources::storageversionmigration::{
     StorageVersionMigration, MIGRATION_FAILED, MIGRATION_SUCCEEDED,
 };
-use k3rs_discovery::restmapper::{
+use kubernetes_rs_discovery::restmapper::{
     new_discovery_rest_mapper, served_group_resources, served_resources_for_group_version, Gvr,
     PriorityRestMapper, ServedResource,
 };
-use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WatchEvent, WorkQueue};
+use kubernetes_rs_storage::{build_key, build_prefix, extract_key, Storage, WatchEvent, WorkQueue};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
@@ -248,7 +248,7 @@ impl<S: Storage + 'static> ResourceVersionController<S> {
         let mut svm: StorageVersionMigration = match self.storage.get(&skey).await {
             Ok(s) => s,
             // no work to do, don't fail and requeue
-            Err(k3rs_common::Error::NotFound(_)) => return Ok(()),
+            Err(kubernetes_rs_common::Error::NotFound(_)) => return Ok(()),
             Err(e) => return Err(e.into()),
         };
         let gr = svm.spec.resource.clone();

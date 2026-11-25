@@ -2,19 +2,21 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::deployment::{DeploymentStrategy, RollingUpdateDeployment};
-    pub use k3rs_common::resources::policy::IntOrString;
-    pub use k3rs_common::resources::workloads::{
+    pub use kubernetes_rs_common::resources::deployment::{
+        DeploymentStrategy, RollingUpdateDeployment,
+    };
+    pub use kubernetes_rs_common::resources::policy::IntOrString;
+    pub use kubernetes_rs_common::resources::workloads::{
         DaemonSetUpdateStrategy, RollingUpdateDaemonSet, RollingUpdateStatefulSetStrategy,
         StatefulSetUpdateStrategy,
     };
-    pub use k3rs_common::resources::PodSpec;
+    pub use kubernetes_rs_common::resources::PodSpec;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::handlers::defaults::*;
-    use k3rs_common::resources::{Container, PodSpec, PodTemplateSpec};
+    use kubernetes_rs_api_server::handlers::defaults::*;
+    use kubernetes_rs_common::resources::{Container, PodSpec, PodTemplateSpec};
 
     #[test]
     fn defaults_env_field_ref_api_version_to_v1() {
@@ -68,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_ephemeral_container_defaults() {
-        use k3rs_common::resources::pod::EphemeralContainer;
+        use kubernetes_rs_common::resources::pod::EphemeralContainer;
         let mut spec = PodSpec {
             containers: vec![Container {
                 name: "app".to_string(),
@@ -136,7 +138,7 @@ mod tests {
     /// over the protobuf wire — zero values are still emitted). Upstream
     /// `SetDefaults_PodSpec` checks `if obj.SchedulerName == ""`, so an
     /// empty string is also defaulted to `v1.DefaultSchedulerName`. The
-    /// k3rs check used `Option::is_none()` only and missed
+    /// kubernetes-rs check used `Option::is_none()` only and missed
     /// `Some("")`, which made the scheduler silently skip such pods
     /// (their canonical name stayed `""` ≠ `"default-scheduler"`).
     /// Surfaced via hydrophone after PR #134.
@@ -220,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_probe_defaults() {
-        use k3rs_common::resources::pod::{HTTPGetAction, Probe};
+        use kubernetes_rs_common::resources::pod::{HTTPGetAction, Probe};
 
         let mut spec = PodSpec {
             containers: vec![Container {
@@ -229,7 +231,7 @@ mod tests {
                 liveness_probe: Some(Probe {
                     http_get: Some(HTTPGetAction {
                         path: Some("/health".to_string()),
-                        port: k3rs_common::resources::IntOrString::Int(8080),
+                        port: kubernetes_rs_common::resources::IntOrString::Int(8080),
                         host: None,
                         scheme: None,
                         http_headers: None,
@@ -312,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_volume_default_mode_applied() {
-        use k3rs_common::resources::pod::Volume;
+        use kubernetes_rs_common::resources::pod::Volume;
         let mut spec = PodSpec {
             containers: vec![],
             volumes: Some(vec![
@@ -405,7 +407,7 @@ mod tests {
 
     #[test]
     fn test_http_get_path_scheme_defaults() {
-        use k3rs_common::resources::pod::{Container, Lifecycle, LifecycleHandler, Probe};
+        use kubernetes_rs_common::resources::pod::{Container, Lifecycle, LifecycleHandler, Probe};
         let mut c: Container = serde_json::from_value(serde_json::json!({
             "name": "c", "image": "busybox",
             "livenessProbe": {"httpGet": {"port": 8080}},
@@ -431,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_job_pod_replacement_policy_default() {
-        use k3rs_common::resources::Job;
+        use kubernetes_rs_common::resources::Job;
         // No podFailurePolicy -> TerminatingOrFailed.
         let mut job: Job = serde_json::from_value(serde_json::json!({
             "metadata": {"name": "j"},

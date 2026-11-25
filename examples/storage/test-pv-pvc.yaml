@@ -11,7 +11,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: manual
   hostPath:
-    path: /tmp/k3rs-pv-data
+    path: /tmp/kubernetes-rs-pv-data
     type: DirectoryOrCreate
 ---
 # PersistentVolumeClaim

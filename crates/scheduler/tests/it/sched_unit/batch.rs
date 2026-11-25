@@ -6,14 +6,14 @@
 //! `Framework::sign_pod` and the one-pod-per-node Filter is NodePorts: a pod
 //! with `hostPort: 80` is blocking, a pod without host ports is not.
 use super::listers::EmptyListers;
-use k3rs_common::resources::{Node, Pod};
-use k3rs_scheduler::diagnosis::Diagnosis;
-use k3rs_scheduler::framework_runtime::Framework;
-use k3rs_scheduler::fwk::CycleState;
-use k3rs_scheduler::scheduler::Scheduler;
-use k3rs_scheduler::scheduler_config::profiles_from_config;
-use k3rs_scheduler::score::SortedNodeScores;
-use k3rs_storage::memory::MemoryStorage;
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_scheduler::diagnosis::Diagnosis;
+use kubernetes_rs_scheduler::framework_runtime::Framework;
+use kubernetes_rs_scheduler::fwk::CycleState;
+use kubernetes_rs_scheduler::scheduler::Scheduler;
+use kubernetes_rs_scheduler::scheduler_config::profiles_from_config;
+use kubernetes_rs_scheduler::score::SortedNodeScores;
+use kubernetes_rs_storage::memory::MemoryStorage;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -262,7 +262,7 @@ async fn batch_basic() {
 /// `maxBatchAge`: a state older than 500ms is thrown away.
 #[tokio::test]
 async fn expired_state_gives_no_hint() {
-    use k3rs_scheduler::batch::{OpportunisticBatch, Precheck, MAX_BATCH_AGE};
+    use kubernetes_rs_scheduler::batch::{OpportunisticBatch, Precheck, MAX_BATCH_AGE};
     assert_eq!(MAX_BATCH_AGE, std::time::Duration::from_millis(500));
     let batch = OpportunisticBatch::default();
     batch.store_schedule_results(Some(b"sig".to_vec()), "", "n3", Some(sorted(&["n1"])), 1);

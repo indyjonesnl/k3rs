@@ -11,8 +11,8 @@ mod __parent {
 mod tests {
     use super::__parent::*;
     use ipnet::IpNet;
-    use k3rs_controller_manager::controllers::cidrset_metrics::*;
-    use k3rs_controller_manager::controllers::node_ipam::CidrSet;
+    use kubernetes_rs_controller_manager::controllers::cidrset_metrics::*;
+    use kubernetes_rs_controller_manager::controllers::node_ipam::CidrSet;
 
     fn line(label: &str, name: &str) -> Option<f64> {
         let want = format!("node_ipam_controller_{name}{{clusterCIDR=\"{label}\"");

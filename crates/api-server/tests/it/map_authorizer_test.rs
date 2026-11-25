@@ -8,17 +8,19 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use k3rs_api_server::admission::policy_apply_config::ApplyConfigPatcher;
-use k3rs_api_server::admission::policy_json_patch::JsonPatcher;
-use k3rs_api_server::admission::policy_matching::Attributes;
-use k3rs_api_server::admission::policy_mutating::{PatchRequest, Patcher, VersionedAttributes};
-use k3rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{
+use kubernetes_rs_api_server::admission::policy_apply_config::ApplyConfigPatcher;
+use kubernetes_rs_api_server::admission::policy_json_patch::JsonPatcher;
+use kubernetes_rs_api_server::admission::policy_matching::Attributes;
+use kubernetes_rs_api_server::admission::policy_mutating::{
+    PatchRequest, Patcher, VersionedAttributes,
+};
+use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{
     AlwaysAllowAuthorizer, AlwaysDenyAuthorizer, Authorizer, Decision, RequestAttributes,
     UserRulesOutcome,
 };
-use k3rs_common::cel_cost::RUNTIME_CEL_COST_BUDGET;
+use kubernetes_rs_common::cel_cost::RUNTIME_CEL_COST_BUDGET;
 use serde_json::{json, Value};
 
 /// Allows everything and records what it was asked.
@@ -27,7 +29,7 @@ struct Recording(Mutex<Vec<RequestAttributes>>);
 
 #[async_trait]
 impl Authorizer for Recording {
-    async fn authorize(&self, attrs: &RequestAttributes) -> k3rs_common::Result<Decision> {
+    async fn authorize(&self, attrs: &RequestAttributes) -> kubernetes_rs_common::Result<Decision> {
         self.0.lock().unwrap().push(attrs.clone());
         Ok(Decision::Allow)
     }
@@ -36,7 +38,7 @@ impl Authorizer for Recording {
         &self,
         _user: &UserInfo,
         _namespace: &str,
-    ) -> k3rs_common::Result<UserRulesOutcome> {
+    ) -> kubernetes_rs_common::Result<UserRulesOutcome> {
         Ok(UserRulesOutcome::default())
     }
 }

@@ -2,25 +2,25 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GarbageCollectionPolicy, GroupResource, NamespaceScopedStrategy, RequestContext,
         RestCreateStrategy, RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_api_server::ssa::{apply_legacy, ApplyError, ApplyOptions, ApplyOutcome};
-    pub use k3rs_common::resources::{Event, EventV1};
-    pub use k3rs_common::validation::events::{
+    pub use kubernetes_rs_api_server::ssa::{apply_legacy, ApplyError, ApplyOptions, ApplyOutcome};
+    pub use kubernetes_rs_common::resources::{Event, EventV1};
+    pub use kubernetes_rs_common::validation::events::{
         validate_event_create, validate_event_update, RequestVersion,
     };
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_storage::event_recorder::DEFAULT_EVENT_TTL_SECONDS;
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_storage::event_recorder::DEFAULT_EVENT_TTL_SECONDS;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::core::event::*;
+    use kubernetes_rs_api_server::registry::core::event::*;
 
     fn ctx(group: &str, version: &str) -> RequestContext {
         RequestContext::new(Some("default")).with_group_version(group, version)
@@ -32,7 +32,7 @@ mod tests {
     fn the_event_store_expires_every_write_after_the_event_ttl() {
         let store = new_store(
             Arc::new(StorageBackend::Memory(Arc::new(
-                k3rs_storage::MemoryStorage::new(),
+                kubernetes_rs_storage::MemoryStorage::new(),
             ))),
             DEFAULT_EVENT_TTL_SECONDS,
         );

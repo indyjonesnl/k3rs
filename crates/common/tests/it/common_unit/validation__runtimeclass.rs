@@ -2,22 +2,22 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::quantity::Quantity;
-    pub use k3rs_common::resources::pod::Toleration;
-    pub use k3rs_common::resources::runtimeclass::{Overhead, Scheduling};
-    pub use k3rs_common::resources::RuntimeClass;
-    pub use k3rs_common::validation::field::{Error, ErrorList, Path};
-    pub use k3rs_common::validation::metav1::{
+    pub use kubernetes_rs_common::quantity::Quantity;
+    pub use kubernetes_rs_common::resources::pod::Toleration;
+    pub use kubernetes_rs_common::resources::runtimeclass::{Overhead, Scheduling};
+    pub use kubernetes_rs_common::resources::RuntimeClass;
+    pub use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::metav1::{
         is_dns1123_label, is_qualified_name, validate_labels,
     };
-    pub use k3rs_common::validation::pod::validate_tolerations;
+    pub use kubernetes_rs_common::validation::pod::validate_tolerations;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::pod::Toleration;
-    use k3rs_common::validation::field::ErrorType;
-    use k3rs_common::validation::runtimeclass::*;
+    use kubernetes_rs_common::resources::pod::Toleration;
+    use kubernetes_rs_common::validation::field::ErrorType;
+    use kubernetes_rs_common::validation::runtimeclass::*;
     use std::collections::HashMap;
 
     fn tol(key: &str, op: &str, val: &str, effect: &str) -> Toleration {

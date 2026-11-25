@@ -24,8 +24,8 @@
 //! this returns.
 
 use super::events::*;
-use k3rs_common::resources::{Node, Pod};
-use k3rs_common::types::{
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_common::types::{
     label_selector_as_selector, LabelSelector, LabelSelectorRequirement, Selector,
 };
 use std::collections::HashMap;

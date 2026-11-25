@@ -1,18 +1,18 @@
-//! Map CRI container status onto k3rs [`ContainerStatus`].
+//! Map CRI container status onto kubernetes-rs [`ContainerStatus`].
 //!
 //! Pure translation in the other direction from [`super::translate`]: the
 //! runtime reports a `runtime.v1::ContainerStatus`, and the kubelet's pod-status
-//! machinery wants a k3rs `ContainerStatus`. Readiness/started here are
+//! machinery wants a kubernetes-rs `ContainerStatus`. Readiness/started here are
 //! derived purely from the runtime state; the kubelet overlays probe results on
 //! top.
 
-use k3rs_common::quantity::{Format, Quantity};
-use k3rs_common::resources::pod::{
+use kubernetes_rs_common::quantity::{Format, Quantity};
+use kubernetes_rs_common::resources::pod::{
     Container, ContainerState, ContainerStateRunning, ContainerStateTerminated,
     ContainerStateWaiting, ContainerStatus,
 };
-use k3rs_common::types::ResourceRequirements;
-use k3rs_cri::v1;
+use kubernetes_rs_common::types::ResourceRequirements;
+use kubernetes_rs_cri::v1;
 use std::collections::HashMap;
 
 /// The CFS constants live next to the forward conversion in [`super::translate`]
@@ -313,7 +313,7 @@ fn non_empty(s: String) -> Option<String> {
     }
 }
 
-/// Map the CRI runtime state into a k3rs [`ContainerState`].
+/// Map the CRI runtime state into a kubernetes-rs [`ContainerState`].
 fn map_state(cri: &v1::ContainerStatus) -> ContainerState {
     match v1::ContainerState::try_from(cri.state).unwrap_or(v1::ContainerState::ContainerUnknown) {
         v1::ContainerState::ContainerCreated => ContainerState {
@@ -351,7 +351,7 @@ fn map_state(cri: &v1::ContainerStatus) -> ContainerState {
     }
 }
 
-/// Translate a CRI [`ContainerStatus`](v1::ContainerStatus) into a k3rs
+/// Translate a CRI [`ContainerStatus`](v1::ContainerStatus) into a kubernetes-rs
 /// one. `ready`/`started` reflect the runtime RUNNING state only; the kubelet
 /// applies probe results afterwards.
 ///

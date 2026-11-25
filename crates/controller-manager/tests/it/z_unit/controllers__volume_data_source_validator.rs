@@ -3,10 +3,10 @@
 
 mod __parent {
     pub use anyhow::Result;
-    pub use k3rs_common::resources::service_account::ObjectReference;
-    pub use k3rs_common::resources::{EventSource, EventType, PersistentVolumeClaim};
-    pub use k3rs_controller_manager::controllers::worker_pool::spawn_workers;
-    pub use k3rs_storage::{
+    pub use kubernetes_rs_common::resources::service_account::ObjectReference;
+    pub use kubernetes_rs_common::resources::{EventSource, EventType, PersistentVolumeClaim};
+    pub use kubernetes_rs_controller_manager::controllers::worker_pool::spawn_workers;
+    pub use kubernetes_rs_storage::{
         build_key, build_prefix, extract_key, EventRecorder, Storage, WorkQueue,
     };
     pub use serde_json::Value;
@@ -17,7 +17,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_controller_manager::controllers::volume_data_source_validator::*;
+    use kubernetes_rs_controller_manager::controllers::volume_data_source_validator::*;
     use serde_json::json;
 
     fn populator(group: &str, kind: &str) -> Value {

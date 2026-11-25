@@ -4,7 +4,7 @@
 // and processing their responses.
 
 pub mod admission_metrics;
-pub use k3rs_common::cancellation;
+pub use kubernetes_rs_common::cancellation;
 pub mod cel_evaluators;
 pub mod service_resolver;
 pub mod transport;
@@ -18,8 +18,8 @@ mod vap_authorizer_tests;
 mod vap_cost_budget_tests;
 
 use cancellation::{current_request_cancellation, RequestCancellation};
-use k3rs_common::latency_trackers::latency_trackers_from_context;
-use k3rs_common::{
+use kubernetes_rs_common::latency_trackers::latency_trackers_from_context;
+use kubernetes_rs_common::{
     admission::{
         AdmissionResponse, AdmissionReview, AdmissionReviewRequest, AdmissionReviewResponse,
         GroupVersionKind, GroupVersionResource, Operation, PatchOperation, UserInfo,
@@ -31,7 +31,7 @@ use k3rs_common::{
     },
     Result,
 };
-use k3rs_storage::Storage;
+use kubernetes_rs_storage::Storage;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
@@ -121,7 +121,7 @@ pub(crate) fn resolve_webhook_timeout(timeout_seconds: Option<i32>) -> Duration 
 /// (validating/dispatcher.go:281-290, mutating/dispatcher.go:303-317).
 #[derive(Debug)]
 struct CallFailure {
-    error: k3rs_common::Error,
+    error: kubernetes_rs_common::Error,
     /// `int(err.Status.ErrStatus.Code)`, for the metrics.
     code: i32,
     /// `errors.Is(err.Reason, context.Canceled)`: the request, not the
@@ -129,8 +129,8 @@ struct CallFailure {
     canceled: bool,
 }
 
-impl From<k3rs_common::Error> for CallFailure {
-    fn from(error: k3rs_common::Error) -> Self {
+impl From<kubernetes_rs_common::Error> for CallFailure {
+    fn from(error: kubernetes_rs_common::Error) -> Self {
         Self {
             error,
             code: 503,
@@ -267,7 +267,7 @@ fn validating_task_panic(name: &str, policy: &FailurePolicy, r: &str) -> Result<
         );
         return Ok(());
     }
-    Err(k3rs_common::Error::Internal(format!(
+    Err(kubernetes_rs_common::Error::Internal(format!(
         "ValidatingAdmissionWebhook/{name} has panicked: {r}"
     )))
 }
@@ -275,8 +275,8 @@ fn validating_task_panic(name: &str, policy: &FailurePolicy, r: &str) -> Result<
 /// `apierrors.NewTimeoutError("request did not complete within requested
 /// timeout", 0)` (validating/dispatcher.go:122, mutating/dispatcher.go:219):
 /// the request context is done, so there is no point in calling on.
-fn request_timeout_error() -> k3rs_common::Error {
-    k3rs_common::Error::Status(Box::new(k3rs_common::types::Status::failure(
+fn request_timeout_error() -> kubernetes_rs_common::Error {
+    kubernetes_rs_common::Error::Status(Box::new(kubernetes_rs_common::types::Status::failure(
         "Timeout: request did not complete within requested timeout",
         "Timeout",
         504,
@@ -441,7 +441,7 @@ impl AdmissionWebhookClient {
             // `<-ctx.Done()`: a cancel or the request deadline. Only
             // `context.Canceled` is kept out of the metrics.
             reason = cancellation.done() => Err(CallFailure {
-                error: k3rs_common::Error::Internal(format!(
+                error: kubernetes_rs_common::Error::Internal(format!(
                     "failed to call webhook: {} querying {}?timeout={}s",
                     reason,
                     target.url,
@@ -484,7 +484,7 @@ impl AdmissionWebhookClient {
             // when the assertion *fails*; upstream never emits it and never
             // matches on it. It used to be spliced into this error on the
             // strength of that misreading.
-            Err(_elapsed) => Err(k3rs_common::Error::Internal(format!(
+            Err(_elapsed) => Err(kubernetes_rs_common::Error::Internal(format!(
                 "failed to call webhook: context deadline exceeded querying {}?timeout={}s",
                 target.url,
                 timeout.as_secs()
@@ -510,7 +510,7 @@ impl AdmissionWebhookClient {
             ..target.clone()
         };
         let body = serde_json::to_vec(review).map_err(|e| {
-            k3rs_common::Error::Internal(format!("failed to encode webhook request: {e}"))
+            kubernetes_rs_common::Error::Internal(format!("failed to encode webhook request: {e}"))
         })?;
 
         let response = transport::transport()
@@ -570,7 +570,7 @@ impl AdmissionWebhookClient {
                         e.message, normalized_causes, url
                     )
                 };
-                k3rs_common::Error::Internal(full_error)
+                kubernetes_rs_common::Error::Internal(full_error)
             })?;
 
         if !(200..300).contains(&response.status) {
@@ -579,7 +579,7 @@ impl AdmissionWebhookClient {
             // (validating/dispatcher.go:281-285).
             return Err(CallFailure {
                 code: i32::from(response.status),
-                error: k3rs_common::Error::Network(format!(
+                error: kubernetes_rs_common::Error::Network(format!(
                     "Webhook returned status: {}",
                     response.status
                 )),
@@ -598,7 +598,7 @@ impl AdmissionWebhookClient {
 
         // Reject empty responses — the webhook pod may have terminated mid-response
         if body_bytes.is_empty() {
-            return Err(k3rs_common::Error::Network(
+            return Err(kubernetes_rs_common::Error::Network(
                 "Webhook returned empty response body".to_string(),
             )
             .into());
@@ -617,7 +617,7 @@ impl AdmissionWebhookClient {
                 );
                 let value: serde_json::Value =
                     serde_json::from_slice(&body_bytes).map_err(|e2| {
-                        k3rs_common::Error::Network(format!(
+                        kubernetes_rs_common::Error::Network(format!(
                             "Failed to parse webhook response as JSON: {}",
                             e2
                         ))
@@ -638,7 +638,7 @@ impl AdmissionWebhookClient {
                     .map(|v| serde_json::from_value::<AdmissionReviewResponse>(v.clone()))
                     .transpose()
                     .map_err(|e| {
-                        k3rs_common::Error::Network(format!(
+                        kubernetes_rs_common::Error::Network(format!(
                             "Failed to parse webhook response.response: {}",
                             e
                         ))
@@ -653,8 +653,10 @@ impl AdmissionWebhookClient {
         };
 
         review_response.response.ok_or_else(|| {
-            k3rs_common::Error::Network("Webhook response missing response field".to_string())
-                .into()
+            kubernetes_rs_common::Error::Network(
+                "Webhook response missing response field".to_string(),
+            )
+            .into()
         })
     }
 
@@ -689,7 +691,7 @@ impl AdmissionWebhookClient {
             return Ok(WebhookTarget::from_url(url.clone()));
         }
 
-        Err(k3rs_common::Error::InvalidResource(
+        Err(kubernetes_rs_common::Error::InvalidResource(
             "Webhook client config must specify either url or service".to_string(),
         ))
     }
@@ -859,7 +861,8 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                     // Check namespaceSelector
                     if let Some(ref ns_selector) = webhook.namespace_selector {
                         if let Some(ns_name) = namespace {
-                            let ns_key = k3rs_storage::build_key("namespaces", None, ns_name);
+                            let ns_key =
+                                kubernetes_rs_storage::build_key("namespaces", None, ns_name);
                             let ns_labels = self
                                 .storage
                                 .get::<serde_json::Value>(&ns_key)
@@ -892,7 +895,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                                     exprs.iter().all(|expr| {
                                         let val = ns_labels.get(&expr.key);
                                         {
-                                            use k3rs_common::resources::admission_webhook::LabelSelectorOperator;
+                                            use kubernetes_rs_common::resources::admission_webhook::LabelSelectorOperator;
                                             match &expr.operator {
                                                 LabelSelectorOperator::In => expr
                                                     .values
@@ -1010,7 +1013,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                                         "Failed evaluating match conditions, failing closed {}: {}",
                                         webhook.name, msg
                                     );
-                                    return Err(k3rs_common::Error::Forbidden(
+                                    return Err(kubernetes_rs_common::Error::Forbidden(
                                         crate::webhook_match::forbidden_message(
                                             &gvr.group,
                                             &gvr.resource,
@@ -1025,7 +1028,8 @@ impl<S: Storage> AdmissionWebhookManager<S> {
 
                     // Skip webhooks whose service namespace no longer exists or is terminating
                     if let Some(ref svc) = webhook.client_config.service {
-                        let ns_key = k3rs_storage::build_key("namespaces", None, &svc.namespace);
+                        let ns_key =
+                            kubernetes_rs_storage::build_key("namespaces", None, &svc.namespace);
                         let ns_gone = match self.storage.get::<serde_json::Value>(&ns_key).await {
                             Err(_) => true,
                             Ok(ns_val) => {
@@ -1093,7 +1097,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                                 );
                                 continue;
                             }
-                            return Err(k3rs_common::Error::Internal(format!(
+                            return Err(kubernetes_rs_common::Error::Internal(format!(
                                 "failed calling webhook \"{}\": could not get REST client",
                                 webhook.name
                             )));
@@ -1482,7 +1486,8 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                     // Check namespaceSelector for mutating webhooks
                     if let Some(ref ns_selector) = webhook.namespace_selector {
                         if let Some(ns_name) = namespace {
-                            let ns_key = k3rs_storage::build_key("namespaces", None, ns_name);
+                            let ns_key =
+                                kubernetes_rs_storage::build_key("namespaces", None, ns_name);
                             let ns_labels = self
                                 .storage
                                 .get::<serde_json::Value>(&ns_key)
@@ -1512,7 +1517,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                                     exprs.iter().all(|expr| {
                                         let val = ns_labels.get(&expr.key);
                                         {
-                                            use k3rs_common::resources::admission_webhook::LabelSelectorOperator;
+                                            use kubernetes_rs_common::resources::admission_webhook::LabelSelectorOperator;
                                             match &expr.operator {
                                                 LabelSelectorOperator::In => expr.values.as_ref().map(|vs| val.map(|v| vs.contains(v)).unwrap_or(false)).unwrap_or(false),
                                                 LabelSelectorOperator::NotIn => expr.values.as_ref().map(|vs| val.map(|v| !vs.contains(v)).unwrap_or(true)).unwrap_or(true),
@@ -1616,7 +1621,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                                         "Failed evaluating match conditions, failing closed {}: {}",
                                         webhook.name, msg
                                     );
-                                    return Err(k3rs_common::Error::Forbidden(
+                                    return Err(kubernetes_rs_common::Error::Forbidden(
                                         crate::webhook_match::forbidden_message(
                                             &gvr.group,
                                             &gvr.resource,
@@ -1631,7 +1636,8 @@ impl<S: Storage> AdmissionWebhookManager<S> {
 
                     // Skip webhooks whose service no longer exists or namespace is terminating
                     if let Some(ref svc) = webhook.client_config.service {
-                        let ns_key = k3rs_storage::build_key("namespaces", None, &svc.namespace);
+                        let ns_key =
+                            kubernetes_rs_storage::build_key("namespaces", None, &svc.namespace);
                         let ns_gone = match self.storage.get::<serde_json::Value>(&ns_key).await {
                             Err(_) => true,
                             Ok(ns_val) => {
@@ -1751,7 +1757,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                                 );
                                 continue;
                             }
-                            return Err(k3rs_common::Error::Internal(format!(
+                            return Err(kubernetes_rs_common::Error::Internal(format!(
                                 "failed calling webhook \"{}\": could not get REST client",
                                 webhook.name
                             )));
@@ -1870,7 +1876,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                     // internal error (mutating/dispatcher.go:327-358).
                     let patch_outcome: std::result::Result<
                         Vec<PatchOperation>,
-                        (k3rs_common::Error, bool),
+                        (kubernetes_rs_common::Error, bool),
                     > = (|| {
                         let Some(patch_base64) = &response.patch else {
                             return Ok(Vec::new());
@@ -1881,7 +1887,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                             .decode(patch_base64)
                             .map_err(|e| {
                                 (
-                                    k3rs_common::Error::InvalidResource(format!(
+                                    kubernetes_rs_common::Error::InvalidResource(format!(
                                         "Failed to decode webhook patch: {}",
                                         e
                                     )),
@@ -1891,7 +1897,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
 
                         let patch_str = String::from_utf8(patch_bytes).map_err(|e| {
                             (
-                                k3rs_common::Error::InvalidResource(format!(
+                                kubernetes_rs_common::Error::InvalidResource(format!(
                                     "Failed to parse webhook patch as UTF-8: {}",
                                     e
                                 )),
@@ -1902,7 +1908,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                         let patches: Vec<PatchOperation> = serde_json::from_str(&patch_str)
                             .map_err(|e| {
                                 (
-                                    k3rs_common::Error::InvalidResource(format!(
+                                    kubernetes_rs_common::Error::InvalidResource(format!(
                                         "Failed to parse webhook patch as JSON: {}",
                                         e
                                     )),
@@ -2024,13 +2030,17 @@ impl<S: Storage> AdmissionWebhookManager<S> {
             return;
         }
         let crd_name = format!("{}.{}", gvr.resource, gvr.group);
-        let key = k3rs_storage::build_key("customresourcedefinitions", None, &crd_name);
+        let key = kubernetes_rs_storage::build_key("customresourcedefinitions", None, &crd_name);
         if let Ok(crd) = self
             .storage
-            .get::<k3rs_common::resources::CustomResourceDefinition>(&key)
+            .get::<kubernetes_rs_common::resources::CustomResourceDefinition>(&key)
             .await
         {
-            k3rs_common::resources::crd::default_custom_resource_value(&crd, &gvr.version, object);
+            kubernetes_rs_common::resources::crd::default_custom_resource_value(
+                &crd,
+                &gvr.version,
+                object,
+            );
         }
     }
 
@@ -2054,7 +2064,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
         namespace: Option<&str>,
         object: Option<&Value>,
     ) -> bool {
-        use k3rs_common::types::LabelSelector;
+        use kubernetes_rs_common::types::LabelSelector;
         let selector_of = |c: Option<&Value>, key: &str| -> Option<LabelSelector> {
             c.and_then(|c| c.get(key))
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -2074,8 +2084,9 @@ impl<S: Storage> AdmissionWebhookManager<S> {
         let mut ns_labels: Option<std::collections::HashMap<String, String>> = None;
         for c in [constraints, match_resources] {
             if let Some(sel) = selector_of(c, "namespaceSelector") {
-                let everything = k3rs_common::types::label_selector_as_selector(Some(&sel))
-                    .is_ok_and(|s| s.is_everything());
+                let everything =
+                    kubernetes_rs_common::types::label_selector_as_selector(Some(&sel))
+                        .is_ok_and(|s| s.is_everything());
                 if (!ns_name.is_empty() || is_namespace) && !everything {
                     if ns_labels.is_none() {
                         let labels = if is_namespace
@@ -2083,7 +2094,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                         {
                             labels_of(object)
                         } else {
-                            let key = k3rs_storage::build_key("namespaces", None, ns_name);
+                            let key = kubernetes_rs_storage::build_key("namespaces", None, ns_name);
                             labels_of(self.storage.get::<Value>(&key).await.ok().as_ref())
                         };
                         ns_labels = Some(labels);
@@ -2106,7 +2117,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
 
     fn webhook_matches(
         &self,
-        rules: &[k3rs_common::resources::RuleWithOperations],
+        rules: &[kubernetes_rs_common::resources::RuleWithOperations],
         operation: &Operation,
         gvk: &GroupVersionKind,
         gvr: &GroupVersionResource,
@@ -2201,17 +2212,17 @@ impl<S: Storage> AdmissionWebhookManager<S> {
 
 /// Apply a single RFC 6902 operation to an object.
 ///
-/// Delegates to `k3rs_common::patch` (the same applier the PATCH
+/// Delegates to `kubernetes_rs_common::patch` (the same applier the PATCH
 /// handler uses) so array indexes, `-` append, `~0`/`~1` escapes and
 /// move/copy/test behave as in evanphx/json-patch, which upstream's
 /// mutating dispatcher uses: `DecodePatch` / `Apply` at
 /// staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/mutating/dispatcher.go:336,359.
 fn apply_json_patch(object: &mut Value, patch: &PatchOperation) -> Result<()> {
-    use k3rs_common::patch::{apply_patch, PatchType};
+    use kubernetes_rs_common::patch::{apply_patch, PatchType};
 
     let doc = Value::Array(vec![serde_json::to_value(patch)?]);
     *object = apply_patch(object, &doc, PatchType::JsonPatch).map_err(|e| {
-        k3rs_common::Error::InvalidResource(format!(
+        kubernetes_rs_common::Error::InvalidResource(format!(
             "JSON patch {:?} {} failed: {}",
             patch.op, patch.path, e
         ))
@@ -2297,7 +2308,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
         namespace: Option<&str>,
         authz: Option<&crate::cel_evaluators::VapAuthorizer>,
     ) -> Result<()> {
-        use k3rs_common::CELEvaluator;
+        use kubernetes_rs_common::CELEvaluator;
 
         // Load all ValidatingAdmissionPolicies
         let policies: Vec<Value> = self
@@ -2456,7 +2467,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                         message
                     );
                     if !ignore {
-                        return Err(k3rs_common::Error::InvalidResource(format!(
+                        return Err(kubernetes_rs_common::Error::InvalidResource(format!(
                             "ValidatingAdmissionPolicy {} evaluation error: {}",
                             policy_name, message
                         )));
@@ -2466,7 +2477,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
             }
 
             // Build CEL context with object variable
-            let mut context = k3rs_common::CELContext::new();
+            let mut context = kubernetes_rs_common::CELContext::new();
             if let Some(obj) = object {
                 let _ = context.add_json_variable("object", obj);
             }
@@ -2618,10 +2629,10 @@ impl<S: Storage> AdmissionWebhookManager<S> {
             let mut message_context = context.clone();
             message_context
                 .variables
-                .remove(k3rs_common::cel_authz_library::AUTHORIZER_VAR);
+                .remove(kubernetes_rs_common::cel_authz_library::AUTHORIZER_VAR);
             message_context
                 .variables
-                .remove(k3rs_common::cel_authz_library::REQUEST_RESOURCE_AUTHORIZER_VAR);
+                .remove(kubernetes_rs_common::cel_authz_library::REQUEST_RESOURCE_AUTHORIZER_VAR);
 
             // Check failure policy
             let failure_policy = policy
@@ -2703,7 +2714,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                         message
                     );
                     if failure_policy == "Fail" {
-                        return Err(k3rs_common::Error::InvalidResource(format!(
+                        return Err(kubernetes_rs_common::Error::InvalidResource(format!(
                             "ValidatingAdmissionPolicy {} evaluation error: {}",
                             policy_name, message
                         )));
@@ -2748,7 +2759,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                             let has_deny = actions
                                 .is_none_or(|acts| acts.iter().any(|a| a.as_str() == Some("Deny")));
                             if has_deny {
-                                return Err(k3rs_common::Error::InvalidResource(format!(
+                                return Err(kubernetes_rs_common::Error::InvalidResource(format!(
                                     "ValidatingAdmissionPolicy {} denied: {}",
                                     policy_name, message
                                 )));
@@ -2762,7 +2773,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                             );
                             // On error, honour the policy's failure policy.
                             if failure_policy == "Fail" {
-                                return Err(k3rs_common::Error::InvalidResource(format!(
+                                return Err(kubernetes_rs_common::Error::InvalidResource(format!(
                                     "ValidatingAdmissionPolicy {} evaluation error: {}",
                                     policy_name, message
                                 )));
@@ -2805,7 +2816,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                                 message
                             );
                             if failure_policy == "Fail" {
-                                return Err(k3rs_common::Error::InvalidResource(format!(
+                                return Err(kubernetes_rs_common::Error::InvalidResource(format!(
                                     "ValidatingAdmissionPolicy {} auditAnnotation error: {}",
                                     policy_name, message
                                 )));
@@ -2849,7 +2860,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
             _ => return crate::cel_evaluators::MatchOutcome::Matched, // No conditions = always match (upstream)
         };
 
-        let conditions: Vec<k3rs_common::resources::MatchCondition> = raw_conditions
+        let conditions: Vec<kubernetes_rs_common::resources::MatchCondition> = raw_conditions
             .iter()
             .filter_map(|v| serde_json::from_value(v.clone()).ok())
             .collect();
@@ -2904,7 +2915,7 @@ fn build_admission_request_for_match(
     object: Option<&Value>,
     old_object: Option<&Value>,
     user_info: Option<&UserInfo>,
-) -> k3rs_common::admission::AdmissionRequest {
+) -> kubernetes_rs_common::admission::AdmissionRequest {
     let resolved_user_info = user_info.cloned().unwrap_or_else(|| UserInfo {
         username: "system:admin".to_string(),
         uid: String::new(),
@@ -2914,7 +2925,7 @@ fn build_admission_request_for_match(
         ],
     });
 
-    k3rs_common::admission::AdmissionRequest {
+    kubernetes_rs_common::admission::AdmissionRequest {
         operation: operation.clone(),
         group: gvk.group.clone(),
         version: gvk.version.clone(),
@@ -2930,8 +2941,8 @@ fn build_admission_request_for_match(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use k3rs_common::resources::RuleWithOperations;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_common::resources::RuleWithOperations;
+    use kubernetes_rs_storage::memory::MemoryStorage;
     use serde_json::json;
 
     // webhook/testing/testcase.go "match & reinvoke if needed policy" /
@@ -2997,7 +3008,7 @@ mod tests {
     // ===== JSON Patch Tests =====
 
     fn op(
-        op: k3rs_common::admission::PatchOp,
+        op: kubernetes_rs_common::admission::PatchOp,
         path: &str,
         value: Option<Value>,
         from: Option<&str>,
@@ -3015,7 +3026,7 @@ mod tests {
     // plugin/webhook/mutating/dispatcher.go).
     #[test]
     fn test_apply_json_patch_array_index_and_append() {
-        use k3rs_common::admission::PatchOp;
+        use kubernetes_rs_common::admission::PatchOp;
         let mut obj = json!({"spec": {"containers": [{"command": ["a", "b"]}]}});
         apply_json_patch(
             &mut obj,
@@ -3075,7 +3086,7 @@ mod tests {
 
     #[test]
     fn test_apply_json_patch_move_copy_test_and_escapes() {
-        use k3rs_common::admission::PatchOp;
+        use kubernetes_rs_common::admission::PatchOp;
         let mut obj = json!({"metadata": {"annotations": {"a/b": "1"}}, "x": 1});
         apply_json_patch(&mut obj, &op(PatchOp::Copy, "/y", None, Some("/x"))).unwrap();
         apply_json_patch(&mut obj, &op(PatchOp::Move, "/z", None, Some("/x"))).unwrap();
@@ -3108,7 +3119,7 @@ mod tests {
         });
 
         let patch = PatchOperation {
-            op: k3rs_common::admission::PatchOp::Add,
+            op: kubernetes_rs_common::admission::PatchOp::Add,
             path: "/metadata/labels".to_string(),
             value: Some(json!({"app": "test"})),
             from: None,
@@ -3129,7 +3140,7 @@ mod tests {
         });
 
         let patch = PatchOperation {
-            op: k3rs_common::admission::PatchOp::Remove,
+            op: kubernetes_rs_common::admission::PatchOp::Remove,
             path: "/metadata/labels".to_string(),
             value: None,
             from: None,
@@ -3149,7 +3160,7 @@ mod tests {
         });
 
         let patch = PatchOperation {
-            op: k3rs_common::admission::PatchOp::Replace,
+            op: kubernetes_rs_common::admission::PatchOp::Replace,
             path: "/metadata/name".to_string(),
             value: Some(json!("new-name")),
             from: None,
@@ -3170,7 +3181,7 @@ mod tests {
         });
 
         let patch = PatchOperation {
-            op: k3rs_common::admission::PatchOp::Add,
+            op: kubernetes_rs_common::admission::PatchOp::Add,
             path: "/metadata/annotations/key".to_string(),
             value: Some(json!("value")),
             from: None,
@@ -3196,7 +3207,7 @@ mod tests {
         });
 
         let patch = PatchOperation {
-            op: k3rs_common::admission::PatchOp::Replace,
+            op: kubernetes_rs_common::admission::PatchOp::Replace,
             path: "/".to_string(),
             value: Some(new_obj.clone()),
             from: None,
@@ -3216,7 +3227,7 @@ mod tests {
         });
 
         let patch = PatchOperation {
-            op: k3rs_common::admission::PatchOp::Remove,
+            op: kubernetes_rs_common::admission::PatchOp::Remove,
             path: "/".to_string(),
             value: None,
             from: None,
@@ -3518,7 +3529,7 @@ mod tests {
         let client = AdmissionWebhookClient::new();
         let config = WebhookClientConfig {
             url: None,
-            service: Some(k3rs_common::resources::ServiceReference {
+            service: Some(kubernetes_rs_common::resources::ServiceReference {
                 namespace: "webhook-system".to_string(),
                 name: "webhook-service".to_string(),
                 path: Some("/validate".to_string()),
@@ -3539,7 +3550,7 @@ mod tests {
         let client = AdmissionWebhookClient::new();
         let config = WebhookClientConfig {
             url: None,
-            service: Some(k3rs_common::resources::ServiceReference {
+            service: Some(kubernetes_rs_common::resources::ServiceReference {
                 namespace: "default".to_string(),
                 name: "my-webhook".to_string(),
                 path: None,
@@ -4447,8 +4458,8 @@ mod tests {
     //   - SideEffects gating for dry-run
     //   - status.message propagation
 
-    use k3rs_common::admission::AdmissionStatus;
-    use k3rs_common::resources::{
+    use kubernetes_rs_common::admission::AdmissionStatus;
+    use kubernetes_rs_common::resources::{
         FailurePolicy, MutatingWebhook, MutatingWebhookConfiguration, OperationType, Rule,
         RuleWithOperations as Rwo, SideEffectClass, ValidatingWebhook,
         ValidatingWebhookConfiguration, WebhookClientConfig,
@@ -4538,7 +4549,7 @@ mod tests {
         ValidatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".to_string(),
             kind: "ValidatingWebhookConfiguration".to_string(),
-            metadata: k3rs_common::types::ObjectMeta::new(name),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(name),
             webhooks: Some(vec![ValidatingWebhook {
                 name: format!("{}.example.com", name),
                 client_config: WebhookClientConfig {
@@ -4563,7 +4574,7 @@ mod tests {
         MutatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".to_string(),
             kind: "MutatingWebhookConfiguration".to_string(),
-            metadata: k3rs_common::types::ObjectMeta::new(name),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(name),
             webhooks: Some(vec![MutatingWebhook {
                 name: format!("{}.example.com", name),
                 client_config: WebhookClientConfig {
@@ -4590,7 +4601,7 @@ mod tests {
     /// though it runs on a spawned task.
     #[tokio::test]
     async fn test_validating_webhook_call_is_tracked() {
-        use k3rs_common::latency_trackers::{with_latency_trackers, LatencyTrackers};
+        use kubernetes_rs_common::latency_trackers::{with_latency_trackers, LatencyTrackers};
         let allow = AdmissionReviewResponse {
             uid: String::new(),
             allowed: true,
@@ -4811,14 +4822,15 @@ mod tests {
 
         // Webhook for configmaps, scoped to namespaces labeled webhook-e2e=true.
         let mut config = make_validating_config("deny-marker-cms", &url, configmaps_rule());
-        config.webhooks.as_mut().unwrap()[0].namespace_selector =
-            Some(k3rs_common::resources::admission_webhook::LabelSelector {
+        config.webhooks.as_mut().unwrap()[0].namespace_selector = Some(
+            kubernetes_rs_common::resources::admission_webhook::LabelSelector {
                 match_labels: Some(std::collections::HashMap::from([(
                     "webhook-e2e".to_string(),
                     "true".to_string(),
                 )])),
                 match_expressions: None,
-            });
+            },
+        );
         storage
             .create(
                 "/registry/validatingwebhookconfigurations/deny-marker-cms",
@@ -4829,7 +4841,7 @@ mod tests {
 
         // The marker namespace must exist in storage with the matching label so
         // the manager can evaluate the namespaceSelector against it.
-        let ns_key = k3rs_storage::build_key("namespaces", None, "webhook-markers");
+        let ns_key = kubernetes_rs_storage::build_key("namespaces", None, "webhook-markers");
         storage
             .create(
                 &ns_key,
@@ -5380,7 +5392,7 @@ mod tests {
     /// CRD's structural schema must be stripped before storage.
     #[test]
     fn test_prune_unknown_fields_after_webhook_mutation() {
-        use k3rs_common::resources::{CustomResource, CustomResourceDefinition};
+        use kubernetes_rs_common::resources::{CustomResource, CustomResourceDefinition};
 
         // Build the CRD from JSON to avoid spelling out every field of the
         // structured types — the structural schema declares only `spec.replicas`.
@@ -5424,7 +5436,7 @@ mod tests {
         let mut cr: CustomResource = serde_json::from_value(cr_json).unwrap();
 
         // Reuse the same pruning function the create handler calls.
-        k3rs_common::resources::crd::prune_custom_resource(&crd, "v1", &mut cr);
+        kubernetes_rs_common::resources::crd::prune_custom_resource(&crd, "v1", &mut cr);
 
         let pruned_spec = cr.spec.expect("spec preserved");
         assert_eq!(pruned_spec.get("replicas"), Some(&json!(3)));
@@ -5442,12 +5454,12 @@ mod tests {
 mod dispatcher_metrics_tests {
     use super::*;
     use crate::admission_metrics::tests::{counter_or_zero, hist_count, hist_count_or_zero};
-    use k3rs_common::admission::AdmissionStatus;
-    use k3rs_common::resources::{
+    use kubernetes_rs_common::admission::AdmissionStatus;
+    use kubernetes_rs_common::resources::{
         MutatingWebhook, OperationType, Rule, RuleWithOperations, SideEffectClass,
         ValidatingWebhook, WebhookClientConfig,
     };
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_storage::memory::MemoryStorage;
     use serde_json::json;
 
     /// A webhook server answering every POST with `status` and the canned
@@ -5532,7 +5544,7 @@ mod dispatcher_metrics_tests {
         let cfg = ValidatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".into(),
             kind: "ValidatingWebhookConfiguration".into(),
-            metadata: k3rs_common::types::ObjectMeta::new(name),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(name),
             webhooks: Some(vec![ValidatingWebhook {
                 name: name.into(),
                 client_config: WebhookClientConfig {
@@ -5581,7 +5593,7 @@ mod dispatcher_metrics_tests {
         let cfg = MutatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".into(),
             kind: "MutatingWebhookConfiguration".into(),
-            metadata: k3rs_common::types::ObjectMeta::new(name),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(name),
             webhooks: Some(vec![MutatingWebhook {
                 name: name.into(),
                 client_config: WebhookClientConfig {
@@ -5850,7 +5862,7 @@ mod dispatcher_metrics_tests {
         )
         .await;
         match r {
-            Err(k3rs_common::Error::Status(s)) => assert_eq!(s.code, Some(504)),
+            Err(kubernetes_rs_common::Error::Status(s)) => assert_eq!(s.code, Some(504)),
             other => panic!("expected a 504 Timeout status, got {other:?}"),
         }
         assert_eq!(
@@ -5872,7 +5884,7 @@ mod dispatcher_metrics_tests {
         ))
         .await;
         match r {
-            Err(k3rs_common::Error::Status(s)) => assert_eq!(s.code, Some(504)),
+            Err(kubernetes_rs_common::Error::Status(s)) => assert_eq!(s.code, Some(504)),
             other => panic!("expected a 504 Timeout status, got {other:?}"),
         }
         assert_eq!(fail_open("m-m-cancel-open", "admit"), 0);
@@ -6032,12 +6044,12 @@ mod dispatcher_metrics_tests {
 #[cfg(test)]
 mod webhook_match_condition_metrics_tests {
     use super::*;
-    use k3rs_common::resources::admission_webhook::MatchCondition;
-    use k3rs_common::resources::{
+    use kubernetes_rs_common::resources::admission_webhook::MatchCondition;
+    use kubernetes_rs_common::resources::{
         MutatingWebhook, OperationType, Rule, RuleWithOperations, SideEffectClass,
         ValidatingWebhook, WebhookClientConfig,
     };
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_storage::memory::MemoryStorage;
     use serde_json::json;
 
     /// An address nothing listens on: any call to it fails, so an `Ok` result
@@ -6107,7 +6119,7 @@ mod webhook_match_condition_metrics_tests {
         let cfg = ValidatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".into(),
             kind: "ValidatingWebhookConfiguration".into(),
-            metadata: k3rs_common::types::ObjectMeta::new(name),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(name),
             webhooks: Some(vec![ValidatingWebhook {
                 name: name.into(),
                 client_config: WebhookClientConfig {
@@ -6156,7 +6168,7 @@ mod webhook_match_condition_metrics_tests {
         let cfg = MutatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".into(),
             kind: "MutatingWebhookConfiguration".into(),
-            metadata: k3rs_common::types::ObjectMeta::new(name),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(name),
             webhooks: Some(vec![MutatingWebhook {
                 name: name.into(),
                 client_config: WebhookClientConfig {
@@ -6339,12 +6351,12 @@ mod webhook_match_condition_metrics_tests {
 mod dispatcher_failure_policy_tests {
     use super::*;
     use crate::admission_metrics::tests::counter;
-    use k3rs_common::admission::AdmissionStatus;
-    use k3rs_common::resources::{
+    use kubernetes_rs_common::admission::AdmissionStatus;
+    use kubernetes_rs_common::resources::{
         MutatingWebhook, OperationType, Rule, RuleWithOperations, SideEffectClass,
         ValidatingWebhook, WebhookClientConfig,
     };
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_storage::memory::MemoryStorage;
     use serde_json::json;
 
     fn rule() -> RuleWithOperations {
@@ -6426,7 +6438,7 @@ mod dispatcher_failure_policy_tests {
         let c = ValidatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".into(),
             kind: "ValidatingWebhookConfiguration".into(),
-            metadata: k3rs_common::types::ObjectMeta::new(name),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(name),
             webhooks: Some(vec![ValidatingWebhook {
                 name: name.into(),
                 client_config: cfg(url),
@@ -6471,7 +6483,7 @@ mod dispatcher_failure_policy_tests {
         let c = MutatingWebhookConfiguration {
             api_version: "admissionregistration.k8s.io/v1".into(),
             kind: "MutatingWebhookConfiguration".into(),
-            metadata: k3rs_common::types::ObjectMeta::new(name),
+            metadata: kubernetes_rs_common::types::ObjectMeta::new(name),
             webhooks: Some(vec![MutatingWebhook {
                 name: name.into(),
                 client_config: cfg(url),

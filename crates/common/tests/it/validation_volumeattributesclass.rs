@@ -1,8 +1,8 @@
 //! Tests for VolumeAttributesClass validation (upstream ValidateVolumeAttributesClass).
 
-use k3rs_common::resources::csi::VolumeAttributesClass;
-use k3rs_common::validation::field::ErrorType;
-use k3rs_common::validation::volumeattributesclass::validate_volume_attributes_class;
+use kubernetes_rs_common::resources::csi::VolumeAttributesClass;
+use kubernetes_rs_common::validation::field::ErrorType;
+use kubernetes_rs_common::validation::volumeattributesclass::validate_volume_attributes_class;
 use std::collections::HashMap;
 
 fn vac(driver: &str, params: Option<HashMap<String, String>>) -> VolumeAttributesClass {
@@ -22,7 +22,7 @@ fn one_param() -> HashMap<String, String> {
     m
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], field: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], field: &str) -> bool {
     errs.iter().any(|e| e.field == field)
 }
 

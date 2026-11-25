@@ -8,24 +8,24 @@ mod __parent {
         http::StatusCode,
         response::{IntoResponse, Response},
     };
-    pub use k3rs_common::resources::Pod;
-    pub use k3rs_common::types::ObjectMeta;
+    pub use kubernetes_rs_common::resources::Pod;
+    pub use kubernetes_rs_common::types::ObjectMeta;
     pub use tracing::{info, warn};
 }
 
 mod run_checkpoint_tests {
     use super::__parent::*;
     use axum::http::{Method, Request};
-    use k3rs_kubelet::server::ServerState;
-    use k3rs_kubelet::streaming_server::*;
-    use k3rs_storage::{Storage, StorageBackend};
+    use kubernetes_rs_kubelet::server::ServerState;
+    use kubernetes_rs_kubelet::streaming_server::*;
+    use kubernetes_rs_storage::{Storage, StorageBackend};
     use std::sync::Arc;
     use tower::ServiceExt;
 
     async fn app(checkpoint: bool) -> axum::Router {
         let storage = Arc::new(StorageBackend::new_memory());
         let pod = Pod {
-            type_meta: k3rs_common::types::TypeMeta {
+            type_meta: kubernetes_rs_common::types::TypeMeta {
                 api_version: "v1".into(),
                 kind: "Pod".into(),
             },
@@ -45,7 +45,10 @@ mod run_checkpoint_tests {
             status: None,
         };
         storage
-            .create(&k3rs_storage::build_key("pods", Some("ns"), "p"), &pod)
+            .create(
+                &kubernetes_rs_storage::build_key("pods", Some("ns"), "p"),
+                &pod,
+            )
             .await
             .unwrap();
         run_router(
@@ -128,7 +131,7 @@ mod run_checkpoint_tests {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::streaming_server::*;
+    use kubernetes_rs_kubelet::streaming_server::*;
 
     #[test]
     fn websocket_request_detection_matches_wsstream() {
@@ -462,7 +465,7 @@ mod tests {
 }
 
 mod pod_log_query_bool_tests {
-    use k3rs_kubelet::streaming_server::is_true;
+    use kubernetes_rs_kubelet::streaming_server::is_true;
 
     /// PodLogOptions follow/previous/timestamps/insecureSkipTLSVerifyBackend
     /// are decoded upstream with `runtime.Convert_Slice_string_To_bool`, so

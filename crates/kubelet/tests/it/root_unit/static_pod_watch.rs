@@ -11,7 +11,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::static_pod_watch::*;
+    use kubernetes_rs_kubelet::static_pod_watch::*;
 
     #[test]
     fn dot_files_ignored_and_ops_mapped() {

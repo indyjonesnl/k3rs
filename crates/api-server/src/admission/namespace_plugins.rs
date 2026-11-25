@@ -13,10 +13,10 @@ use std::sync::Arc;
 use axum::extract::{Extension, Request};
 use axum::middleware::Next;
 use axum::response::Response;
-use k3rs_common::admission::{GroupVersionKind, Operation};
-use k3rs_common::resources::Namespace;
-use k3rs_common::{Error, Result};
-use k3rs_storage::{build_key, Storage, StorageBackend};
+use kubernetes_rs_common::admission::{GroupVersionKind, Operation};
+use kubernetes_rs_common::resources::Namespace;
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
 
 use super::builtin_plugins::new_forbidden;
 use super::plugins::enabled;
@@ -134,14 +134,14 @@ pub async fn namespace_lifecycle_gate(
     let started = std::time::Instant::now();
     let mut skipped = false;
     if enabled("NamespaceAutoProvision") && request.method() == axum::http::Method::POST {
-        if let Some(ns) = k3rs_middleware::create_target_namespace(request.uri().path()) {
+        if let Some(ns) = kubernetes_rs_middleware::create_target_namespace(request.uri().path()) {
             skipped = matches!(namespace_exists(&storage, ns).await, Ok(false));
         }
     }
     let rejection = if skipped {
         None
     } else {
-        k3rs_middleware::namespace_lifecycle_rejection(
+        kubernetes_rs_middleware::namespace_lifecycle_rejection(
             &storage,
             request.method(),
             request.uri().path(),
@@ -154,11 +154,11 @@ pub async fn namespace_lifecycle_gate(
     // Update, Delete)`, namespace/lifecycle/admission.go:196), and
     // `rejected` is `err != nil`.
     if let Some(op) = observed_op {
-        k3rs_admission_webhook::admission_metrics::observe_admission_controller(
+        kubernetes_rs_admission_webhook::admission_metrics::observe_admission_controller(
             started.elapsed(),
             rejection.is_some(),
             &op,
-            k3rs_admission_webhook::admission_metrics::STEP_ADMIT,
+            kubernetes_rs_admission_webhook::admission_metrics::STEP_ADMIT,
             "NamespaceLifecycle",
         );
     }

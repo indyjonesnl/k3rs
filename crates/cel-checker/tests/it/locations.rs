@@ -6,7 +6,7 @@
 //! `Errors.ToDisplayString` sorts the errors by line, then column.
 
 use cel::parser::Parser;
-use k3rs_cel_checker::{
+use kubernetes_rs_cel_checker::{
     check, Container, EnvSet, EnvType, Features, MapProvider, SourceLocator, Version,
 };
 use std::sync::Arc;

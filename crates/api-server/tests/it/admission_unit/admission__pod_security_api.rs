@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::validation::field::{self, Path};
+    pub use kubernetes_rs_common::validation::field::{self, Path};
     pub use std::collections::HashMap;
     pub use std::fmt;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::pod_security_api::*;
+    use kubernetes_rs_api_server::admission::pod_security_api::*;
 
     const LATEST: Version = Version::LATEST;
 

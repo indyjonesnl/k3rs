@@ -2,13 +2,13 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::Pod;
-    pub use k3rs_scheduler::queue::events::*;
+    pub use kubernetes_rs_common::resources::Pod;
+    pub use kubernetes_rs_scheduler::queue::events::*;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_scheduler::queue::preemption_hints::*;
+    use kubernetes_rs_scheduler::queue::preemption_hints::*;
 
     #[test]
     fn always_skips() {

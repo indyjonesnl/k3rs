@@ -2,12 +2,12 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_kubelet::pluginmanager::cache::{
+    pub use kubernetes_rs_kubelet::pluginmanager::cache::{
         ActualStateOfWorld, DesiredStateOfWorld, PluginHandler,
     };
-    pub use k3rs_kubelet::pluginmanager::operation::OperationExecutor;
-    pub use k3rs_kubelet::pluginmanager::reconciler::Reconciler;
-    pub use k3rs_kubelet::pluginmanager::watcher::Watcher;
+    pub use kubernetes_rs_kubelet::pluginmanager::operation::OperationExecutor;
+    pub use kubernetes_rs_kubelet::pluginmanager::reconciler::Reconciler;
+    pub use kubernetes_rs_kubelet::pluginmanager::watcher::Watcher;
     pub use std::path::PathBuf;
     pub use std::sync::Arc;
     pub use std::time::Duration;
@@ -16,20 +16,22 @@ mod __parent {
 mod tests {
     use super::__parent::*;
     use crate::csi_fake::FakeDriver;
-    use k3rs_common::resources::Node;
-    use k3rs_kubelet::pluginmanager::csi_handler::{RegistrationHandler, CSI_PLUGIN};
-    use k3rs_kubelet::pluginmanager::operation::registerapi::registration_server::{
+    use kubernetes_rs_common::resources::Node;
+    use kubernetes_rs_kubelet::pluginmanager::csi_handler::{RegistrationHandler, CSI_PLUGIN};
+    use kubernetes_rs_kubelet::pluginmanager::operation::registerapi::registration_server::{
         Registration, RegistrationServer,
     };
-    use k3rs_kubelet::pluginmanager::operation::registerapi::{
+    use kubernetes_rs_kubelet::pluginmanager::operation::registerapi::{
         InfoRequest, PluginInfo, RegistrationStatus, RegistrationStatusResponse,
     };
-    use k3rs_kubelet::pluginmanager::*;
-    use k3rs_kubelet::volume_plugins::csi_client::proto::node_server::NodeServer;
-    use k3rs_kubelet::volume_plugins::csi_client::proto::NodeGetInfoResponse;
-    use k3rs_kubelet::volume_plugins::csi_drivers_store::DriversStore;
-    use k3rs_kubelet::volume_plugins::nodeinfomanager::{NodeInfoManager, ANNOTATION_KEY_NODE_ID};
-    use k3rs_storage::{build_key, MemoryStorage, Storage};
+    use kubernetes_rs_kubelet::pluginmanager::*;
+    use kubernetes_rs_kubelet::volume_plugins::csi_client::proto::node_server::NodeServer;
+    use kubernetes_rs_kubelet::volume_plugins::csi_client::proto::NodeGetInfoResponse;
+    use kubernetes_rs_kubelet::volume_plugins::csi_drivers_store::DriversStore;
+    use kubernetes_rs_kubelet::volume_plugins::nodeinfomanager::{
+        NodeInfoManager, ANNOTATION_KEY_NODE_ID,
+    };
+    use kubernetes_rs_storage::{build_key, MemoryStorage, Storage};
     use std::path::Path;
     use std::sync::Mutex;
     use tokio::sync::oneshot;

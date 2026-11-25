@@ -16,17 +16,17 @@
 //! See docs/conformance/network-endpointslices-dns-headless.md for the
 //! test-by-test status table.
 
-use k3rs_common::resources::endpointslice::{
+use kubernetes_rs_common::resources::endpointslice::{
     Endpoint, EndpointConditions, EndpointPort as ESEndpointPort, EndpointSlice,
 };
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     Container, ContainerPort, EndpointAddress, EndpointPort as EPPort, EndpointSubset, Endpoints,
     Pod, PodCondition, PodSpec, PodStatus, Service, ServicePort, ServiceSpec, ServiceType,
 };
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::endpoints::EndpointsController;
-use k3rs_controller_manager::controllers::endpointslice::EndpointSliceController;
-use k3rs_storage::{build_key, build_prefix, MemoryStorage, Storage};
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::endpoints::EndpointsController;
+use kubernetes_rs_controller_manager::controllers::endpointslice::EndpointSliceController;
+use kubernetes_rs_storage::{build_key, build_prefix, MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

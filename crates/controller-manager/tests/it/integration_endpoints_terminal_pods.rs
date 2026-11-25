@@ -31,13 +31,13 @@
 //! TDD pins.
 
 use chrono::Utc;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     Container, ContainerStatus, Endpoints, IntOrString, Pod, PodCondition, PodSpec, PodStatus,
     Service, ServicePort, ServiceSpec, ServiceType,
 };
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::endpoints::EndpointsController;
-use k3rs_storage::{build_key, MemoryStorage, Storage};
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::endpoints::EndpointsController;
+use kubernetes_rs_storage::{build_key, MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

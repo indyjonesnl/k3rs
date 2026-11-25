@@ -6,25 +6,25 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::{Pod, PodSpec};
-    pub use k3rs_scheduler::async_preemption::{
+    pub use kubernetes_rs_common::resources::{Pod, PodSpec};
+    pub use kubernetes_rs_scheduler::async_preemption::{
         AsyncPreemption, DefaultPreemptionPreEnqueue, PendingVictim,
     };
-    pub use k3rs_scheduler::queue::scheduling_queue::PreEnqueuePlugin;
+    pub use kubernetes_rs_scheduler::queue::scheduling_queue::PreEnqueuePlugin;
     pub use std::sync::{Arc, Mutex};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::PodStatus;
-    use k3rs_scheduler::profile::Profile;
-    use k3rs_scheduler::queue::nominator::NominatingInfo;
-    use k3rs_scheduler::queue::scheduling_gates::build_pre_enqueue_plugin_map_with_preemption;
-    use k3rs_scheduler::queue::scheduling_queue::{
+    use kubernetes_rs_common::resources::PodStatus;
+    use kubernetes_rs_scheduler::profile::Profile;
+    use kubernetes_rs_scheduler::queue::nominator::NominatingInfo;
+    use kubernetes_rs_scheduler::queue::scheduling_gates::build_pre_enqueue_plugin_map_with_preemption;
+    use kubernetes_rs_scheduler::queue::scheduling_queue::{
         priority_sort_less, PriorityQueue, PriorityQueueOptions,
     };
-    use k3rs_scheduler::scheduler::Scheduler;
-    use k3rs_storage::{MemoryStorage, Storage};
+    use kubernetes_rs_scheduler::scheduler::Scheduler;
+    use kubernetes_rs_storage::{MemoryStorage, Storage};
     use std::time::Duration;
 
     fn pod(name: &str, uid: &str, node: &str, priority: i32) -> Pod {
@@ -54,7 +54,7 @@ mod tests {
             priority_sort_less(),
             PriorityQueueOptions {
                 queueing_hint_map:
-                    k3rs_scheduler::queue::hints::build_queueing_hint_map_per_profile(
+                    kubernetes_rs_scheduler::queue::hints::build_queueing_hint_map_per_profile(
                         [&profile],
                         &Default::default(),
                     ),
@@ -132,8 +132,8 @@ mod tests {
         state.start("p-uid");
         assert_eq!(
             pl.pre_enqueue(&preemptor),
-            k3rs_scheduler::fwk::Status::new(
-                k3rs_scheduler::fwk::Code::UnschedulableAndUnresolvable,
+            kubernetes_rs_scheduler::fwk::Status::new(
+                kubernetes_rs_scheduler::fwk::Code::UnschedulableAndUnresolvable,
                 vec!["waiting for the preemption for this pod to be finished".to_string()]
             )
         );

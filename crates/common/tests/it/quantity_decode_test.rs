@@ -11,10 +11,10 @@
 //!   `invalid type: integer 0, expected a string`
 //! which in turn blocks five `[Conformance]`-labelled tests.
 
-use k3rs_common::resources::LimitRange;
-use k3rs_common::resources::PersistentVolumeClaim;
-use k3rs_common::resources::Pod;
-use k3rs_common::resources::ResourceQuota;
+use kubernetes_rs_common::resources::LimitRange;
+use kubernetes_rs_common::resources::PersistentVolumeClaim;
+use kubernetes_rs_common::resources::Pod;
+use kubernetes_rs_common::resources::ResourceQuota;
 use serde_json::json;
 
 #[test]

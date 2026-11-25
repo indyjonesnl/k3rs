@@ -17,13 +17,13 @@ use axum::{
     response::{IntoResponse, Response},
     Extension,
 };
-use k3rs_common::{
+use kubernetes_rs_common::{
     admission::{GroupVersionKind, GroupVersionResource},
     authz::{Decision, RequestAttributes},
     resources::ResourceQuota,
     List, Result,
 };
-use k3rs_storage::build_prefix;
+use kubernetes_rs_storage::build_prefix;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::debug;
@@ -266,7 +266,7 @@ pub async fn list(
     match state.authorizer.authorize(&attrs).await? {
         Decision::Allow => {}
         Decision::Deny(reason) => {
-            return Err(k3rs_common::Error::Forbidden(reason));
+            return Err(kubernetes_rs_common::Error::Forbidden(reason));
         }
     }
 
@@ -317,7 +317,7 @@ pub async fn list_all(
     match state.authorizer.authorize(&attrs).await? {
         Decision::Allow => {}
         Decision::Deny(reason) => {
-            return Err(k3rs_common::Error::Forbidden(reason));
+            return Err(kubernetes_rs_common::Error::Forbidden(reason));
         }
     }
 

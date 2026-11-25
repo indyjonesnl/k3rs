@@ -8,10 +8,10 @@
 //! manager yet.
 
 use chrono::Utc;
-use k3rs_common::resources::storageversionmigration::{
+use kubernetes_rs_common::resources::storageversionmigration::{
     StorageVersionMigration, MIGRATION_FAILED, MIGRATION_RUNNING, MIGRATION_SUCCEEDED,
 };
-use k3rs_common::types::Condition;
+use kubernetes_rs_common::types::Condition;
 
 /// `storageversionmigrator.go:46`: `migrationSuccessStatusReason`.
 pub const MIGRATION_SUCCESS_STATUS_REASON: &str = "StorageVersionMigrationSucceeded";

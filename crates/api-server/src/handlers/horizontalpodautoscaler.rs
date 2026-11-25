@@ -17,7 +17,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension,
 };
-use k3rs_common::{
+use kubernetes_rs_common::{
     admission::{GroupVersionKind, GroupVersionResource},
     authz::{Decision, RequestAttributes},
     resources::{
@@ -26,7 +26,7 @@ use k3rs_common::{
     },
     List, Result,
 };
-use k3rs_storage::{build_prefix, Storage};
+use kubernetes_rs_storage::{build_prefix, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -89,7 +89,7 @@ const V1_PATCH_CONVERSION: crate::endpoints::handlers::RequestVersionConversion 
 /// so v2-only fields such as `spec.metrics` warn/422 on a v1 endpoint.
 fn strict_decode_hpa_v1(params: &HashMap<String, String>, patched: &[u8]) -> Result<Vec<String>> {
     let v1: HorizontalPodAutoscalerV1 = serde_json::from_slice(patched)
-        .map_err(|e| k3rs_common::Error::BadRequest(e.to_string()))?;
+        .map_err(|e| kubernetes_rs_common::Error::BadRequest(e.to_string()))?;
     crate::handlers::validation::validate_strict_fields(params, patched, &v1)
 }
 
@@ -143,7 +143,7 @@ async fn response(uri: &Uri, response: Response) -> Result<Response> {
     let (mut parts, body) = response.into_parts();
     let bytes = axum::body::to_bytes(body, usize::MAX)
         .await
-        .map_err(|e| k3rs_common::Error::Internal(e.to_string()))?;
+        .map_err(|e| kubernetes_rs_common::Error::Internal(e.to_string()))?;
     let out = match serde_json::from_slice::<serde_json::Value>(&bytes) {
         Ok(mut value) => {
             to_served_json(uri, &mut value);
@@ -222,7 +222,9 @@ pub async fn watch_namespace(
     Query(params): Query<crate::handlers::watch::WatchParams>,
 ) -> Result<Response> {
     let (converter, bookmark_gvk) = hpa_watch_gvk(&uri);
-    crate::handlers::watch::watch_namespaced_converted::<k3rs_common::resources::CustomResource>(
+    crate::handlers::watch::watch_namespaced_converted::<
+        kubernetes_rs_common::resources::CustomResource,
+    >(
         state,
         auth_ctx,
         namespace,
@@ -370,7 +372,7 @@ pub async fn list(
         let watch_params = crate::handlers::watch::watch_params_from_query(&params);
         let (converter, bookmark_gvk) = hpa_watch_gvk(&uri);
         return crate::handlers::watch::watch_namespaced_converted::<
-            k3rs_common::resources::CustomResource,
+            kubernetes_rs_common::resources::CustomResource,
         >(
             state,
             auth_ctx,
@@ -397,7 +399,7 @@ pub async fn list(
     match state.authorizer.authorize(&attrs).await? {
         Decision::Allow => {}
         Decision::Deny(reason) => {
-            return Err(k3rs_common::Error::Forbidden(reason));
+            return Err(kubernetes_rs_common::Error::Forbidden(reason));
         }
     }
 
@@ -418,8 +420,8 @@ pub async fn list(
         crate::handlers::list_options::list_resource_version(&state.storage, &params, &list.items)
             .await,
     );
-    let mut value =
-        serde_json::to_value(&list).map_err(|e| k3rs_common::Error::Internal(e.to_string()))?;
+    let mut value = serde_json::to_value(&list)
+        .map_err(|e| kubernetes_rs_common::Error::Internal(e.to_string()))?;
     to_served_json(&uri, &mut value);
     Ok(crate::audit::json_response(value).into_response())
 }
@@ -434,7 +436,7 @@ pub async fn list_all(
         let watch_params = crate::handlers::watch::watch_params_from_query(&params);
         let (converter, bookmark_gvk) = hpa_watch_gvk(&uri);
         return crate::handlers::watch::watch_cluster_scoped_converted::<
-            k3rs_common::resources::CustomResource,
+            kubernetes_rs_common::resources::CustomResource,
         >(
             state,
             auth_ctx,
@@ -456,7 +458,7 @@ pub async fn list_all(
     match state.authorizer.authorize(&attrs).await? {
         Decision::Allow => {}
         Decision::Deny(reason) => {
-            return Err(k3rs_common::Error::Forbidden(reason));
+            return Err(kubernetes_rs_common::Error::Forbidden(reason));
         }
     }
 
@@ -477,8 +479,8 @@ pub async fn list_all(
         crate::handlers::list_options::list_resource_version(&state.storage, &params, &list.items)
             .await,
     );
-    let mut value =
-        serde_json::to_value(&list).map_err(|e| k3rs_common::Error::Internal(e.to_string()))?;
+    let mut value = serde_json::to_value(&list)
+        .map_err(|e| kubernetes_rs_common::Error::Internal(e.to_string()))?;
     to_served_json(&uri, &mut value);
     Ok(crate::audit::json_response(value).into_response())
 }

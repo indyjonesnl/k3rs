@@ -4,8 +4,10 @@
 mod __parent {
     pub use anyhow::{anyhow, bail, Context, Result};
     pub use async_trait::async_trait;
-    pub use k3rs_common::resources::{Pod, Volume};
-    pub use k3rs_kubelet::volume_plugins::{Attributes, Mounter, Spec, VolumeHost, VolumePlugin};
+    pub use kubernetes_rs_common::resources::{Pod, Volume};
+    pub use kubernetes_rs_kubelet::volume_plugins::{
+        Attributes, Mounter, Spec, VolumeHost, VolumePlugin,
+    };
     pub use std::collections::HashMap;
     pub use std::sync::Arc;
     pub use tracing::info;
@@ -13,16 +15,16 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::Volume;
-    use k3rs_kubelet::volume_plugins::downward_api::*;
+    use kubernetes_rs_common::resources::Volume;
+    use kubernetes_rs_kubelet::volume_plugins::downward_api::*;
     use serde_json::json;
 
     fn plugin() -> DownwardApiPlugin {
         DownwardApiPlugin::new(std::sync::Arc::new(
-            k3rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
-                "/var/lib/k3rs".to_string(),
+            kubernetes_rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
+                "/var/lib/kubernetes-rs".to_string(),
                 None,
-                k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+                kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
                 std::collections::HashMap::from([("memory".to_string(), "2Gi".to_string())]),
             ),
         ))
@@ -66,7 +68,7 @@ mod tests {
     fn plugin_name_is_the_upstream_name() {
         assert_eq!(
             plugin().name(),
-            k3rs_kubelet::pod_dirs::plugin::DOWNWARD_API
+            kubernetes_rs_kubelet::pod_dirs::plugin::DOWNWARD_API
         );
     }
 
@@ -82,12 +84,12 @@ mod tests {
 
     fn mounter_for(dir: &std::path::Path, items: serde_json::Value) -> DownwardApiMounter {
         DownwardApiMounter {
-            metrics: k3rs_kubelet::volume_plugins::metrics_cached::cached_du(""),
+            metrics: kubernetes_rs_kubelet::volume_plugins::metrics_cached::cached_du(""),
             host: std::sync::Arc::new(
-                k3rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
-                    "/var/lib/k3rs".to_string(),
+                kubernetes_rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
+                    "/var/lib/kubernetes-rs".to_string(),
                     None,
-                    k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+                    kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
                     HashMap::new(),
                 ),
             ),
@@ -105,7 +107,7 @@ mod tests {
     // (CollectData: `fPath := filepath.Clean(fileInfo.Path)`).
     #[test]
     fn collect_data_cleans_the_path() {
-        let items: Vec<k3rs_common::resources::DownwardAPIVolumeFile> =
+        let items: Vec<kubernetes_rs_common::resources::DownwardAPIVolumeFile> =
             serde_json::from_value(json!([
                 {"path": "this//labels", "fieldRef": {"fieldPath": "metadata.labels"}}
             ]))
@@ -118,7 +120,7 @@ mod tests {
     // `utilerrors.NewAggregate(errlist)` rather than stopping at the first.
     #[test]
     fn collect_data_aggregates_all_errors() {
-        let items: Vec<k3rs_common::resources::DownwardAPIVolumeFile> =
+        let items: Vec<kubernetes_rs_common::resources::DownwardAPIVolumeFile> =
             serde_json::from_value(json!([
                 {"path": "a", "fieldRef": {"fieldPath": "metadata.bogusA"}},
                 {"path": "b", "fieldRef": {"fieldPath": "metadata.bogusB"}}
@@ -134,7 +136,7 @@ mod tests {
     // (empty data, resolved mode) upstream; it is not an error.
     #[test]
     fn collect_data_item_without_ref_is_an_empty_file() {
-        let items: Vec<k3rs_common::resources::DownwardAPIVolumeFile> =
+        let items: Vec<kubernetes_rs_common::resources::DownwardAPIVolumeFile> =
             serde_json::from_value(json!([{"path": "empty", "mode": 256}])).unwrap();
         let data = collect_data(&items, &test_pod(), &HashMap::new(), Some(0o644)).unwrap();
         assert_eq!(data["empty"].data, Vec::<u8>::new());
@@ -282,12 +284,12 @@ mod tests {
     async fn set_up_nil_default_mode_errors() {
         let tmp = tempfile::tempdir().unwrap();
         let m = DownwardApiMounter {
-            metrics: k3rs_kubelet::volume_plugins::metrics_cached::cached_du(""),
+            metrics: kubernetes_rs_kubelet::volume_plugins::metrics_cached::cached_du(""),
             host: std::sync::Arc::new(
-                k3rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
-                    "/var/lib/k3rs".to_string(),
+                kubernetes_rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
+                    "/var/lib/kubernetes-rs".to_string(),
                     None,
-                    k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+                    kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
                     HashMap::new(),
                 ),
             ),
@@ -374,10 +376,10 @@ mod tests {
 
     async fn plugin_mounter(base: &std::path::Path, pod: Pod) -> Box<dyn Mounter> {
         let plugin = DownwardApiPlugin::new(std::sync::Arc::new(
-            k3rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
+            kubernetes_rs_kubelet::volume_plugins::KubeletVolumeHost::new_for_tests(
                 base.to_string_lossy().into_owned(),
                 None,
-                k3rs_common::auth::TokenManager::new_auto(b"test-secret"),
+                kubernetes_rs_common::auth::TokenManager::new_auto(b"test-secret"),
                 HashMap::new(),
             ),
         ));
@@ -440,7 +442,7 @@ mod tests {
         let m = mounter_for(std::path::Path::new("/tmp/x"), json!([]));
         assert_eq!(
             m.get_attributes(),
-            k3rs_kubelet::volume_plugins::plugin::Attributes {
+            kubernetes_rs_kubelet::volume_plugins::plugin::Attributes {
                 read_only: true,
                 managed: true,
                 selinux_relabel: true

@@ -3,7 +3,7 @@
 //! contract a cloud implements so the cloud controllers
 //! (`controllers/nodelifecycle`, ...) can talk to it.
 //!
-//! This is distinct from the bespoke `k3rs_common::cloud_provider::
+//! This is distinct from the bespoke `kubernetes_rs_common::cloud_provider::
 //! CloudProvider` trait that `LoadBalancerController` uses; that trait has no
 //! upstream equivalent. This module is the upstream one, kept 1:1.
 //!
@@ -26,9 +26,9 @@ pub mod fake;
 pub mod node_helpers;
 
 use async_trait::async_trait;
-use k3rs_common::resources::service::LoadBalancerStatus;
-use k3rs_common::resources::volume::PersistentVolume;
-use k3rs_common::resources::{Node, NodeAddress, Service};
+use kubernetes_rs_common::resources::service::LoadBalancerStatus;
+use kubernetes_rs_common::resources::volume::PersistentVolume;
+use kubernetes_rs_common::resources::{Node, NodeAddress, Service};
 use std::collections::HashMap;
 use std::fmt;
 

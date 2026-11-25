@@ -15,9 +15,9 @@
 // resize state machine; api-server's `/resize` subresource handler writes
 // it. A drift on either side breaks the resize feature.
 
-use k3rs_common::resources::pod::ContainerResizePolicy;
-use k3rs_common::resources::{Container, Pod, PodSpec, PodStatus};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_common::resources::pod::ContainerResizePolicy;
+use kubernetes_rs_common::resources::{Container, Pod, PodSpec, PodStatus};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
 
 fn container_with_resize_policy(name: &str, rp: Vec<ContainerResizePolicy>) -> Container {
     Container {

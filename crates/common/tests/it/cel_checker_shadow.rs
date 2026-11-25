@@ -1,9 +1,9 @@
-//! `K3RS_CEL_CHECKER=shadow`: the checker port compared with the
+//! `KUBERNETES_RS_CEL_CHECKER=shadow`: the checker port compared with the
 //! compile probe (`cel_versions::compile_failure`), without affecting it.
 
-use k3rs_common::cel_checker_shadow::{check_expression, divergence, Mode};
-use k3rs_common::cel_versions::{compile_failure, EnvSet, EnvType};
-use k3rs_common::feature_gates::Version;
+use kubernetes_rs_common::cel_checker_shadow::{check_expression, divergence, Mode};
+use kubernetes_rs_common::cel_versions::{compile_failure, EnvSet, EnvType};
+use kubernetes_rs_common::feature_gates::Version;
 
 fn set(minor: u32) -> EnvSet {
     EnvSet::must_base_env_set(Version::major_minor(1, minor))

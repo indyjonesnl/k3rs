@@ -2,7 +2,7 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_kubelet::volume_plugins::plugin::{
+    pub use kubernetes_rs_kubelet::volume_plugins::plugin::{
         BlockVolumePlugin, DeviceMountableVolumePlugin, NodeExpandableVolumePlugin, Spec,
         VolumePlugin,
     };
@@ -12,12 +12,12 @@ mod tests {
     use super::__parent::*;
     use anyhow::Result;
     use async_trait::async_trait;
-    use k3rs_common::resources::{Pod, Volume};
-    use k3rs_kubelet::volume_plugins::plugin::{
+    use kubernetes_rs_common::resources::{Pod, Volume};
+    use kubernetes_rs_kubelet::volume_plugins::plugin::{
         BlockVolumeMapper, BlockVolumePlugin, BlockVolumeUnmapper, Mounter,
         NodeExpandableVolumePlugin, NodeResizeOptions, OwnedSpec, Spec, VolumePlugin,
     };
-    use k3rs_kubelet::volume_plugins::registry::*;
+    use kubernetes_rs_kubelet::volume_plugins::registry::*;
     use serde_json::json;
 
     /// A plugin that matches when the volume's name starts with its prefix.
@@ -52,7 +52,7 @@ mod tests {
             &self,
             _vol_name: &str,
             _pod_uid: &str,
-        ) -> Result<Box<dyn k3rs_kubelet::volume_plugins::Unmounter>> {
+        ) -> Result<Box<dyn kubernetes_rs_kubelet::volume_plugins::Unmounter>> {
             unimplemented!("test plugin never unmounts")
         }
 
@@ -60,7 +60,7 @@ mod tests {
             &self,
             _vol_name: &str,
             _mount_path: &str,
-        ) -> Result<k3rs_kubelet::volume_plugins::ReconstructedVolume> {
+        ) -> Result<kubernetes_rs_kubelet::volume_plugins::ReconstructedVolume> {
             unimplemented!("test plugin never reconstructs")
         }
     }
@@ -171,7 +171,7 @@ mod tests {
             &self,
             _vol_name: &str,
             _pod_uid: &str,
-        ) -> Result<Box<dyn k3rs_kubelet::volume_plugins::Unmounter>> {
+        ) -> Result<Box<dyn kubernetes_rs_kubelet::volume_plugins::Unmounter>> {
             unimplemented!("test plugin never unmounts")
         }
 
@@ -179,7 +179,7 @@ mod tests {
             &self,
             _vol_name: &str,
             _mount_path: &str,
-        ) -> Result<k3rs_kubelet::volume_plugins::ReconstructedVolume> {
+        ) -> Result<kubernetes_rs_kubelet::volume_plugins::ReconstructedVolume> {
             unimplemented!("test plugin never reconstructs")
         }
     }
@@ -319,7 +319,7 @@ mod tests {
             &self,
             _vol_name: &str,
             _pod_uid: &str,
-        ) -> Result<Box<dyn k3rs_kubelet::volume_plugins::Unmounter>> {
+        ) -> Result<Box<dyn kubernetes_rs_kubelet::volume_plugins::Unmounter>> {
             unimplemented!("test plugin never unmounts")
         }
 
@@ -327,7 +327,7 @@ mod tests {
             &self,
             _vol_name: &str,
             _mount_path: &str,
-        ) -> Result<k3rs_kubelet::volume_plugins::ReconstructedVolume> {
+        ) -> Result<kubernetes_rs_kubelet::volume_plugins::ReconstructedVolume> {
             unimplemented!("test plugin never reconstructs")
         }
     }

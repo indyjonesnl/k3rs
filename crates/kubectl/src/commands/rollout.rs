@@ -1,6 +1,6 @@
 use crate::types::RolloutCommands;
 use anyhow::{Context, Result};
-use k3rs_client::http::ApiClient;
+use kubernetes_rs_client::http::ApiClient;
 use serde_json::{json, Value};
 
 /// Execute rollout commands

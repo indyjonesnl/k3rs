@@ -28,7 +28,7 @@
 //! - the `ttl_after_finished_controller_job_deletion_duration_seconds`
 //!   histogram (`ExponentialBuckets(0.1, 2, 14)`).
 //!
-//! The Job informer is a `k3rs_client::reflector::Reflector` over the
+//! The Job informer is a `kubernetes_rs_client::reflector::Reflector` over the
 //! [`Storage`] trait (via `storage_list_watch::StorageListWatch`), so
 //! `processJob`'s first read costs no storage round trip, as upstream's lister
 //! read does. The fresh read is a real `Storage::get`, as upstream's
@@ -53,10 +53,10 @@ use crate::controllers::storage_list_watch::StorageListWatch;
 use crate::controllers::worker_pool::spawn_workers;
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
-use k3rs_client::reflector::{Reflector, StoreEvent};
-use k3rs_common::resources::workloads::Job;
-use k3rs_common::Error;
-use k3rs_storage::{build_key, build_prefix, Preconditions, Storage, WorkQueue};
+use kubernetes_rs_client::reflector::{Reflector, StoreEvent};
+use kubernetes_rs_common::resources::workloads::Job;
+use kubernetes_rs_common::Error;
+use kubernetes_rs_storage::{build_key, build_prefix, Preconditions, Storage, WorkQueue};
 use prometheus::Histogram;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::broadcast::error::RecvError;
@@ -100,7 +100,9 @@ pub fn job_deletion_observations() -> u64 {
 
 /// `jobutil.FinishedCondition` (pkg/controller/job/util/utils.go:26-33): the
 /// first `Complete` or `Failed` condition whose status is `True`.
-fn finished_condition(j: &Job) -> Option<&k3rs_common::resources::workloads::JobCondition> {
+fn finished_condition(
+    j: &Job,
+) -> Option<&kubernetes_rs_common::resources::workloads::JobCondition> {
     j.status
         .as_ref()?
         .conditions

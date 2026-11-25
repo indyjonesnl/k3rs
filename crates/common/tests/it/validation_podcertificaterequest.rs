@@ -5,9 +5,9 @@
 use base64::Engine;
 use chrono::{DateTime, TimeZone, Utc};
 use ed25519_dalek::pkcs8::EncodePublicKey;
-use k3rs_common::resources::podcertificaterequest::*;
-use k3rs_common::types::Condition;
-use k3rs_common::validation::podcertificaterequest::*;
+use kubernetes_rs_common::resources::podcertificaterequest::*;
+use kubernetes_rs_common::types::Condition;
+use kubernetes_rs_common::validation::podcertificaterequest::*;
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use rcgen::{CertificateParams, KeyPair, SubjectPublicKeyInfo, PKCS_ECDSA_P256_SHA256};
 use sha2::{Digest, Sha256};
@@ -101,11 +101,11 @@ fn valid() -> PodCertificateRequest {
     pcr(k, s)
 }
 
-fn msgs(errs: &[k3rs_common::validation::field::Error]) -> Vec<String> {
+fn msgs(errs: &[kubernetes_rs_common::validation::field::Error]) -> Vec<String> {
     errs.iter().map(|e| e.to_string()).collect()
 }
 
-fn assert_has(errs: &[k3rs_common::validation::field::Error], needle: &str) {
+fn assert_has(errs: &[kubernetes_rs_common::validation::field::Error], needle: &str) {
     let m = msgs(errs);
     assert!(
         m.iter().any(|e| e.contains(needle)),

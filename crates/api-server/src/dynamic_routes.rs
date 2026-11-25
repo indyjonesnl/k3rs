@@ -5,7 +5,7 @@
 
 use crate::{handlers::custom_resource, state::ApiServerState};
 use axum::{routing::get, Router};
-use k3rs_common::resources::{CustomResourceDefinition, ResourceScope};
+use kubernetes_rs_common::resources::{CustomResourceDefinition, ResourceScope};
 use std::sync::Arc;
 use tracing::{debug, info};
 

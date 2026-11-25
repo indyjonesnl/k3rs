@@ -12,16 +12,16 @@
 //! `IsVolumeSnapshotClassDefaultAnnotation` (`pkg/utils/util.go:287-291`).
 //! Before #2027 the controller logged "not implemented" and skipped.
 
-use k3rs_common::resources::service_account::ObjectReference;
-use k3rs_common::resources::volume::*;
-use k3rs_common::resources::Event;
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::volume_snapshot::VolumeSnapshotController;
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::service_account::ObjectReference;
+use kubernetes_rs_common::resources::volume::*;
+use kubernetes_rs_common::resources::Event;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::volume_snapshot::VolumeSnapshotController;
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-const DRIVER: &str = "k3rs.io/hostpath-snapshotter";
+const DRIVER: &str = "kubernetes-rs.io/hostpath-snapshotter";
 
 async fn csi_pv(storage: &MemoryStorage, name: &str, driver: &str, claim: Option<(&str, &str)>) {
     let pv = PersistentVolume {

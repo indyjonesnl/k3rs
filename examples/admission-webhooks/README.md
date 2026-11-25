@@ -1,10 +1,10 @@
 # Admission Webhooks
 
-This directory contains examples of Admission Webhook configurations for k3rs.
+This directory contains examples of Admission Webhook configurations for kubernetes-rs.
 
 ## Overview
 
-Admission webhooks allow you to intercept and validate or mutate Kubernetes API requests before they are persisted to etcd. k3rs supports both:
+Admission webhooks allow you to intercept and validate or mutate Kubernetes API requests before they are persisted to etcd. kubernetes-rs supports both:
 
 - **ValidatingWebhookConfiguration**: Validates resources and can reject requests
 - **MutatingWebhookConfiguration**: Can modify resources before they are created
@@ -222,7 +222,7 @@ Then update your webhook configuration to point to:
 Unit tests for webhook matching logic:
 
 ```bash
-cargo test --package k3rs-api-server --lib admission_webhook
+cargo test --package kubernetes-rs-api-server --lib admission_webhook
 ```
 
 Test coverage includes:

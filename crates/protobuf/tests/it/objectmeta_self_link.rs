@@ -2,7 +2,7 @@
 //! deprecated and never populated by the server, but upstream's golden
 //! fixtures (`staging/src/k8s.io/api/testdata/HEAD/*.pb`) carry it, so the
 //! codec must keep it across a decode/encode cycle.
-use k3rs_protobuf::PROTO_REGISTRY;
+use kubernetes_rs_protobuf::PROTO_REGISTRY;
 use serde_json::json;
 
 #[test]

@@ -23,7 +23,7 @@
 //! noderesources}`).
 //!
 //! NO HTTP harness — scheduler logic is exercised by direct calls into
-//! `k3rs_scheduler::plugins` and `k3rs_scheduler::advanced`.
+//! `kubernetes_rs_scheduler::plugins` and `kubernetes_rs_scheduler::advanced`.
 //! Fixtures live as plain `Node`/`Pod` values; no `MemoryStorage` round-trip
 //! is needed because the framework's `FrameworkHandle` accepts the pod/node
 //! slices directly.
@@ -33,19 +33,19 @@
 
 use std::collections::HashMap;
 
-use k3rs_common::resources::node::{NodeSpec, NodeStatus, Taint};
-use k3rs_common::resources::pod::{
+use kubernetes_rs_common::resources::node::{NodeSpec, NodeStatus, Taint};
+use kubernetes_rs_common::resources::pod::{
     Affinity, Container, NodeAffinity, NodeSelector, NodeSelectorRequirement, NodeSelectorTerm,
     PodAffinity, PodAffinityTerm, PodAntiAffinity, PodSpec, PodStatus, PreferredSchedulingTerm,
     Toleration, WeightedPodAffinityTerm,
 };
-use k3rs_common::resources::{Node, Pod};
-use k3rs_common::types::{LabelSelector, Phase, ResourceRequirements};
-use k3rs_scheduler::advanced::{
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_common::types::{LabelSelector, Phase, ResourceRequirements};
+use kubernetes_rs_scheduler::advanced::{
     calculate_resource_score_with_pods, check_pod_affinity, check_taints_tolerations,
 };
-use k3rs_scheduler::framework::{CycleState, FilterPlugin, FrameworkHandle, ScorePlugin};
-use k3rs_scheduler::plugins::{
+use kubernetes_rs_scheduler::framework::{CycleState, FilterPlugin, FrameworkHandle, ScorePlugin};
+use kubernetes_rs_scheduler::plugins::{
     NodeAffinityPlugin, NodeAffinityScoringPlugin, NodeSelectorPlugin, PodAffinityPlugin,
     PodAntiAffinityPlugin, TaintTolerationPlugin,
 };

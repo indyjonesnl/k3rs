@@ -7,7 +7,7 @@
 //! ("sourceVolumeMode is required once set").
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const CONTENTS: &str = "/apis/snapshot.storage.k8s.io/v1/volumesnapshotcontents";

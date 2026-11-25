@@ -15,15 +15,15 @@
 
 use std::collections::HashMap;
 
-use k3rs_common::resources::node::NodeSpec;
-use k3rs_common::resources::pod::{
+use kubernetes_rs_common::resources::node::NodeSpec;
+use kubernetes_rs_common::resources::pod::{
     Affinity, Container, NodeAffinity, NodeSelector, NodeSelectorRequirement, NodeSelectorTerm,
     PodSpec,
 };
-use k3rs_common::resources::{Node, Pod};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_scheduler::framework::{CycleState, FilterPlugin, FrameworkHandle};
-use k3rs_scheduler::plugins::NodeAffinityPlugin;
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_scheduler::framework::{CycleState, FilterPlugin, FrameworkHandle};
+use kubernetes_rs_scheduler::plugins::NodeAffinityPlugin;
 
 // ---------------------------------------------------------------------------
 // Fixtures

@@ -9,25 +9,25 @@ mod __parent {
         response::{IntoResponse, Response},
         Extension,
     };
-    pub use k3rs_api_server::endpoints::handlers::{self as endpoints, RequestScope};
-    pub use k3rs_api_server::registry::policy::poddisruptionbudget;
-    pub use k3rs_api_server::{middleware::AuthContext, state::ApiServerState};
-    pub use k3rs_common::{
+    pub use kubernetes_rs_api_server::endpoints::handlers::{self as endpoints, RequestScope};
+    pub use kubernetes_rs_api_server::registry::policy::poddisruptionbudget;
+    pub use kubernetes_rs_api_server::{middleware::AuthContext, state::ApiServerState};
+    pub use kubernetes_rs_common::{
         admission::{GroupVersionKind, GroupVersionResource},
         authz::{Decision, RequestAttributes},
         resources::PodDisruptionBudget,
         List, Result,
     };
-    pub use k3rs_storage::build_prefix;
+    pub use kubernetes_rs_storage::build_prefix;
     pub use std::collections::HashMap;
     pub use std::sync::Arc;
     pub use tracing::debug;
 }
 
 mod tests {
-    use k3rs_common::resources::PodDisruptionBudget;
-    use k3rs_common::resources::{IntOrString, PodDisruptionBudgetSpec};
-    use k3rs_common::types::LabelSelector;
+    use kubernetes_rs_common::resources::PodDisruptionBudget;
+    use kubernetes_rs_common::resources::{IntOrString, PodDisruptionBudgetSpec};
+    use kubernetes_rs_common::types::LabelSelector;
     use std::collections::HashMap;
 
     #[test]

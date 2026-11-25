@@ -3,24 +3,24 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
-    pub use k3rs_common::resources::validating_admission_policy::{
+    pub use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource, Operation};
+    pub use kubernetes_rs_common::resources::validating_admission_policy::{
         MatchPolicyType, MatchResources, NamedRuleWithOperations, OperationType, RuleWithOperations,
     };
-    pub use k3rs_common::resources::{LabelSelector, LabelSelectorOperator};
-    pub use k3rs_common::types::{
+    pub use kubernetes_rs_common::resources::{LabelSelector, LabelSelectorOperator};
+    pub use kubernetes_rs_common::types::{
         label_selector_as_selector, LabelSelector as MetaLabelSelector,
         LabelSelectorRequirement as MetaLabelSelectorRequirement, Selector,
     };
-    pub use k3rs_common::{Error, Result};
+    pub use kubernetes_rs_common::{Error, Result};
     pub use serde_json::Value;
     pub use std::collections::HashMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::policy_matching::*;
-    use k3rs_common::resources::LabelSelectorRequirement;
+    use kubernetes_rs_api_server::admission::policy_matching::*;
+    use kubernetes_rs_common::resources::LabelSelectorRequirement;
 
     fn gvr(g: &str, v: &str, r: &str) -> GroupVersionResource {
         GroupVersionResource {

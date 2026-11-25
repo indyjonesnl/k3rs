@@ -1,5 +1,5 @@
-use k3rs_common::resources::ResourceQuota;
-use k3rs_common::validation::resourcequota::validate_resource_quota_update;
+use kubernetes_rs_common::resources::ResourceQuota;
+use kubernetes_rs_common::validation::resourcequota::validate_resource_quota_update;
 use serde_json::json;
 
 fn rq(scopes: serde_json::Value) -> ResourceQuota {

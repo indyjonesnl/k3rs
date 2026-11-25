@@ -12,10 +12,10 @@
 //! `certificates/ctbattest` (`Validate`, :86-122) is
 //! [`validate_cluster_trust_bundle_attest`].
 
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Decision, RequestAttributes};
-use k3rs_common::resources::podcertificaterequest::PodCertificateRequest;
-use k3rs_common::resources::{
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Decision, RequestAttributes};
+use kubernetes_rs_common::resources::podcertificaterequest::PodCertificateRequest;
+use kubernetes_rs_common::resources::{
     CertificateSigningRequest, CertificateSigningRequestStatus, ClusterTrustBundle,
 };
 
@@ -122,8 +122,9 @@ pub async fn validate_cluster_trust_bundle_attest(
     old: Option<&ClusterTrustBundle>,
 ) -> Option<String> {
     // `p.enabled` (:62-65, :80-82): the plugin is inert with the gate off.
-    if !k3rs_common::feature_gates::enabled(k3rs_common::feature_gates::Feature::ClusterTrustBundle)
-    {
+    if !kubernetes_rs_common::feature_gates::enabled(
+        kubernetes_rs_common::feature_gates::Feature::ClusterTrustBundle,
+    ) {
         return None;
     }
     // Validate against the *new* object: updates to signer name are rejected

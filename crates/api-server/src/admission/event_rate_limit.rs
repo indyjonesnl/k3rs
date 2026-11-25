@@ -12,7 +12,7 @@
 //!
 //! The limiter is `flowcontrol.NewTokenBucketRateLimiterWithClock`
 //! (`staging/src/k8s.io/client-go/util/flowcontrol/throttle.go`), backed here
-//! by [`k3rs_common::event_correlator::TokenBucket`] (a port of
+//! by [`kubernetes_rs_common::event_correlator::TokenBucket`] (a port of
 //! `x/time/rate.Limiter.AllowN`), the same limiter the client-side event spam
 //! filter uses; the LRU is [`LruExpireCache`] with an entry TTL that never
 //! elapses, which is `k8s.io/utils/lru.Cache`.
@@ -21,11 +21,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use k3rs_common::event_correlator::TokenBucket;
-use k3rs_common::lru_expire_cache::LruExpireCache;
-use k3rs_common::resources::Event;
-use k3rs_common::validation::field;
-use k3rs_common::Error;
+use kubernetes_rs_common::event_correlator::TokenBucket;
+use kubernetes_rs_common::lru_expire_cache::LruExpireCache;
+use kubernetes_rs_common::resources::Event;
+use kubernetes_rs_common::validation::field;
+use kubernetes_rs_common::Error;
 use serde::{Deserialize, Serialize};
 
 pub const PLUGIN_NAME: &str = "EventRateLimit";

@@ -13,8 +13,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use k3rs_common::resources::{Node, Pod};
-use k3rs_common::types::Selector;
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_common::types::Selector;
 
 use crate::pod_topology_spread_score::{
     build_default_constraints, count_pods_match_selector, filter_topology_spread_constraints,

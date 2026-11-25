@@ -1,5 +1,5 @@
-use k3rs_common::resources::Secret;
-use k3rs_common::validation::secret::{
+use kubernetes_rs_common::resources::Secret;
+use kubernetes_rs_common::validation::secret::{
     validate_secret, validate_secret_type, validate_secret_update,
 };
 use serde_json::json;

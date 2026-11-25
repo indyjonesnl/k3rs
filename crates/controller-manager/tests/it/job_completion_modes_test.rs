@@ -1,7 +1,7 @@
 // Job Completion Modes Integration Tests
 // Reproduces the bugs exposed by upstream e2e sites
 // apps/job.go:439 (Indexed), :556 (successPolicy), :630 (backoffLimitPerIndex).
-// Captured from a live sonobuoy run on k3rs:
+// Captured from a live sonobuoy run on kubernetes-rs:
 //   :439 — "expected completed indexes [0,1,2,3], but got [0,2]"
 //          (status.succeeded reached completions due to duplicate pod creation
 //           but completedIndexes only listed the unique succeeded indexes)
@@ -9,11 +9,11 @@
 //          (active != 0 / extra index succeeded), so status.succeeded > matched.
 //   :630 — status.failed counted duplicate per-index failures, leaving 5 instead of 4.
 
-use k3rs_common::resources::pod::*;
-use k3rs_common::resources::workloads::*;
-use k3rs_common::types::{ObjectMeta, OwnerReference, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::job::JobController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::pod::*;
+use kubernetes_rs_common::resources::workloads::*;
+use kubernetes_rs_common::types::{ObjectMeta, OwnerReference, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::job::JobController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

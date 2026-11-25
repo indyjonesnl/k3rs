@@ -5,14 +5,14 @@
 //! expectations: only LoadBalancer+Local with a port, distinct local IPs,
 //! ready only.
 
-use k3rs_common::resources::endpointslice::EndpointPort;
-use k3rs_common::resources::service::ServiceExternalTrafficPolicy;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::endpointslice::EndpointPort;
+use kubernetes_rs_common::resources::service::ServiceExternalTrafficPolicy;
+use kubernetes_rs_common::resources::{
     Endpoint, EndpointConditions, EndpointSlice, Service, ServicePort, ServiceSpec, ServiceType,
 };
-use k3rs_kube_proxy::iptables::IpFamily;
-use k3rs_kube_proxy::service_health::NamespacedName;
-use k3rs_kube_proxy::svc_maps::{health_check_node_ports, local_ready_endpoints};
+use kubernetes_rs_kube_proxy::iptables::IpFamily;
+use kubernetes_rs_kube_proxy::service_health::NamespacedName;
+use kubernetes_rs_kube_proxy::svc_maps::{health_check_node_ports, local_ready_endpoints};
 use std::collections::HashMap;
 
 fn svc(

@@ -3,14 +3,14 @@
 
 mod __parent {
     pub use anyhow::Result;
-    pub use k3rs_client::http::ApiClient;
-    pub use k3rs_kubectl::types::TopCommands;
+    pub use kubernetes_rs_client::http::ApiClient;
+    pub use kubernetes_rs_kubectl::types::TopCommands;
     pub use serde::Deserialize;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::top::*;
+    use kubernetes_rs_kubectl::commands::top::*;
 
     #[test]
     fn test_node_metrics_deserialization() {

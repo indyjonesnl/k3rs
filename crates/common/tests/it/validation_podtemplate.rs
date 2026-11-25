@@ -1,9 +1,9 @@
 //! Tests for PodTemplate validation (port of upstream ValidatePodTemplate).
 
-use k3rs_common::resources::pod::{Container, PodSpec};
-use k3rs_common::resources::workloads::{PodTemplate, PodTemplateSpec};
-use k3rs_common::types::ObjectMeta;
-use k3rs_common::validation::podtemplate::validate_pod_template;
+use kubernetes_rs_common::resources::pod::{Container, PodSpec};
+use kubernetes_rs_common::resources::workloads::{PodTemplate, PodTemplateSpec};
+use kubernetes_rs_common::types::ObjectMeta;
+use kubernetes_rs_common::validation::podtemplate::validate_pod_template;
 
 fn container(name: &str) -> Container {
     Container {
@@ -30,7 +30,7 @@ fn pt(containers: Vec<Container>) -> PodTemplate {
     p
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], field_substr: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], field_substr: &str) -> bool {
     errs.iter().any(|e| e.field.contains(field_substr))
 }
 
@@ -81,11 +81,12 @@ fn bad_template_label_rejected() {
 #[test]
 fn ephemeral_containers_forbidden() {
     let mut p = pt(vec![container("web")]);
-    p.template.spec.ephemeral_containers =
-        Some(vec![k3rs_common::resources::pod::EphemeralContainer {
+    p.template.spec.ephemeral_containers = Some(vec![
+        kubernetes_rs_common::resources::pod::EphemeralContainer {
             name: "debug".to_string(),
             ..Default::default()
-        }]);
+        },
+    ]);
     let errs = validate_pod_template(&p);
     assert!(
         errs.iter().any(|e| e.field.contains("ephemeralContainers")),

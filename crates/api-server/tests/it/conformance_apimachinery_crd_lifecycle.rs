@@ -41,7 +41,7 @@
 //! Do not treat this file as audited.
 //!
 
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 // ---------------------------------------------------------------------------

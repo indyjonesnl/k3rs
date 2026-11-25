@@ -3,15 +3,15 @@
 
 mod __parent {
     pub use anyhow::{Context, Result};
-    pub use k3rs_client::http::ApiClient;
-    pub use k3rs_kubectl::discovery::ResourceMapping;
-    pub use k3rs_kubectl::types::SetCommands;
+    pub use kubernetes_rs_client::http::ApiClient;
+    pub use kubernetes_rs_kubectl::discovery::ResourceMapping;
+    pub use kubernetes_rs_kubectl::types::SetCommands;
     pub use serde_json::{json, Value};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::set::*;
+    use kubernetes_rs_kubectl::commands::set::*;
 
     #[test]
     fn test_parse_resource_arg() {
@@ -46,8 +46,8 @@ mod tests {
         group: &str,
         plural: &str,
         namespaced: bool,
-    ) -> k3rs_kubectl::discovery::ResourceMapping {
-        k3rs_kubectl::discovery::ResourceMapping {
+    ) -> kubernetes_rs_kubectl::discovery::ResourceMapping {
+        kubernetes_rs_kubectl::discovery::ResourceMapping {
             group: group.into(),
             version: "v1".into(),
             kind: "X".into(),
@@ -63,19 +63,19 @@ mod tests {
     fn test_resolve_resource_path() {
         let dep = mapping("apps", "deployments", true);
         assert_eq!(
-            k3rs_kubectl::ops::build_path(&dep, Some("default"), Some("nginx")),
+            kubernetes_rs_kubectl::ops::build_path(&dep, Some("default"), Some("nginx")),
             "/apis/apps/v1/namespaces/default/deployments/nginx"
         );
 
         let pod = mapping("", "pods", true);
         assert_eq!(
-            k3rs_kubectl::ops::build_path(&pod, Some("kube-system"), Some("mypod")),
+            kubernetes_rs_kubectl::ops::build_path(&pod, Some("kube-system"), Some("mypod")),
             "/api/v1/namespaces/kube-system/pods/mypod"
         );
 
         let sts = mapping("apps", "statefulsets", true);
         assert_eq!(
-            k3rs_kubectl::ops::build_path(&sts, Some("default"), Some("myapp")),
+            kubernetes_rs_kubectl::ops::build_path(&sts, Some("default"), Some("myapp")),
             "/apis/apps/v1/namespaces/default/statefulsets/myapp"
         );
     }
@@ -215,7 +215,7 @@ mod tests {
         for (m, expected) in cases {
             let name = expected.rsplit('/').next().unwrap();
             assert_eq!(
-                k3rs_kubectl::ops::build_path(&m, Some("ns1"), Some(name)),
+                kubernetes_rs_kubectl::ops::build_path(&m, Some("ns1"), Some(name)),
                 expected
             );
         }
@@ -509,7 +509,7 @@ mod tests {
 
     #[test]
     fn test_subject_guard_rejects_non_binding_kind() {
-        use k3rs_kubectl::discovery::{parse_aggregated_discovery, RestMapper};
+        use kubernetes_rs_kubectl::discovery::{parse_aggregated_discovery, RestMapper};
         let raw = include_str!("../../fixtures/aggregated-discovery.json");
         let doc: serde_json::Value = serde_json::from_str(raw).unwrap();
         let mapper = RestMapper::new(parse_aggregated_discovery(&doc).unwrap());

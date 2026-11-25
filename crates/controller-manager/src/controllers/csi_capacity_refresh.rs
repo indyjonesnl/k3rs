@@ -8,8 +8,8 @@
 
 use super::csi_capacity::Segment;
 use super::csi_capacity_metrics::CapacityStats;
-use k3rs_common::resources::csi::CSIStorageCapacity;
-use k3rs_common::resources::volume::{StorageClass, VolumeNodeAffinity};
+use kubernetes_rs_common::resources::csi::CSIStorageCapacity;
+use kubernetes_rs_common::resources::volume::{StorageClass, VolumeNodeAffinity};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};

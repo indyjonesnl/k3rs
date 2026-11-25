@@ -50,15 +50,15 @@
 //! because it imagines the level only afterwards); the mandatory FlowSchemas
 //! are equivalent either way.
 
-use k3rs_common::resources::flowcontrol::{
+use kubernetes_rs_common::resources::flowcontrol::{
     FlowDistinguisherMethodType, FlowSchema, FlowSchemaCondition, FlowSchemaSubject,
     LimitResponseType, NonResourcePolicyRule, PolicyRulesWithSubjects, PriorityLevelConfiguration,
     PriorityLevelType, ResourcePolicyRule, SubjectKind,
 };
-use k3rs_common::validation::flowcontrol_bootstrap::{
+use kubernetes_rs_common::validation::flowcontrol_bootstrap::{
     mandatory_flow_schema, mandatory_priority_level_configuration,
 };
-use k3rs_storage::{build_key, Storage};
+use kubernetes_rs_storage::{build_key, Storage};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -950,7 +950,7 @@ impl Drop for InQueue {
 /// metric plus `TrackAPFQueueWaitLatency` for the SLI latency.
 fn observe_queue_wait_time(pl: &str, fs: &str, execute: bool, wait: Duration) {
     fcmetrics::observe_waiting_duration(pl, fs, execute, wait);
-    k3rs_common::latency_trackers::track_apf_queue_wait_latency(wait);
+    kubernetes_rs_common::latency_trackers::track_apf_queue_wait_latency(wait);
 }
 
 /// A dispatched request's executing gauges (`AddRequestsExecuting` +
@@ -1294,7 +1294,7 @@ impl<S: Storage> FlowControlEngine<S> {
                 fsu.old_value
             );
             if let Err(e) = self.apply_status(&fsu).await {
-                if matches!(e, k3rs_common::Error::NotFound(_)) {
+                if matches!(e, kubernetes_rs_common::Error::NotFound(_)) {
                     // This object has been deleted. A notification is
                     // coming and nothing more needs to be done here.
                 } else {
@@ -1326,7 +1326,7 @@ impl<S: Storage> FlowControlEngine<S> {
     /// configuration `FlowSchema(name).WithStatus(WithConditions(condition))`.
     /// `asFieldManager` is `ConfigConsumerAsFieldManager` (apf_filter.go:42,
     /// passed at :98).
-    async fn apply_status(&self, fsu: &FsStatusUpdate) -> k3rs_common::Result<()> {
+    async fn apply_status(&self, fsu: &FsStatusUpdate) -> kubernetes_rs_common::Result<()> {
         let key = build_key("flowschemas", None, &fsu.flow_schema);
         let apply_config = serde_json::json!({
             "apiVersion": "flowcontrol.apiserver.k8s.io/v1",

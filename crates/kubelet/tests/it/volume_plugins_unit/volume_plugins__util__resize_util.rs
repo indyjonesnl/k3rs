@@ -4,17 +4,17 @@
 mod __parent {
     pub use anyhow::{anyhow, Result};
     pub use chrono::SecondsFormat;
-    pub use k3rs_common::quantity::Quantity;
-    pub use k3rs_common::resources::volume::{
+    pub use kubernetes_rs_common::quantity::Quantity;
+    pub use kubernetes_rs_common::resources::volume::{
         PersistentVolumeClaim, PersistentVolumeClaimCondition, PersistentVolumeClaimStatus,
     };
-    pub use k3rs_storage::{build_key, Storage};
+    pub use kubernetes_rs_storage::{build_key, Storage};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::volume_plugins::util::resize_util::*;
-    use k3rs_storage::StorageBackend;
+    use kubernetes_rs_kubelet::volume_plugins::util::resize_util::*;
+    use kubernetes_rs_storage::StorageBackend;
     use serde_json::json;
 
     pub(crate) fn pvc(status: serde_json::Value) -> PersistentVolumeClaim {

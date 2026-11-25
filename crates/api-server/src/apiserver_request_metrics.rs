@@ -36,7 +36,7 @@
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::Duration;
 
-use k3rs_common::latency_trackers::{with_latency_trackers, LatencyTrackers};
+use kubernetes_rs_common::latency_trackers::{with_latency_trackers, LatencyTrackers};
 use prometheus::{register, HistogramOpts, HistogramVec, IntCounterVec, IntGaugeVec, Opts};
 
 /// The request fields `RecordDroppedRequest`/`RecordRequestTermination` read
@@ -689,7 +689,7 @@ pub fn request_meta(req: &axum::extract::Request) -> RequestMeta {
         subresource: attrs.subresource,
         user_name: req
             .extensions()
-            .get::<k3rs_middleware::AuthContext>()
+            .get::<kubernetes_rs_middleware::AuthContext>()
             .map(|c| c.user.username.clone())
             .unwrap_or_default(),
     }
@@ -727,7 +727,7 @@ pub async fn instrument_request(
     // trackers for every request except watches.
     // When the outer [`with_latency_trackers_filter`] already installed them
     // (so authentication and audit share them), reuse that instance.
-    let outer_trackers = k3rs_common::latency_trackers::latency_trackers_from_context();
+    let outer_trackers = kubernetes_rs_common::latency_trackers::latency_trackers_from_context();
     let install_here = outer_trackers.is_none() && meta.verb != "watch";
     let trackers =
         outer_trackers.or_else(|| install_here.then(|| Arc::new(LatencyTrackers::new())));
@@ -751,7 +751,7 @@ pub async fn instrument_request(
     if upgrade {
         if let Some(g) = &monitor {
             req.extensions_mut()
-                .insert(k3rs_streamproxy::ConnectionHold(g.clone()));
+                .insert(kubernetes_rs_streamproxy::ConnectionHold(g.clone()));
         }
     }
     let resp = match &trackers {
@@ -811,7 +811,7 @@ pub async fn instrument_handler_func(
     meta.resource = String::new();
     meta.subresource = subresource.to_string();
     let started = std::time::Instant::now();
-    let trackers = k3rs_common::latency_trackers::latency_trackers_from_context();
+    let trackers = kubernetes_rs_common::latency_trackers::latency_trackers_from_context();
     let resp = next.run(req).await;
     let size = resp
         .headers()

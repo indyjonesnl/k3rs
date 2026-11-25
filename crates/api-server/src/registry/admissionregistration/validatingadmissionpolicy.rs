@@ -4,24 +4,24 @@
 
 use std::sync::Arc;
 
-use k3rs_common::authz::Authorizer;
-use k3rs_common::cel_env::{mutation_env_failure, ExpectedOutput, MutationEnv};
-use k3rs_common::cel_versions::{self, EnvSet, EnvType};
+use kubernetes_rs_common::authz::Authorizer;
+use kubernetes_rs_common::cel_env::{mutation_env_failure, ExpectedOutput, MutationEnv};
+use kubernetes_rs_common::cel_versions::{self, EnvSet, EnvType};
 
-use k3rs_common::cel_mutation_types::{observe_expression, PolicyExpression};
-use k3rs_common::resources::validating_admission_policy::{
+use kubernetes_rs_common::cel_mutation_types::{observe_expression, PolicyExpression};
+use kubernetes_rs_common::resources::validating_admission_policy::{
     ValidatingAdmissionPolicySpec, ValidatingAdmissionPolicyStatus,
 };
-use k3rs_common::resources::ValidatingAdmissionPolicy;
-use k3rs_common::validation::field::{Error as FieldError, ErrorList, Path};
-use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
-use k3rs_common::validation::validating_admission_policy::{
+use kubernetes_rs_common::resources::ValidatingAdmissionPolicy;
+use kubernetes_rs_common::validation::field::{Error as FieldError, ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
+use kubernetes_rs_common::validation::validating_admission_policy::{
     find_validating_policy_preexisting_expressions,
     ignore_validating_admission_policy_match_conditions, set_defaults_validating_admission_policy,
     validate_validating_admission_policy, validate_validating_admission_policy_status_update,
     PreexistingExpressions, MAX_AUDIT_ANNOTATION_VALUE_EXPRESSION_LENGTH,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use super::authz::{authorize_param_kind, ParamAuthz};
 use crate::registry::generic::Store;

@@ -3,10 +3,10 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_common::{authz::AuthzStorage, Error, Result};
-    pub use k3rs_storage::busy::{map_backend_error, retry_busy, RetryPolicy};
-    pub use k3rs_storage::concurrency;
-    pub use k3rs_storage::{Storage, WatchEvent, WatchStream};
+    pub use kubernetes_rs_common::{authz::AuthzStorage, Error, Result};
+    pub use kubernetes_rs_storage::busy::{map_backend_error, retry_busy, RetryPolicy};
+    pub use kubernetes_rs_storage::concurrency;
+    pub use kubernetes_rs_storage::{Storage, WatchEvent, WatchStream};
     pub use rhino::backend::Backend;
     pub use serde::{de::DeserializeOwned, Serialize};
     pub use std::sync::Arc;
@@ -19,7 +19,7 @@ mod busy_read_tests {
     //! follow-up to #1621). A backend whose reads fail `database is locked`
     //! a set number of times stands in for a writer holding BEGIN IMMEDIATE.
     use super::__parent::*;
-    use k3rs_storage::rhino::*;
+    use kubernetes_rs_storage::rhino::*;
     use rhino::backend::{Backend, BackendError, KeyValue, Result as BResult, WatchResult};
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -187,7 +187,7 @@ mod stats_tests {
     //! not a list that decodes and re-encodes every object once a minute.
     use super::__parent::*;
     use futures::StreamExt;
-    use k3rs_storage::rhino::*;
+    use kubernetes_rs_storage::rhino::*;
     use rhino::backend::{Backend, Event, KeyValue, Result as BResult, WatchResult};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
@@ -401,7 +401,7 @@ mod stats_tests {
 #[cfg(feature = "sqlite")]
 mod preconditions_tests {
     use super::__parent::*;
-    use k3rs_storage::rhino::*;
+    use kubernetes_rs_storage::rhino::*;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn delete_with_preconditions_suite() {

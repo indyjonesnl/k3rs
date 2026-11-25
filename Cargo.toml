@@ -17,7 +17,7 @@ members = [
     "crates/storage",
     "crates/client",
     "crates/dns",
-    "crates/k3rs",
+    "crates/kubernetes-rs",
     "crates/test_support",
     "crates/streamproxy",
     "crates/csi",
@@ -27,7 +27,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["k3rs Contributors"]
+authors = ["kubernetes-rs Contributors"]
 license = "Apache-2.0"
 
 [workspace.dependencies]
@@ -94,7 +94,7 @@ strip = "symbols"
 #
 # Used by all-in-one.Dockerfile, services.Dockerfile, dns.Dockerfile and
 # kubectl.Dockerfile via `cargo build --profile release-fast`. Shipped
-# release artefacts (the indyjonesnl/k3rs GitHub releases) still
+# release artefacts (the indyjonesnl/kubernetes-rs GitHub releases) still
 # build with the regular `release` profile above.
 [profile.release-fast]
 inherits = "release"

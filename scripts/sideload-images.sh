@@ -14,14 +14,14 @@
 #
 # Usage: sideload-images.sh --image-source mirror|upstream [--conformance-image REF]
 #   env: CONTAINER_RT (docker), CONTAINERD_SERVICE_CONTAINER (one runtime name;
-#        default: discover k3rs-containerd*), MIRROR_PREFIX, PULL_RETRIES (3)
+#        default: discover kubernetes-rs-containerd*), MIRROR_PREFIX, PULL_RETRIES (3)
 #   --sandbox-image REF  sandbox image name containerd requests (default: the
 #                        pinned_images.sandbox in deploy/containerd/config.toml)
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || exit 0
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 RT="${CONTAINER_RT:-docker}"
-MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/rusternetes/mirror}"
+MIRROR_PREFIX="${MIRROR_PREFIX:-ghcr.io/indyjonesnl/kubernetes-rs/mirror}"
 PULL_RETRIES="${PULL_RETRIES:-3}"
 LIST="${SIDELOAD_LIST:-$REPO_ROOT/ci/mirror/sideload.txt}"
 SOURCE=upstream; CONF_IMAGE=""; SANDBOX=""
@@ -42,7 +42,7 @@ command -v "$RT" >/dev/null 2>&1 || { warn "$RT not found; skipping"; exit 0; }
 if [ -n "${CONTAINERD_SERVICE_CONTAINER:-}" ]; then
     runtimes="$CONTAINERD_SERVICE_CONTAINER"
 else
-    runtimes="$("$RT" ps --format '{{.Names}}' 2>/dev/null | grep -E '^k3rs-containerd[0-9]*$' | sort || true)"
+    runtimes="$("$RT" ps --format '{{.Names}}' 2>/dev/null | grep -E '^kubernetes-rs-containerd[0-9]*$' | sort || true)"
 fi
 [ -n "$runtimes" ] || { say "no separate containerd service (all-in-one stack?); nothing to side-load"; exit 0; }
 

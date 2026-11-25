@@ -15,7 +15,7 @@
 # enumeration.sh enforces the manifest block stays complete:
 #   admission-webhook, api-server, client, common,
 #   controller-manager, cri, discovery, dns, kubectl, kubelet, kube-proxy,
-#   middleware, protobuf, k3rs, scheduler, storage,
+#   middleware, protobuf, kubernetes-rs, scheduler, storage,
 #   test_support
 #
 # Pin the rust toolchain — see services.Dockerfile for the cache-mount
@@ -24,7 +24,7 @@
 FROM rust:1.100 AS builder
 
 # sccache wraps rustc so identical (crate, source, flags) compilations
-# hit the BuildKit cache mount below. Shares cache id `sccache-rusternetes`
+# hit the BuildKit cache mount below. Shares cache id `sccache-kubernetes-rs`
 # with services.Dockerfile and all-in-one.Dockerfile so a build of any of
 # them warms the cache for the others.
 ARG SCCACHE_VERSION=v0.8.2
@@ -79,7 +79,7 @@ COPY crates/kubelet/Cargo.toml            crates/kubelet/Cargo.toml
 COPY crates/kube-proxy/Cargo.toml         crates/kube-proxy/Cargo.toml
 COPY crates/middleware/Cargo.toml         crates/middleware/Cargo.toml
 COPY crates/protobuf/Cargo.toml           crates/protobuf/Cargo.toml
-COPY crates/k3rs/Cargo.toml        crates/k3rs/Cargo.toml
+COPY crates/kubernetes-rs/Cargo.toml        crates/kubernetes-rs/Cargo.toml
 COPY crates/scheduler/Cargo.toml          crates/scheduler/Cargo.toml
 COPY crates/storage/Cargo.toml            crates/storage/Cargo.toml
 COPY crates/streamproxy/Cargo.toml        crates/streamproxy/Cargo.toml
@@ -102,14 +102,14 @@ COPY crates/common/build.rs     crates/common/build.rs
 
 # CRATE-ENUMERATION (2/3): dummy lib.rs / main.rs per crate.
 #   - lib only:   common, controller-core, storage
-#   - bin only:   kubectl, k3rs
+#   - bin only:   kubectl, kubernetes-rs
 #   - lib + bin:  api-server, controller-manager, kubelet, kube-proxy,
 #                 scheduler
 RUN set -eux; \
     for c in client common controller-core storage streamproxy cel-checker csi test_support; do \
         mkdir -p crates/$c/src && : > crates/$c/src/lib.rs; \
     done; \
-    for c in kubectl k3rs; do \
+    for c in kubectl kubernetes-rs; do \
         mkdir -p crates/$c/src && echo "fn main(){}" > crates/$c/src/main.rs; \
     done; \
     for c in api-server controller-manager kubelet kube-proxy scheduler; do \
@@ -128,21 +128,21 @@ ENV CARGO_BUILD_JOBS=2
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-kubernetes-rs,sharing=locked \
     cargo build --profile release-fast --bin kubectl \
  && cargo clean --profile release-fast \
-        -p k3rs-api-server \
-        -p k3rs-client \
-        -p k3rs-common \
-        -p k3rs-cel-checker \
-        -p k3rs-controller-manager \
-        -p k3rs-dns \
-        -p k3rs-kubectl \
-        -p k3rs-kubelet \
-        -p k3rs-kube-proxy \
-        -p k3rs \
-        -p k3rs-scheduler \
-        -p k3rs-storage \
+        -p kubernetes-rs-api-server \
+        -p kubernetes-rs-client \
+        -p kubernetes-rs-common \
+        -p kubernetes-rs-cel-checker \
+        -p kubernetes-rs-controller-manager \
+        -p kubernetes-rs-dns \
+        -p kubernetes-rs-kubectl \
+        -p kubernetes-rs-kubelet \
+        -p kubernetes-rs-kube-proxy \
+        -p kubernetes-rs \
+        -p kubernetes-rs-scheduler \
+        -p kubernetes-rs-storage \
  && sccache --show-stats
 
 # ----- PASS 2: real source compile -----
@@ -165,7 +165,7 @@ COPY crates/kubelet/src              crates/kubelet/src
 COPY crates/kubelet/tests            crates/kubelet/tests
 COPY crates/kube-proxy/src           crates/kube-proxy/src
 COPY crates/kube-proxy/tests         crates/kube-proxy/tests
-COPY crates/k3rs/src          crates/k3rs/src
+COPY crates/kubernetes-rs/src          crates/kubernetes-rs/src
 COPY crates/scheduler/src            crates/scheduler/src
 COPY crates/scheduler/tests          crates/scheduler/tests
 COPY crates/storage/src              crates/storage/src
@@ -176,7 +176,7 @@ COPY crates/storage/src              crates/storage/src
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/sccache,id=sccache-rusternetes,sharing=locked \
+    --mount=type=cache,target=/sccache,id=sccache-kubernetes-rs,sharing=locked \
     cargo build --profile release-fast --bin kubectl && \
     sccache --show-stats && \
     mkdir -p /out && cp target/release-fast/kubectl /out/kubectl

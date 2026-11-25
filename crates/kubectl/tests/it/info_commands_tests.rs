@@ -67,8 +67,8 @@ mod cluster_info_tests {
             format!("Cluster: {}\nServer: {}", name, server)
         }
 
-        let info = format_cluster_info("k3rs", "https://localhost:6443");
-        assert!(info.contains("Cluster: k3rs"));
+        let info = format_cluster_info("kubernetes-rs", "https://localhost:6443");
+        assert!(info.contains("Cluster: kubernetes-rs"));
         assert!(info.contains("Server: https://localhost:6443"));
     }
 

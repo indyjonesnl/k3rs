@@ -3,18 +3,18 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_common::auth::UserInfo;
-    pub use k3rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
-    pub use k3rs_common::resources::{NonResourceRule, ResourceRule};
-    pub use k3rs_common::Result;
+    pub use kubernetes_rs_common::auth::UserInfo;
+    pub use kubernetes_rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
+    pub use kubernetes_rs_common::resources::{NonResourceRule, ResourceRule};
+    pub use kubernetes_rs_common::Result;
     pub use prometheus::{register, IntCounterVec, Opts};
     pub use std::sync::{Arc, LazyLock, Once};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::authorization_metrics::*;
-    use k3rs_common::authz::{AlwaysAllowAuthorizer, AlwaysDenyAuthorizer};
+    use kubernetes_rs_api_server::authorization_metrics::*;
+    use kubernetes_rs_common::authz::{AlwaysAllowAuthorizer, AlwaysDenyAuthorizer};
 
     fn attrs() -> RequestAttributes {
         RequestAttributes::new(

@@ -44,7 +44,7 @@ pub trait DriverUpdaterSync: Send + Sync {
 }
 
 #[async_trait]
-impl<S: k3rs_storage::Storage + 'static> DriverUpdaterSync
+impl<S: kubernetes_rs_storage::Storage + 'static> DriverUpdaterSync
     for crate::volume_plugins::csi_node_updater::CsiNodeUpdater<S>
 {
     async fn sync_driver_updater(&self, driver_name: &str) {

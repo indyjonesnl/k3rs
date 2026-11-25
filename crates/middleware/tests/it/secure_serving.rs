@@ -12,11 +12,11 @@
 
 use axum::routing::get;
 use axum::Router;
-use k3rs_middleware::secure_serving::filters::build_handler_chain;
-use k3rs_middleware::secure_serving::options::{
+use kubernetes_rs_middleware::secure_serving::filters::build_handler_chain;
+use kubernetes_rs_middleware::secure_serving::options::{
     DelegatingAuthenticationOptions, DelegatingAuthorizationOptions, SecureServingOptions,
 };
-use k3rs_middleware::secure_serving::serve::serve;
+use kubernetes_rs_middleware::secure_serving::serve::serve;
 
 struct Pki {
     ca: rcgen::Certificate,

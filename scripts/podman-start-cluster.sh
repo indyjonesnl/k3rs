@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start k3rs cluster using podman directly (bypasses podman-compose macOS issues)
+# Start kubernetes-rs cluster using podman directly (bypasses podman-compose macOS issues)
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,27 +9,27 @@ cd "$PROJECT_ROOT"
 
 # Ensure network exists
 echo "Creating network..."
-podman network create k3rs-network 2>&1 || echo "Network already exists"
+podman network create kubernetes-rs-network 2>&1 || echo "Network already exists"
 
 # Stop and remove any existing containers
 echo "Cleaning up existing containers..."
-for container in k3rs-etcd k3rs-api-server k3rs-scheduler k3rs-controller-manager k3rs-kubelet k3rs-kubelet2 k3rs-kube-proxy; do
+for container in kubernetes-rs-etcd kubernetes-rs-api-server kubernetes-rs-scheduler kubernetes-rs-controller-manager kubernetes-rs-kubelet kubernetes-rs-kubelet2 kubernetes-rs-kube-proxy; do
     podman stop "$container" 2>/dev/null || true
     podman rm "$container" 2>/dev/null || true
 done
 
 # Set volumes path
-export KUBELET_VOLUMES_PATH=$(pwd)/.k3rs/volumes
+export KUBELET_VOLUMES_PATH=$(pwd)/.kubernetes-rs/volumes
 echo "Using volumes path: $KUBELET_VOLUMES_PATH"
 
 # Start etcd
 echo "Starting etcd..."
 podman run -d \
-  --name k3rs-etcd \
-  --network k3rs-network \
+  --name kubernetes-rs-etcd \
+  --network kubernetes-rs-network \
   --network-alias etcd \
   -p 2379:2379 -p 2380:2380 \
-  -v k3rs-etcd-data:/etcd-data \
+  -v kubernetes-rs-etcd-data:/etcd-data \
   -e ETCDCTL_API=3 \
   --health-cmd "/usr/local/bin/etcdctl --endpoints=http://localhost:2379 endpoint health" \
   --health-interval 10s \
@@ -50,7 +50,7 @@ podman run -d \
 # Wait for etcd to be healthy
 echo "Waiting for etcd to be healthy..."
 sleep 5
-while ! podman healthcheck run k3rs-etcd 2>/dev/null; do
+while ! podman healthcheck run kubernetes-rs-etcd 2>/dev/null; do
   echo "Waiting for etcd..."
   sleep 2
 done
@@ -59,15 +59,15 @@ echo "etcd is healthy"
 # Start API server
 echo "Starting api-server..."
 podman run -d \
-  --name k3rs-api-server \
-  --network k3rs-network \
+  --name kubernetes-rs-api-server \
+  --network kubernetes-rs-network \
   --network-alias api-server \
   -p 6443:6443 \
-  -v ./.k3rs/certs:/etc/kubernetes/pki:ro \
+  -v ./.kubernetes-rs/certs:/etc/kubernetes/pki:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:rw \
   -e RUST_LOG=info \
   -e DOCKER_HOST=unix:///var/run/docker.sock \
-  localhost/k3rs_api-server \
+  localhost/kubernetes_rs_api-server \
   --bind-address 0.0.0.0:6443 \
   --enable-aggregator-routing=true \
   --etcd-servers http://etcd:2379 \
@@ -91,38 +91,38 @@ sleep 3
 # Start scheduler
 echo "Starting scheduler..."
 podman run -d \
-  --name k3rs-scheduler \
-  --network k3rs-network \
+  --name kubernetes-rs-scheduler \
+  --network kubernetes-rs-network \
   -e RUST_LOG=info \
-  localhost/k3rs_scheduler \
+  localhost/kubernetes_rs_scheduler \
   --etcd-servers http://etcd:2379 \
   --interval 1
 
 # Start controller-manager
 echo "Starting controller-manager..."
 podman run -d \
-  --name k3rs-controller-manager \
-  --network k3rs-network \
-  -v ./.k3rs/certs:/etc/kubernetes/pki:ro \
+  --name kubernetes-rs-controller-manager \
+  --network kubernetes-rs-network \
+  -v ./.kubernetes-rs/certs:/etc/kubernetes/pki:ro \
   -e RUST_LOG=info \
-  localhost/k3rs_controller-manager \
+  localhost/kubernetes_rs_controller-manager \
   --etcd-servers http://etcd:2379 \
   --sync-interval 1
 
 # Start kubelets
 echo "Starting kubelet node-1..."
 podman run -d \
-  --name k3rs-kubelet \
-  --network k3rs-network \
+  --name kubernetes-rs-kubelet \
+  --network kubernetes-rs-network \
   --privileged \
   -v /var/run/docker.sock:/var/run/docker.sock:rw \
   -v ${KUBELET_VOLUMES_PATH}:${KUBELET_VOLUMES_PATH}:rw \
-  -v ./.k3rs/certs:/root/.k3rs/certs:ro \
+  -v ./.kubernetes-rs/certs:/root/.kubernetes-rs/certs:ro \
   -e RUST_LOG=info \
   -e DOCKER_HOST=unix:///var/run/docker.sock \
   -e KUBERNETES_SERVICE_HOST_OVERRIDE=api-server \
   -e KUBELET_VOLUMES_PATH=${KUBELET_VOLUMES_PATH} \
-  localhost/k3rs_kubelet \
+  localhost/kubernetes_rs_kubelet \
   --hostname-override node-1 \
   --etcd-servers http://etcd:2379 \
   --cluster-dns 10.96.0.10 \
@@ -131,17 +131,17 @@ podman run -d \
 
 echo "Starting kubelet node-2..."
 podman run -d \
-  --name k3rs-kubelet2 \
-  --network k3rs-network \
+  --name kubernetes-rs-kubelet2 \
+  --network kubernetes-rs-network \
   --privileged \
   -v /var/run/docker.sock:/var/run/docker.sock:rw \
   -v ${KUBELET_VOLUMES_PATH}:${KUBELET_VOLUMES_PATH}:rw \
-  -v ./.k3rs/certs:/root/.k3rs/certs:ro \
+  -v ./.kubernetes-rs/certs:/root/.kubernetes-rs/certs:ro \
   -e RUST_LOG=info \
   -e DOCKER_HOST=unix:///var/run/docker.sock \
   -e KUBERNETES_SERVICE_HOST_OVERRIDE=api-server \
   -e KUBELET_VOLUMES_PATH=${KUBELET_VOLUMES_PATH} \
-  localhost/k3rs_kubelet \
+  localhost/kubernetes_rs_kubelet \
   --hostname-override node-2 \
   --etcd-servers http://etcd:2379 \
   --cluster-dns 10.96.0.10 \
@@ -151,7 +151,7 @@ podman run -d \
 # Start kube-proxy
 echo "Starting kube-proxy..."
 podman run -d \
-  --name k3rs-kube-proxy \
+  --name kubernetes-rs-kube-proxy \
   --network host \
   --privileged \
   --user 0:0 \
@@ -159,7 +159,7 @@ podman run -d \
   --cap-add NET_RAW \
   --cap-add SYS_ADMIN \
   -e RUST_LOG=info \
-  localhost/k3rs_kube-proxy \
+  localhost/kubernetes_rs_kube-proxy \
   --node-name node-1 \
   --etcd-servers http://localhost:2379
 
@@ -167,7 +167,7 @@ echo ""
 echo "Cluster started successfully!"
 echo ""
 echo "Container status:"
-podman ps --format "{{.Names}}\t{{.Status}}" | grep k3rs
+podman ps --format "{{.Names}}\t{{.Status}}" | grep kubernetes-rs
 
 echo ""
 echo "To bootstrap the cluster (CoreDNS, services, etc):"

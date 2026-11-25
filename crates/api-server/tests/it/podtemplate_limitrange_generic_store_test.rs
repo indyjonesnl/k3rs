@@ -7,7 +7,7 @@
 //! `storage/storage.go`, and the v1 LimitRange defaulting.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const PT: &str = "/api/v1/namespaces/default/podtemplates";

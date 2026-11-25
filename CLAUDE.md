@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project goal — k3s (Go) → k3rs (Rust)
+## Project goal — k3s (Go) → kubernetes-rs (Rust)
 
-k3rs is a Rust rewrite of **k3s**: Kubernetes release-1.35 packaged as a
+kubernetes-rs is a Rust rewrite of **k3s**: Kubernetes release-1.35 packaged as a
 lightweight, single-binary distribution, with the in-tree cloud provider
 implementations (AWS, GCP, Azure) dropped. The CNCF conformance suite
 (Hydrophone / Sonobuoy) stays as the regression guard for the behaviour we ship;
@@ -12,7 +12,7 @@ it is no longer the v1.0 goal (see "v1.0 scope" below).
 
 ### v1.0 scope (decided 2026-11-14)
 
-Kubernetes is huge, and k3rs reimplements it in Rust rather than vendoring the Go
+Kubernetes is huge, and kubernetes-rs reimplements it in Rust rather than vendoring the Go
 code, so v1.0 is scoped to the maintainer's own use, not to full parity:
 
 - **Audience and target hardware: homelab and edge**, specifically a Raspberry Pi
@@ -29,7 +29,7 @@ code, so v1.0 is scoped to the maintainer's own use, not to full parity:
   budget), M2 installable (join token, install script, flannel), M3 addon parity
   (CoreDNS, local-path-provisioner, metrics-server, traefik), M4 hardening
   (secrets encryption, certificate rotation), M5 tag v1.0 (single server).
-- Names: the repository and the images are `k3rs`.
+- Names: the repository and the images are `kubernetes-rs`.
 
 The upstream-first rule below is unaffected: whatever we do ship is ported from
 k3s / Kubernetes, not invented.
@@ -56,7 +56,7 @@ vendors".
 
 ## Upstream-first — port, do NOT reinvent (MANDATORY)
 
-k3rs reimplements k3s, and so the Kubernetes it vendors. **Almost every behavior you need already
+kubernetes-rs reimplements k3s, and so the Kubernetes it vendors. **Almost every behavior you need already
 exists in a battle-tested upstream implementation.** Before designing ANY
 non-trivial logic — an authorizer rule, a bootstrap step, a controller loop, a
 validation, a CRI/CNI/CSI call sequence, a default, an error string, a status
@@ -70,7 +70,7 @@ wrong defaults, broken invariants) that only surface as failing tests later.
 
 ### The gate (MUST — this is a precondition, not advice)
 
-**You MUST NOT write new behavioural logic in k3rs without first
+**You MUST NOT write new behavioural logic in kubernetes-rs without first
 locating and citing the upstream implementation of that behaviour.** If you
 cannot name the upstream file and symbol, you have not finished looking — go
 look. "I could not find it" is a search result to report, not a licence to
@@ -131,7 +131,7 @@ re-derivation that happens to agree. Where Rust idiom differs (ownership,
 7. **Cite it.** In the code comment and the commit/PR, name the upstream file
    (and ideally the symbol/line) you ported from. Reviewers verify against it.
 8. **Only invent when upstream genuinely has no equivalent** (a Rust-specific
-   concern, a k3rs-only feature). Say so explicitly when you do — and if
+   concern, a kubernetes-rs-only feature). Say so explicitly when you do — and if
    you deviate deliberately, say that too, with the reason.
 
 ### Worked example — a value looked up, a topology not
@@ -206,7 +206,7 @@ failing batch must report. Neither is inferable from the implementation alone.
   for api-server, kubelet, scheduler, controller-manager, kube-proxy, RBAC,
   validation, bootstrap policy, conformance expectations. Pinned to the target
   version.
-- **`../k3s`** — k3s `v1.35.9+k3s1`, the distribution k3rs is a Rust
+- **`../k3s`** — k3s `v1.35.9+k3s1`, the distribution kubernetes-rs is a Rust
   rewrite of. Source of truth for packaging, bundled addons, the embedded
   cloud-controller (`pkg/cloudprovider`: node metadata + ServiceLB), datastore
   wiring and server/agent bootstrap. Clone with
@@ -233,7 +233,7 @@ cargo build --release          # Release build
 
 # Test
 cargo test                     # All workspace tests
-cargo test -p k3rs-api-server  # Single crate
+cargo test -p kubernetes-rs-api-server  # Single crate
 cargo test test_name           # Single test by name
 cargo test test_name -- --nocapture  # With stdout
 
@@ -248,11 +248,11 @@ make pre-commit                # Format + clippy + test (run before commits)
 # the bind-mount host dirs so a fresh checkout works with no manual chown:
 bash scripts/cluster-up.sh                       # SQLite (default); --backend etcd|redis
 
-# Manual bring-up. IMPORTANT: pre-create .k3rs/manifests (and volumes)
+# Manual bring-up. IMPORTANT: pre-create .kubernetes-rs/manifests (and volumes)
 # BEFORE `compose up` — otherwise the daemon creates the bind-mount source as
 # root and bootstrap-cluster.sh fails to template static-pod YAML into it (#1152).
-export KUBELET_VOLUMES_PATH=$(pwd)/.k3rs/volumes
-mkdir -p .k3rs/manifests .k3rs/certs "$KUBELET_VOLUMES_PATH"
+export KUBELET_VOLUMES_PATH=$(pwd)/.kubernetes-rs/volumes
+mkdir -p .kubernetes-rs/manifests .kubernetes-rs/certs "$KUBELET_VOLUMES_PATH"
 podman compose build           # Build images (~1 hour first build, faster with cache)
 podman compose up -d           # Start cluster (etcd, default)
 podman compose down            # Stop cluster
@@ -272,7 +272,7 @@ bash scripts/conformance-progress.sh  # Monitor pass/fail progress
 # e2e output is in /tmp/sonobuoy/results/e2e.log inside the e2e container
 ```
 
-KUBECONFIG: `~/.kube/k3rs-config`
+KUBECONFIG: `~/.kube/kubernetes-rs-config`
 
 ### Local build performance
 
@@ -283,12 +283,12 @@ crate* on the big crates (api-server, ~9400-line router). For local iteration,
 building a test/container image, or any functional (non-shipped) binary, use:
 
 ```bash
-make build-fast ARGS="-p k3rs-api-server --bin api-server --features sqlite"
+make build-fast ARGS="-p kubernetes-rs-api-server --bin api-server --features sqlite"
 ```
 
 `build-fast` uses the `release-fast` profile (`codegen-units = 16`, `lto = off`)
 — same speed class as CI's test build, output at `target/release-fast/`. Reserve
-`make build` (full `release`) for the shipped `indyjonesnl/k3rs` release
+`make build` (full `release`) for the shipped `indyjonesnl/kubernetes-rs` release
 artifacts only. `make build-dev` is the debug build. Rule of thumb: if the
 binary just needs to *run* (a swap test, a canary image, local debugging), it
 does NOT need LTO — use `make build-fast`.
@@ -302,9 +302,9 @@ not checked in:
   fingerprinting already skips unchanged crates, so local sccache hit-rate is
   ~0% — you pay the no-incremental cost for no cache benefit. Locally, **unset
   `RUSTC_WRAPPER` and set `CARGO_INCREMENTAL=1`**. Measured: a trivial edit →
-  rebuild of one crate drops from ~35s to ~5s. CI runs its own cluster-side
-  sccache→MinIO (see `indy/arc-runner/sccache-minio`), independent of local —
-  leave that alone.
+  rebuild of one crate drops from ~35s to ~5s. CI runs on ephemeral
+  runner containers on the maintainer's PC (`ci/local-runner/`) with their own
+  sccache volume, independent of local — leave that alone.
 - **mold linker.** Uncomment the `[target.x86_64-unknown-linux-gnu]` block in
   `~/.cargo/config.toml` (`linker = "clang"`, `-fuse-ld=mold`; needs
   `apt-get install mold clang`). 3–5× faster links. The checked-in
@@ -316,7 +316,7 @@ not checked in:
   stable builds the moment the mold block is removed.
 
 **Shared target dir across worktrees.** Set
-`CARGO_TARGET_DIR=$HOME/.cache/rusternetes-target` and symlink each checkout's
+`CARGO_TARGET_DIR=$HOME/.cache/kubernetes-rs-target` and symlink each checkout's
 `./target` to it (`ln -s "$CARGO_TARGET_DIR" target`). All worktrees then share
 one compiled-dependency cache (~40–120G once, not per-worktree) and reuse each
 other's artifacts. Trade-off: cargo's target-lock serializes concurrent builds
@@ -340,7 +340,7 @@ Rust reimplementation of k3s (Kubernetes without in-tree cloud providers). Works
 - **`kube-proxy`** - iptables-based service routing. Runs in host network mode. Reads both Endpoints and EndpointSlices.
 - **`scheduler`** - Pod scheduling with affinity, taints/tolerations, priority/preemption. Plugins in `src/plugins/`.
 - **`kubectl`** - CLI tool. Commands in `src/commands/`.
-- **`k3rs`** - All-in-one binary. Spawns api-server, scheduler, controller-manager, kubelet, and kube-proxy as concurrent tokio tasks sharing one `StorageBackend`. Defaults to embedded SQLite. Supports `--storage-backend redis --redis-url redis://host:6379` for Redis via rhino.
+- **`kubernetes-rs`** - All-in-one binary. Spawns api-server, scheduler, controller-manager, kubelet, and kube-proxy as concurrent tokio tasks sharing one `StorageBackend`. Defaults to embedded SQLite. Supports `--storage-backend redis --redis-url redis://host:6379` for Redis via rhino.
 
 ## Key Conventions
 
@@ -349,28 +349,6 @@ Rust reimplementation of k3s (Kubernetes without in-tree cloud providers). Works
 - Optional fields use `#[serde(skip_serializing_if = "Option::is_none")]`
 - TypeMeta is flattened: `#[serde(flatten)] pub type_meta: TypeMeta`
 - camelCase abbreviations follow K8s style: `podIP` not `podIp`, `hostIP` not `hostIp`, `containerID` not `containerId`
-
-### Adding a New Resource
-1. Define struct in `crates/common/src/resources/{type}.rs`
-2. Add handlers in `crates/api-server/src/handlers/{type}.rs`
-3. Register route in `crates/api-server/src/router.rs`
-4. Add controller in `crates/controller-manager/src/controllers/` if needed
-
-### Controller Pattern
-```rust
-pub struct FooController<S: Storage> {
-    storage: Arc<S>,
-    interval: Duration,
-}
-impl<S: Storage> FooController<S> {
-    pub async fn run(&self) -> Result<()> {
-        loop {
-            self.reconcile_all().await?;
-            tokio::time::sleep(self.interval).await;
-        }
-    }
-}
-```
 
 ### Testing
 - Async tests: `#[tokio::test]`
@@ -401,14 +379,8 @@ When working across multiple branches (rebases, cherry-picks, parallel work), re
 
 ## Cluster Details
 
-### Multi-container (compose.yml / compose.redis.yml / compose.sqlite.yml)
-Services: etcd/rhino/redis, api-server (port 6443 with TLS), scheduler, controller-manager, 2x kubelet (node-1, node-2), kube-proxy (host network).
-
-### All-in-one (compose.all-in-one.yml / compose.all-in-one-redis.yml)
-Single `k3rs` binary container + optional Redis container. All components run as tokio tasks in one process. No kube-proxy (disabled, no iptables in container).
-
 ### Common
-- TLS certs in `.k3rs/certs/`, generated by `scripts/generate-certs.sh`
+- TLS certs in `.kubernetes-rs/certs/`, generated by `scripts/generate-certs.sh`
 - Cert SANs must include bridge IPs (172.18.0.2-5, 10.89.0.x)
 - kube-proxy needs `CAP_NET_ADMIN` for iptables; runs host network mode
 - `KUBERNETES_SERVICE_HOST_OVERRIDE` env var sets the API server address for pods

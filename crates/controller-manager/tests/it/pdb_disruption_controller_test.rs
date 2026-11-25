@@ -11,9 +11,9 @@
 //! upstream helpers of the same name (`newPod`, `newMinAvailablePodDisruptionBudget`,
 //! `newReplicaSet`, ...).
 
-use k3rs_common::resources::{Event, PodDisruptionBudget};
-use k3rs_controller_manager::controllers::pod_disruption_budget::PodDisruptionBudgetController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{Event, PodDisruptionBudget};
+use kubernetes_rs_controller_manager::controllers::pod_disruption_budget::PodDisruptionBudgetController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1147,31 +1147,31 @@ struct EvictingStorage {
 
 #[async_trait::async_trait]
 impl Storage for EvictingStorage {
-    async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.create(key, value).await
     }
-    async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+    async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
     where
         T: serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.get(key).await
     }
-    async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
         self.inner.update(key, value).await
     }
-    async fn update_raw(&self, key: &str, value: &Value) -> k3rs_common::Result<()> {
+    async fn update_raw(&self, key: &str, value: &Value) -> kubernetes_rs_common::Result<()> {
         self.inner.update_raw(key, value).await
     }
-    async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+    async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
         self.inner.delete(key).await
     }
-    async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+    async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     {
@@ -1190,20 +1190,23 @@ impl Storage for EvictingStorage {
         }
         Ok(out)
     }
-    async fn watch(&self, prefix: &str) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+    async fn watch(
+        &self,
+        prefix: &str,
+    ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
         self.inner.watch(prefix).await
     }
     async fn watch_from_revision(
         &self,
         prefix: &str,
         revision: i64,
-    ) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+    ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
         self.inner.watch_from_revision(prefix, revision).await
     }
-    async fn current_revision(&self) -> k3rs_common::Result<i64> {
+    async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
         self.inner.current_revision().await
     }
-    async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+    async fn is_revision_compacted(&self, revision: i64) -> kubernetes_rs_common::Result<bool> {
         self.inner.is_revision_compacted(revision).await
     }
 }
@@ -1274,7 +1277,7 @@ async fn disruption_target(s: &Arc<MemoryStorage>, name: &str) -> Value {
 
 #[tokio::test]
 async fn stale_disruption_target_is_reset_on_any_non_terminal_phase_and_loses_its_reason() {
-    use k3rs_controller_manager::controllers::pod_disruption_budget::StalePodDisruptionController;
+    use kubernetes_rs_controller_manager::controllers::pod_disruption_budget::StalePodDisruptionController;
     let s = storage();
     // Upstream is not limited to Running: a Pending pod is non-terminal too.
     put(
@@ -1318,7 +1321,7 @@ async fn stale_disruption_target_is_reset_on_any_non_terminal_phase_and_loses_it
 
 #[tokio::test]
 async fn stale_disruption_target_is_reset_by_the_pod_watch_without_a_resync() {
-    use k3rs_controller_manager::controllers::pod_disruption_budget::StalePodDisruptionController;
+    use kubernetes_rs_controller_manager::controllers::pod_disruption_budget::StalePodDisruptionController;
     let s = storage();
     let controller = Arc::new(StalePodDisruptionController::with_timeout(
         s.clone(),

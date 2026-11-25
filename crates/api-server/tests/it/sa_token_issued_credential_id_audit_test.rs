@@ -2,8 +2,8 @@
 //! (`registry/core/serviceaccount/storage/token.go:254-256`,
 //! `IssuedCredentialIDAuditAnnotationKey` at `serviceaccount/util.go:38`).
 
-use k3rs_common::audit::{AuditBackend, AuditEvent, AuditStage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::audit::{AuditBackend, AuditEvent, AuditStage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -24,8 +24,8 @@ impl AuditBackend for Capture {
 async fn token_request_audits_the_issued_credential_id() {
     use base64::Engine;
     let cap = Arc::new(Capture(Default::default()));
-    k3rs_api_server::audit::install_audit(k3rs_api_server::audit::AuditConfig {
-        policy: k3rs_api_server::audit::Policy::from_yaml(
+    kubernetes_rs_api_server::audit::install_audit(kubernetes_rs_api_server::audit::AuditConfig {
+        policy: kubernetes_rs_api_server::audit::Policy::from_yaml(
             "apiVersion: audit.k8s.io/v1\nkind: Policy\nrules:\n- level: Metadata\n",
         )
         .unwrap(),

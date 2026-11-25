@@ -16,8 +16,8 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, Duration, Utc};
-use k3rs_common::resources::pod::Pod;
-use k3rs_common::types::Phase;
+use kubernetes_rs_common::resources::pod::Pod;
+use kubernetes_rs_common::types::Phase;
 
 use super::hpa_metrics_client::PodMetricsInfo;
 

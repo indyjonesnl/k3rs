@@ -1,11 +1,11 @@
 //! Integration tests for proxy handlers (node, service, pod)
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     ContainerPort, IntOrString, Node, NodeStatus, Pod, PodIP, PodSpec, PodStatus, Service,
     ServicePort, ServiceSpec, ServiceType,
 };
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_storage::{memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_storage::{memory::MemoryStorage, Storage};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -280,7 +280,7 @@ async fn test_proxy_pod_named_port_storage_round_trip() {
             managed_fields: None,
         },
         spec: Some(PodSpec {
-            containers: vec![k3rs_common::resources::Container {
+            containers: vec![kubernetes_rs_common::resources::Container {
                 name: "app".to_string(),
                 image: "nginx:alpine".to_string(),
                 ports: Some(vec![ContainerPort {
@@ -388,8 +388,10 @@ struct ClusterProxier {
     seen: Arc<std::sync::Mutex<Vec<String>>>,
 }
 #[async_trait::async_trait]
-impl k3rs_api_server::egress_selector::ProxyServerConnector for ClusterTunnel {
-    async fn connect(&self) -> Result<Box<dyn k3rs_api_server::egress_selector::Proxier>, String> {
+impl kubernetes_rs_api_server::egress_selector::ProxyServerConnector for ClusterTunnel {
+    async fn connect(
+        &self,
+    ) -> Result<Box<dyn kubernetes_rs_api_server::egress_selector::Proxier>, String> {
         Ok(Box::new(ClusterProxier {
             target: self.target.clone(),
             seen: self.seen.clone(),
@@ -397,8 +399,11 @@ impl k3rs_api_server::egress_selector::ProxyServerConnector for ClusterTunnel {
     }
 }
 #[async_trait::async_trait]
-impl k3rs_api_server::egress_selector::Proxier for ClusterProxier {
-    async fn proxy(&self, addr: &str) -> Result<k3rs_api_server::egress_selector::Conn, String> {
+impl kubernetes_rs_api_server::egress_selector::Proxier for ClusterProxier {
+    async fn proxy(
+        &self,
+        addr: &str,
+    ) -> Result<kubernetes_rs_api_server::egress_selector::Conn, String> {
         self.seen.lock().unwrap().push(addr.to_string());
         let target = self.target.as_ref().ok_or("tunnel closed")?;
         let c = tokio::net::TcpStream::connect(target)
@@ -411,11 +416,11 @@ impl k3rs_api_server::egress_selector::Proxier for ClusterProxier {
 fn cluster_dialer(
     target: Option<String>,
     seen: Arc<std::sync::Mutex<Vec<String>>>,
-) -> k3rs_api_server::egress_selector::Dialer {
-    k3rs_api_server::egress_selector::DialerCreator {
+) -> kubernetes_rs_api_server::egress_selector::Dialer {
+    kubernetes_rs_api_server::egress_selector::DialerCreator {
         connector: Some(Arc::new(ClusterTunnel { target, seen })),
         direct: false,
-        options: k3rs_api_server::egress_selector::MetricsOptions {
+        options: kubernetes_rs_api_server::egress_selector::MetricsOptions {
             transport: "tcp".into(),
             protocol: "HTTPConnect".into(),
         },
@@ -435,14 +440,16 @@ async fn proxy_request_dials_through_cluster_dialer() {
             .body(axum::body::Body::from(format!("path={}", uri.path())))
             .unwrap()
     });
-    let (addr, _h) =
-        k3rs_test_support::mock_http::serve_graceful_handle(route, std::future::pending::<()>());
+    let (addr, _h) = kubernetes_rs_test_support::mock_http::serve_graceful_handle(
+        route,
+        std::future::pending::<()>(),
+    );
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let dialer = cluster_dialer(Some(addr.to_string()), seen.clone());
 
     // An address nothing listens on: reachable only through the tunnel.
     let uri: axum::http::Uri = "/api/v1/nodes/n1/proxy/healthz".parse().unwrap();
-    let resp = k3rs_api_server::handlers::proxy::proxy_request_with_dialer(
+    let resp = kubernetes_rs_api_server::handlers::proxy::proxy_request_with_dialer(
         "http://10.254.254.1:10255/healthz".to_string(),
         &uri,
         axum::http::Method::GET,
@@ -473,7 +480,7 @@ async fn proxy_request_retries_cluster_dial_failures_then_502() {
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let dialer = cluster_dialer(None, seen.clone());
     let uri: axum::http::Uri = "/api/v1/nodes/n1/proxy/healthz".parse().unwrap();
-    let resp = k3rs_api_server::handlers::proxy::proxy_request_with_dialer(
+    let resp = kubernetes_rs_api_server::handlers::proxy::proxy_request_with_dialer(
         "http://10.254.254.1:10255/healthz".to_string(),
         &uri,
         axum::http::Method::GET,

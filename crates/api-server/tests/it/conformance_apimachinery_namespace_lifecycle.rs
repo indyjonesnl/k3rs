@@ -22,11 +22,11 @@
 
 use std::sync::Arc;
 
-use k3rs_client::http::ApiClient;
-use k3rs_controller_manager::controllers::namespace::NamespaceController;
-use k3rs_controller_manager::controllers::serviceaccount::ServiceAccountController;
-use k3rs_storage::api_storage::ApiStorage;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_client::http::ApiClient;
+use kubernetes_rs_controller_manager::controllers::namespace::NamespaceController;
+use kubernetes_rs_controller_manager::controllers::serviceaccount::ServiceAccountController;
+use kubernetes_rs_storage::api_storage::ApiStorage;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 /// A `TestApiServer` served on a loopback port, plus `ApiStorage` pointed at

@@ -2,10 +2,10 @@
 //! `TestBookmarkAfterResourceVersionWatchers`, plus `nextBookmarkTime` cases
 //! (`cache_watcher.go:215-262`). `FakeClock` is `testingclock.FakeClock` over
 //! the repo's `PassiveClock` (`clock.Step(d)` is `step(d)`).
-use k3rs_api_server::cache_watcher::*;
-use k3rs_api_server::flow_control_object_count::PassiveClock;
-use k3rs_api_server::watch_cache::WatchEventData;
-use k3rs_api_server::watcher_bookmark::*;
+use kubernetes_rs_api_server::cache_watcher::*;
+use kubernetes_rs_api_server::flow_control_object_count::PassiveClock;
+use kubernetes_rs_api_server::watch_cache::WatchEventData;
+use kubernetes_rs_api_server::watcher_bookmark::*;
 
 fn added() -> WatchEventData {
     WatchEventData::Added("k".into(), Arc::new("{}".into()))

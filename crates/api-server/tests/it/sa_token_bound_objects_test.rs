@@ -6,9 +6,9 @@
 //! and `pkg/registry/core/serviceaccount/storage/token.go` (`TokenREST.Create`).
 
 use base64::Engine;
-use k3rs_common::auth::{KubeRef, KubernetesClaims, ServiceAccountClaims, TokenManager};
-use k3rs_storage::{build_key, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::auth::{KubeRef, KubernetesClaims, ServiceAccountClaims, TokenManager};
+use kubernetes_rs_storage::{build_key, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const SECRET: &[u8] = b"sa-token-bound-objects";

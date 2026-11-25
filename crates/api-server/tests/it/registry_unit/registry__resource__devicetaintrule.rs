@@ -2,27 +2,29 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         reset_object_meta_for_status, GroupResource, NamespaceScopedStrategy, RequestContext,
         RestCreateStrategy, RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_api_server::ssa::ResetFields;
-    pub use k3rs_common::resources::devicetaintrule::{DeviceTaintRule, DeviceTaintRuleStatus};
-    pub use k3rs_common::validation::devicetaintrule::{
+    pub use kubernetes_rs_api_server::ssa::ResetFields;
+    pub use kubernetes_rs_common::resources::devicetaintrule::{
+        DeviceTaintRule, DeviceTaintRuleStatus,
+    };
+    pub use kubernetes_rs_common::validation::devicetaintrule::{
         validate_device_taint_rule, validate_device_taint_rule_status_update,
         validate_device_taint_rule_update,
     };
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::resource::devicetaintrule::*;
-    use k3rs_common::resources::dra::{DeviceTaint, DeviceTaintEffect};
-    use k3rs_common::types::Condition;
+    use kubernetes_rs_api_server::registry::resource::devicetaintrule::*;
+    use kubernetes_rs_common::resources::dra::{DeviceTaint, DeviceTaintEffect};
+    use kubernetes_rs_common::types::Condition;
 
     fn paths(rf: &ResetFields) -> Vec<Vec<String>> {
         let mut v = rf.for_version(API_VERSION).to_vec();

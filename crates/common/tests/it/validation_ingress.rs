@@ -3,9 +3,9 @@
 //! Mirrors upstream `ValidateIngressSpec`
 //! (`pkg/apis/networking/validation/validation.go`, release-1.35).
 
-use k3rs_common::resources::ingress::Ingress;
-use k3rs_common::validation::field::{Error, ErrorType};
-use k3rs_common::validation::ingress::validate_ingress;
+use kubernetes_rs_common::resources::ingress::Ingress;
+use kubernetes_rs_common::validation::field::{Error, ErrorType};
+use kubernetes_rs_common::validation::ingress::validate_ingress;
 use serde_json::json;
 
 fn ing(spec: serde_json::Value) -> Ingress {

@@ -11,7 +11,7 @@
 #     Pending forever while bootstrap-cluster.sh still exits 0. A 406-spec run
 #     against a cluster with no scheduler looks like ~400 product bugs.
 #   * CONTROL_PLANE_IMAGE_REGISTRY unset on the prebuilt-image path — bootstrap
-#     templates `k3rs-<component>:latest`, which the containerd image
+#     templates `kubernetes-rs-<component>:latest`, which the containerd image
 #     store cannot resolve, so the same pods (and coredns) never start.
 #   * A host over the kubelet's imagefs eviction threshold — hydrophone's
 #     e2e-conformance-test pod is evicted ("Pod evicted due to resource
@@ -44,11 +44,11 @@
 #
 # Flags:
 #   --kubeconfig PATH   Override kubeconfig (default: $KUBECONFIG or
-#                       ~/.kube/k3rs-config)
+#                       ~/.kube/kubernetes-rs-config)
 #   --certs-path PATH   Host-absolute certs dir expected inside the kubelet
-#                       (default: $CERTS_PATH, else <repo>/.k3rs/certs)
+#                       (default: $CERTS_PATH, else <repo>/.kubernetes-rs/certs)
 #   --kubelet NAME      Kubelet container to inspect for the certs mount
-#                       (default: k3rs-kubelet; 'none' skips the
+#                       (default: kubernetes-rs-kubelet; 'none' skips the
 #                       assertion — the containers are addressed by name on the
 #                       local daemon, so a cluster that is not this compose
 #                       stack must opt out rather than inspect someone else's)
@@ -67,7 +67,7 @@
 #   --skip-image-pull   Skip only the image-pull assertion (offline work)
 #   --storage-container NAME
 #                       Container holding the storage backend, inspected for
-#                       size (default: k3rs-rhino; 'none' or absent =
+#                       size (default: kubernetes-rs-rhino; 'none' or absent =
 #                       skipped, which is the etcd/remote case)
 #   --max-storage-mb N  Refuse to run when state.db + WAL exceed N MB
 #                       (default: 256; one full suite on a fresh cluster grows
@@ -102,25 +102,25 @@ SCRIPT_NAME="$(basename "$0")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
-KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/k3rs-config}"
-CERTS_PATH_EXPECTED="${CERTS_PATH:-$REPO_ROOT/.k3rs/certs}"
-KUBELET_CONTAINER="k3rs-kubelet"
+KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/kubernetes-rs-config}"
+CERTS_PATH_EXPECTED="${CERTS_PATH:-$REPO_ROOT/.kubernetes-rs/certs}"
+KUBELET_CONTAINER="kubernetes-rs-kubelet"
 CONTROL_PLANE_PODS="kube-scheduler-node-1,kube-controller-manager-node-1"
 DNS_DEPLOYMENT="coredns"
 SANDBOX_IMAGE="registry.k8s.io/pause:3.10.1"
 SKIP_IMAGE_PULL=0
-STORAGE_CONTAINER="k3rs-rhino"
+STORAGE_CONTAINER="kubernetes-rs-rhino"
 MAX_STORAGE_MB=256
 MAX_COMPACTION_LAG=10000
 STORAGE_METRICS_URL="http://127.0.0.1:2382/metrics"
 SKIP_NODE_IMAGE_CHECK=0
 # Per-node compose service pairs that MUST run the same build. Each entry is
 # "node-1 container:node-2 container:binary path". containerd/containerd2 are
-# absent deliberately: they pin `image: k3rs-containerd:latest` in the
+# absent deliberately: they pin `image: kubernetes-rs-containerd:latest` in the
 # compose file, so both nodes resolve one tag and cannot drift.
 NODE_SERVICE_PAIRS=(
-    "k3rs-kubelet:k3rs-kubelet2:/app/kubelet"
-    "k3rs-kube-proxy:k3rs-kube-proxy2:/app/kube-proxy"
+    "kubernetes-rs-kubelet:kubernetes-rs-kubelet2:/app/kubelet"
+    "kubernetes-rs-kube-proxy:kubernetes-rs-kube-proxy2:/app/kube-proxy"
 )
 BUDGET_SECONDS=60
 
@@ -199,7 +199,7 @@ fi
 #    The names are a compose-stack fact, not a universal one: vanilla-swap
 #    (#1629) runs this preflight against a kind cluster whose mirror pods are
 #    kube-<component>-<kind-node>, and a cluster whose control plane is none of
-#    k3rs' business passes 'none'.
+#    kubernetes-rs' business passes 'none'.
 if [ "$CONTROL_PLANE_PODS" = "none" ] || [ -z "$CONTROL_PLANE_PODS" ]; then
     pass "control-plane static-pod assertion skipped (--control-plane-pods none)"
 else
@@ -302,7 +302,7 @@ else
     # Conformance runs pull their test images from the ghcr.io mirror when it is
     # complete (scripts/resolve-image-source.sh, ci/mirror/images.txt), so try the
     # mirror copy before the upstream one; either proves a real pull works.
-    MIRROR_SANDBOX_IMAGE="ghcr.io/indyjonesnl/rusternetes/mirror/${SANDBOX_IMAGE#registry.k8s.io/}"
+    MIRROR_SANDBOX_IMAGE="ghcr.io/indyjonesnl/kubernetes-rs/mirror/${SANDBOX_IMAGE#registry.k8s.io/}"
     if timeout "$pull_budget" "$CONTAINER_RT" pull -q "$MIRROR_SANDBOX_IMAGE" >/dev/null 2>&1; then
         pass "pulled $MIRROR_SANDBOX_IMAGE (ghcr.io mirror of $SANDBOX_IMAGE)"
     elif timeout "$pull_budget" "$CONTAINER_RT" pull -q "$SANDBOX_IMAGE" >/dev/null 2>&1; then
@@ -346,8 +346,8 @@ else
         if [ "$sum_first" = "$sum_second" ]; then
             pass "$first and $second run the same $binary (${sum_first:0:12})"
         else
-            svc_first="${first#k3rs-}"
-            svc_second="${second#k3rs-}"
+            svc_first="${first#kubernetes-rs-}"
+            svc_second="${second#kubernetes-rs-}"
             fail "$first and $second run DIFFERENT $binary (${sum_first:0:12} vs ${sum_second:0:12}) — rebuild both ('compose build $svc_first $svc_second') and recreate them, or the node the scheduler picks decides the result"
         fi
     done

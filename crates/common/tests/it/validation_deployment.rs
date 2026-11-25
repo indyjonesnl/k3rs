@@ -7,15 +7,15 @@
 //! in the upstream Go file. Error wording and field paths must match upstream
 //! exactly so conformance log greps remain valid.
 
-use k3rs_common::resources::deployment::DeploymentStatus;
-use k3rs_common::resources::deployment::{
+use kubernetes_rs_common::resources::deployment::DeploymentStatus;
+use kubernetes_rs_common::resources::deployment::{
     Deployment, DeploymentSpec, DeploymentStrategy, RollingUpdateDeployment,
 };
-use k3rs_common::resources::pod::{Container, PodSpec};
-use k3rs_common::resources::policy::IntOrString;
-use k3rs_common::resources::workloads::PodTemplateSpec;
-use k3rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
-use k3rs_common::validation::apps::{
+use kubernetes_rs_common::resources::pod::{Container, PodSpec};
+use kubernetes_rs_common::resources::policy::IntOrString;
+use kubernetes_rs_common::resources::workloads::PodTemplateSpec;
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, TypeMeta};
+use kubernetes_rs_common::validation::apps::{
     validate_deployment, validate_deployment_status_update, validate_deployment_update,
 };
 use std::collections::HashMap;
@@ -115,7 +115,7 @@ fn pct_val(s: &str) -> IntOrString {
     IntOrString::String(s.to_string())
 }
 
-fn aggregate(errs: &[k3rs_common::validation::field::Error]) -> String {
+fn aggregate(errs: &[kubernetes_rs_common::validation::field::Error]) -> String {
     errs.iter()
         .map(|e| e.to_string())
         .collect::<Vec<_>>()

@@ -7,7 +7,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubectl::commands::options::*;
+    use kubernetes_rs_kubectl::commands::options::*;
 
     #[test]
     fn test_execute_succeeds() {

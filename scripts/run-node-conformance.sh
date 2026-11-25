@@ -26,10 +26,10 @@ RESULTS_DIR="/tmp/node-conformance"
 FOCUS="${FOCUS:-\\[NodeConformance\\]}"
 SKIP="${SKIP:-\\[Flaky\\]|\\[Serial\\]|\\[Slow\\]}"
 
-export KUBELET_VOLUMES_PATH="${KUBELET_VOLUMES_PATH:-${PROJECT_ROOT}/.k3rs/volumes}"
+export KUBELET_VOLUMES_PATH="${KUBELET_VOLUMES_PATH:-${PROJECT_ROOT}/.kubernetes-rs/volumes}"
 mkdir -p "${KUBELET_VOLUMES_PATH}" "${BIN_DIR}" "${RESULTS_DIR}"
 
-KUBECONFIG_FILE="${HOME}/.kube/k3rs-config"
+KUBECONFIG_FILE="${HOME}/.kube/kubernetes-rs-config"
 # The kubeconfig is created on demand below (after the stack is up). Don't
 # hard-fail here — earlier the script bailed before even attempting to bring
 # up the cluster when run on a fresh CI runner (see PR fixing node-conformance
@@ -52,7 +52,7 @@ for extra in ${EXTRA_COMPOSE_FILES:-}; do
     COMPOSE_FILES="${COMPOSE_FILES} -f ${extra}"
 done
 
-# Prebuilt-image mode (#1056): K3RS_IMAGE_TAG selects a GHCR tag
+# Prebuilt-image mode (#1056): KUBERNETES_RS_IMAGE_TAG selects a GHCR tag
 # published by .github/workflows/publish-images.yml (e.g. main, sha-<sha>).
 # Pull-or-fallback: a successful pull layers the ghcr overlay (image: names)
 # and skips the local build; a failed pull (tag missing, registry down)
@@ -63,32 +63,32 @@ done
 # ERROR instead of a silent local-build fallback — otherwise a forgotten GHCR
 # visibility flip leaves the nightly green-but-always-compiling forever (#1108).
 UP_BUILD_FLAG="--build"
-if [ -n "${K3RS_IMAGE_TAG:-}" ]; then
+if [ -n "${KUBERNETES_RS_IMAGE_TAG:-}" ]; then
     GHCR_OVERLAY="${PROJECT_ROOT}/compose.ghcr.node-conformance.yml"
     # shellcheck disable=SC2086
     if ${CONTAINER_RUNTIME} compose ${COMPOSE_FILES} -f "${GHCR_OVERLAY}" pull; then
         COMPOSE_FILES="${COMPOSE_FILES} -f ${GHCR_OVERLAY}"
         UP_BUILD_FLAG="--no-build"
-        echo "Using prebuilt images: tag=${K3RS_IMAGE_TAG}"
+        echo "Using prebuilt images: tag=${KUBERNETES_RS_IMAGE_TAG}"
     elif [ "${REQUIRE_PREBUILT:-false}" = "true" ]; then
-        echo "ERROR: prebuilt images tag=${K3RS_IMAGE_TAG} not pullable on a require-prebuilt run — the ghcr.io/indyjonesnl/rusternetes/* packages are likely still private (flip them to public, see PR #1106 checklist). Refusing to fall back to a local build." >&2
+        echo "ERROR: prebuilt images tag=${KUBERNETES_RS_IMAGE_TAG} not pullable on a require-prebuilt run — the ghcr.io/indyjonesnl/kubernetes-rs/* packages are likely still private (flip them to public, see PR #1106 checklist). Refusing to fall back to a local build." >&2
         if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
             {
                 echo "### ❌ Prebuilt-image pull failed (hard error)"
                 echo
-                echo "Tag \`${K3RS_IMAGE_TAG}\` was not pullable and \`REQUIRE_PREBUILT\` is set."
-                echo "Most likely the \`ghcr.io/indyjonesnl/rusternetes/*\` packages are still **private** (PR #1106 post-merge checklist)."
+                echo "Tag \`${KUBERNETES_RS_IMAGE_TAG}\` was not pullable and \`REQUIRE_PREBUILT\` is set."
+                echo "Most likely the \`ghcr.io/indyjonesnl/kubernetes-rs/*\` packages are still **private** (PR #1106 post-merge checklist)."
             } >> "${GITHUB_STEP_SUMMARY}"
         fi
         exit 1
     else
-        echo "WARNING: prebuilt images tag=${K3RS_IMAGE_TAG} not pullable — falling back to local build" >&2
+        echo "WARNING: prebuilt images tag=${KUBERNETES_RS_IMAGE_TAG} not pullable — falling back to local build" >&2
         if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
             {
                 echo "### ⚠️ Prebuilt-image fallback: built locally"
                 echo
-                echo "Tag \`${K3RS_IMAGE_TAG}\` was not pullable, so images were **compiled locally**."
-                echo "If this persists, the \`ghcr.io/indyjonesnl/rusternetes/*\` packages may still be private (PR #1106 post-merge checklist)."
+                echo "Tag \`${KUBERNETES_RS_IMAGE_TAG}\` was not pullable, so images were **compiled locally**."
+                echo "If this persists, the \`ghcr.io/indyjonesnl/kubernetes-rs/*\` packages may still be private (PR #1106 post-merge checklist)."
             } >> "${GITHUB_STEP_SUMMARY}"
         fi
     fi
@@ -98,7 +98,7 @@ fi
 # SC2086: intentional word-splitting — COMPOSE holds runtime + subcommand + flag triple
 COMPOSE="${CONTAINER_RUNTIME} compose ${COMPOSE_FILES}"
 
-echo "=== k3rs Node Conformance ==="
+echo "=== kubernetes-rs Node Conformance ==="
 echo "K8S_VERSION=${K8S_VERSION} FOCUS=${FOCUS}"
 
 echo "[1/7] Tearing down any previous node-conformance stack..."
@@ -135,16 +135,16 @@ if [ ! -f "${KUBECONFIG_FILE}" ]; then
 apiVersion: v1
 kind: Config
 clusters:
-  - name: k3rs
+  - name: kubernetes-rs
     cluster:
       insecure-skip-tls-verify: true
       server: https://localhost:6443
 contexts:
-  - name: k3rs
+  - name: kubernetes-rs
     context:
-      cluster: k3rs
+      cluster: kubernetes-rs
       user: admin
-current-context: k3rs
+current-context: kubernetes-rs
 users:
   - name: admin
     user:
@@ -154,18 +154,18 @@ fi
 export KUBECONFIG="${KUBECONFIG_FILE}"
 
 echo "[4/7] Bootstrapping cluster (kubernetes service, default ServiceAccounts, CoreDNS)..."
-# The node-conformance stack uses its own bridge (`k3rs-nc-net`,
+# The node-conformance stack uses its own bridge (`kubernetes-rs-nc-net`,
 # pinned in compose.node-conformance.yml) instead of the default
-# `k3rs-network` the discover-bridge-gateway helper assumes.
+# `kubernetes-rs-network` the discover-bridge-gateway helper assumes.
 # Point the helper at the right network so CoreDNS gets a valid gateway IP.
 #
 # SKIP_DNS_WIRING=1: this single-node stack ships no in-cluster DNS backend
-# (no k3rs-dns container), and the [NodeConformance] suite has no
+# (no kubernetes-rs-dns container), and the [NodeConformance] suite has no
 # cluster-DNS-resolution specs. Skipping the wiring avoids a 30s wait and a
 # misleading "DNS will NOT be functional" warning every run.
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME}" \
-K3RS_NETWORK_NAME="${K3RS_NETWORK_NAME:-k3rs-nc-net}" \
-CONTAINERD_SERVICE_CONTAINER="${CONTAINERD_SERVICE_CONTAINER:-k3rs-nc-containerd}" \
+KUBERNETES_RS_NETWORK_NAME="${KUBERNETES_RS_NETWORK_NAME:-kubernetes-rs-nc-net}" \
+CONTAINERD_SERVICE_CONTAINER="${CONTAINERD_SERVICE_CONTAINER:-kubernetes-rs-nc-containerd}" \
 SKIP_DNS_WIRING=1 \
 bash "${PROJECT_ROOT}/scripts/bootstrap-cluster.sh" || {
     echo "WARNING: bootstrap-cluster.sh exited non-zero — continuing anyway, some BeforeSuite checks may fail."

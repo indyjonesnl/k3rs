@@ -5,8 +5,8 @@
 //! mirrors `FindResults`. `run` is `Execute`: each result set printed by
 //! `PrintResults` (values separated by a space) and concatenated.
 
-use k3rs_api_server::registry::apiextensions::tableconvertor::find_results;
-use k3rs_common::jsonpath;
+use kubernetes_rs_api_server::registry::apiextensions::tableconvertor::find_results;
+use kubernetes_rs_common::jsonpath;
 use serde_json::{json, Value};
 
 fn run(template: &str, data: &Value) -> Result<String, String> {

@@ -2,10 +2,10 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::crd::{
+    pub use kubernetes_rs_common::resources::crd::{
         JSONSchemaProps, JSONSchemaPropsOrArray, JSONSchemaPropsOrBool,
     };
-    pub use k3rs_common::validation::field::{Error, Path};
+    pub use kubernetes_rs_common::validation::field::{Error, Path};
     pub use serde_json::Value;
     pub use std::collections::BTreeMap;
 }
@@ -23,7 +23,7 @@ mod tests {
     use serde_json::json;
 
     use super::__parent::*;
-    use k3rs_common::validation::structural::*;
+    use kubernetes_rs_common::validation::structural::*;
 
     type Mutation<T> = Vec<(&'static str, fn(&mut T))>;
 

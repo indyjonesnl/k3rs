@@ -3,16 +3,16 @@
 
 mod __parent {
     pub use chrono::{DateTime, Utc};
-    pub use k3rs_common::resources::serde_helpers::empty_string_as_none;
-    pub use k3rs_common::resources::NodeSelector;
-    pub use k3rs_common::types::{ObjectMeta, OwnerReference};
+    pub use kubernetes_rs_common::resources::serde_helpers::empty_string_as_none;
+    pub use kubernetes_rs_common::resources::NodeSelector;
+    pub use kubernetes_rs_common::types::{ObjectMeta, OwnerReference};
     pub use serde::{Deserialize, Serialize};
     pub use std::collections::BTreeMap;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::dra::*;
+    use kubernetes_rs_common::resources::dra::*;
 
     /// Upstream wire shape: `capacity: {requests: {name: quantity}}` on both
     /// ExactDeviceRequest and DeviceSubRequest (types.go:991, 1106).

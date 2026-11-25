@@ -2,9 +2,11 @@
 //! and reasons of `interpodaffinity/filtering.go:410-432` and
 //! `podtopologyspread/filtering.go:309-358`.
 use super::listers::EmptyListers;
-use k3rs_common::resources::{Node, Pod};
-use k3rs_scheduler::fwk::{Code, CycleState, FilterPlugin, NodeInfo, PreFilterPlugin, Status};
-use k3rs_scheduler::in_tree::{
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_scheduler::fwk::{
+    Code, CycleState, FilterPlugin, NodeInfo, PreFilterPlugin, Status,
+};
+use kubernetes_rs_scheduler::in_tree::{
     InterPodAffinity, PodTopologySpreadFilter, ERR_REASON_AFFINITY_RULES_NOT_MATCH,
     ERR_REASON_ANTI_AFFINITY_RULES_NOT_MATCH, ERR_REASON_CONSTRAINTS_NOT_MATCH,
     ERR_REASON_EXISTING_ANTI_AFFINITY_RULES_NOT_MATCH, ERR_REASON_NODE_LABEL_NOT_MATCH,

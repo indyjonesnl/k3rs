@@ -9,13 +9,13 @@
 //! Note: Eviction admission decisions happen in the API server's eviction subresource,
 //! not in the PDB controller. The controller only maintains status.
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     pod::{Container, Pod, PodCondition, PodSpec, PodStatus},
     IntOrString, PodDisruptionBudget, PodDisruptionBudgetSpec,
 };
-use k3rs_common::types::{LabelSelector, ObjectMeta, OwnerReference, Phase, TypeMeta};
-use k3rs_controller_manager::controllers::pod_disruption_budget::PodDisruptionBudgetController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::types::{LabelSelector, ObjectMeta, OwnerReference, Phase, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::pod_disruption_budget::PodDisruptionBudgetController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -6,13 +6,15 @@
 
 use std::sync::Arc;
 
-use k3rs_common::cel_mutation_types::{observe_expression, PolicyExpression};
-use k3rs_common::cel_versions::{self, EnvSet, EnvType};
-use k3rs_common::resources::admission_webhook::MatchCondition;
-use k3rs_common::resources::{MutatingWebhookConfiguration, ValidatingWebhookConfiguration};
-use k3rs_common::validation::field::{Error, ErrorList, Path};
-use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
-use k3rs_common::validation::webhookconfiguration::{
+use kubernetes_rs_common::cel_mutation_types::{observe_expression, PolicyExpression};
+use kubernetes_rs_common::cel_versions::{self, EnvSet, EnvType};
+use kubernetes_rs_common::resources::admission_webhook::MatchCondition;
+use kubernetes_rs_common::resources::{
+    MutatingWebhookConfiguration, ValidatingWebhookConfiguration,
+};
+use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
+use kubernetes_rs_common::validation::webhookconfiguration::{
     find_mutating_preexisting_expressions, find_validating_preexisting_expressions,
     ignore_mutating_webhook_match_conditions, ignore_validating_webhook_match_conditions,
     set_defaults_mutating_webhook_configuration, set_defaults_validating_webhook_configuration,
@@ -20,7 +22,7 @@ use k3rs_common::validation::webhookconfiguration::{
     validate_validating_webhook_configuration, validate_validating_webhook_configuration_update,
     PreexistingExpressions,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{
@@ -28,8 +30,8 @@ use crate::registry::rest::{
     RestUpdateStrategy,
 };
 
-pub(super) use k3rs_common::cel::compile_failure;
-use k3rs_common::cel_env::{output_type_failure, ExpectedOutput};
+pub(super) use kubernetes_rs_common::cel::compile_failure;
+use kubernetes_rs_common::cel_env::{output_type_failure, ExpectedOutput};
 
 /// The compile half of `validateMatchCondition` (validation.go:984-997): each
 /// non-blank `matchConditions[j].expression` of each webhook, as a

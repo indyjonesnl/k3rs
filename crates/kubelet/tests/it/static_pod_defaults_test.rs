@@ -12,7 +12,7 @@
 //! class and different cgroup shares than the identical manifest posted to the
 //! API.
 
-use k3rs_kubelet::static_pods::{parse_manifest, pod_config_hash};
+use kubernetes_rs_kubelet::static_pods::{parse_manifest, pod_config_hash};
 
 const MANIFEST: &str = r#"
 apiVersion: v1
@@ -30,7 +30,7 @@ spec:
         memory: 64Mi
   containers:
   - name: apiserver
-    image: ghcr.io/indyjonesnl/rusternetes-api-server:latest
+    image: ghcr.io/indyjonesnl/kubernetes-rs-api-server:latest
     resources:
       limits:
         cpu: 500m
@@ -162,8 +162,8 @@ spec:
 #[test]
 #[serial_test::serial]
 fn pod_level_requests_default_at_decode() {
-    let _g = k3rs_common::feature_gates::with_feature(
-        k3rs_common::feature_gates::Feature::PodLevelResources,
+    let _g = kubernetes_rs_common::feature_gates::with_feature(
+        kubernetes_rs_common::feature_gates::Feature::PodLevelResources,
         true,
     );
     const POD_LEVEL: &str = r#"

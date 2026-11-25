@@ -32,11 +32,13 @@
 //! All three behaviours are independently asserted via the response body
 //! pass-through and the absence of a 404 on the node lookup.
 
-use k3rs_common::resources::{DaemonEndpoint, Node, NodeAddress, NodeDaemonEndpoints, NodeStatus};
-use k3rs_common::tls::TlsConfig;
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::resources::{
+    DaemonEndpoint, Node, NodeAddress, NodeDaemonEndpoints, NodeStatus,
+};
+use kubernetes_rs_common::tls::TlsConfig;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;

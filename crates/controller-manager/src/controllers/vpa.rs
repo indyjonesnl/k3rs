@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
-use k3rs_common::quantity::parse_resource_value;
-use k3rs_common::resources::{
+use kubernetes_rs_common::quantity::parse_resource_value;
+use kubernetes_rs_common::resources::{
     Deployment, Pod, RecommendedContainerResources, RecommendedPodResources, ReplicaSet,
     StatefulSet, VerticalPodAutoscaler, VerticalPodAutoscalerStatus,
 };
-use k3rs_storage::{build_key, extract_key, Storage, WorkQueue};
+use kubernetes_rs_storage::{build_key, extract_key, Storage, WorkQueue};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::Duration;
@@ -234,7 +234,11 @@ impl<S: Storage + 'static> VerticalPodAutoscalerController<S> {
         // Get the target resource (Deployment, ReplicaSet, StatefulSet)
         let selector_labels = match target_ref.kind.as_str() {
             "Deployment" => {
-                let key = k3rs_storage::build_key("deployments", Some(namespace), &target_ref.name);
+                let key = kubernetes_rs_storage::build_key(
+                    "deployments",
+                    Some(namespace),
+                    &target_ref.name,
+                );
                 let deployment: Deployment = self.storage.get(&key).await?;
                 deployment
                     .spec
@@ -244,7 +248,11 @@ impl<S: Storage + 'static> VerticalPodAutoscalerController<S> {
                     .unwrap_or_default()
             }
             "ReplicaSet" => {
-                let key = k3rs_storage::build_key("replicasets", Some(namespace), &target_ref.name);
+                let key = kubernetes_rs_storage::build_key(
+                    "replicasets",
+                    Some(namespace),
+                    &target_ref.name,
+                );
                 let replicaset: ReplicaSet = self.storage.get(&key).await?;
                 replicaset
                     .spec
@@ -254,8 +262,11 @@ impl<S: Storage + 'static> VerticalPodAutoscalerController<S> {
                     .unwrap_or_default()
             }
             "StatefulSet" => {
-                let key =
-                    k3rs_storage::build_key("statefulsets", Some(namespace), &target_ref.name);
+                let key = kubernetes_rs_storage::build_key(
+                    "statefulsets",
+                    Some(namespace),
+                    &target_ref.name,
+                );
                 let statefulset: StatefulSet = self.storage.get(&key).await?;
                 statefulset
                     .spec
@@ -273,7 +284,7 @@ impl<S: Storage + 'static> VerticalPodAutoscalerController<S> {
         };
 
         // Find all pods matching the selector
-        let prefix = k3rs_storage::build_prefix("pods", Some(namespace));
+        let prefix = kubernetes_rs_storage::build_prefix("pods", Some(namespace));
         let all_pods: Vec<Pod> = self.storage.list(&prefix).await?;
 
         let target_pods: Vec<Pod> = all_pods
@@ -335,7 +346,7 @@ impl<S: Storage + 'static> VerticalPodAutoscalerController<S> {
     /// Simulate container resource usage (in production, query from metrics-server)
     fn simulate_container_usage(
         &self,
-        container: &k3rs_common::resources::Container,
+        container: &kubernetes_rs_common::resources::Container,
     ) -> (i64, i64) {
         use rand::Rng;
         let mut rng = rand::rng();
@@ -598,7 +609,7 @@ impl<S: Storage + 'static> VerticalPodAutoscalerController<S> {
         let mut updated_vpa = vpa.clone();
         updated_vpa.status = Some(new_status);
 
-        let key = k3rs_storage::build_key("verticalpodautoscalers", Some(namespace), name);
+        let key = kubernetes_rs_storage::build_key("verticalpodautoscalers", Some(namespace), name);
         // Status subresource write: a full-object PUT strips `.status` (#1723).
         self.storage.update_status(&key, &updated_vpa).await?;
 

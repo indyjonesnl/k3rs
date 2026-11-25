@@ -22,10 +22,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, Opinion, RequestAttributes};
-use k3rs_common::types::{ObjectMeta, OwnerReference};
-use k3rs_discovery::restmapper::{Gk, MapperError, RestMapping, Scope};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Authorizer, Opinion, RequestAttributes};
+use kubernetes_rs_common::types::{ObjectMeta, OwnerReference};
+use kubernetes_rs_discovery::restmapper::{Gk, MapperError, RestMapping, Scope};
 
 use crate::handlers::custom_metrics::ServedRestMapper;
 

@@ -17,14 +17,14 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 
-use k3rs_common::qos::{get_pod_qos, QoSClass};
-use k3rs_common::resources::pod::Toleration;
-use k3rs_common::resources::{Namespace, Pod};
-use k3rs_common::validation::field::Path;
-use k3rs_common::validation::metav1::{is_qualified_name, is_valid_label_value};
-use k3rs_common::validation::pod::validate_tolerations_with_options;
-use k3rs_common::{Error, Result};
-use k3rs_storage::{build_key, Storage, StorageBackend};
+use kubernetes_rs_common::qos::{get_pod_qos, QoSClass};
+use kubernetes_rs_common::resources::pod::Toleration;
+use kubernetes_rs_common::resources::{Namespace, Pod};
+use kubernetes_rs_common::validation::field::Path;
+use kubernetes_rs_common::validation::metav1::{is_qualified_name, is_valid_label_value};
+use kubernetes_rs_common::validation::pod::validate_tolerations_with_options;
+use kubernetes_rs_common::{Error, Result};
+use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
 
 use super::builtin_plugins::new_forbidden;
 use super::plugins::enabled;
@@ -578,7 +578,7 @@ pub fn extended_resource_toleration_admit(pod: &mut Pod) {
     {
         if let Some(requests) = c.resources.as_ref().and_then(|r| r.requests.as_ref()) {
             for name in requests.keys() {
-                if k3rs_common::quota::is_extended_resource_name(name) {
+                if kubernetes_rs_common::quota::is_extended_resource_name(name) {
                     resources.insert(name.clone());
                 }
             }

@@ -53,14 +53,14 @@
 //! backend response verbatim — through both the pod-proxy URL and the
 //! service-proxy URL.
 
-use k3rs_common::resources::endpointslice::EndpointPort as ESEndpointPort;
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::endpointslice::EndpointPort as ESEndpointPort;
+use kubernetes_rs_common::resources::{
     Container, ContainerPort, Endpoint, EndpointConditions, EndpointSlice, IntOrString, Pod, PodIP,
     PodSpec, PodStatus, Service, ServicePort, ServiceSpec, ServiceType,
 };
-use k3rs_common::types::{ObjectMeta, Phase, TypeMeta};
-use k3rs_storage::{build_key, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
+use kubernetes_rs_storage::{build_key, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use std::collections::HashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;

@@ -3,13 +3,13 @@
 
 mod __parent {
     pub use chrono::{DateTime, Utc};
-    pub use k3rs_common::types::{ObjectMeta, TypeMeta};
+    pub use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
     pub use serde::{Deserialize, Serialize};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::autoscaling::*;
+    use kubernetes_rs_common::resources::autoscaling::*;
 
     #[test]
     fn test_hpa_creation() {

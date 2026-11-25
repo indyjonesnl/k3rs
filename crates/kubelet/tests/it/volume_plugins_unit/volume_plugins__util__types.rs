@@ -7,7 +7,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_kubelet::volume_plugins::util::types::*;
+    use kubernetes_rs_kubelet::volume_plugins::util::types::*;
 
     /// `types.go:179-187`: uncertain progress and transient failures are not
     /// finished; everything else, including a plain error, is.

@@ -2,30 +2,30 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GarbageCollectionPolicy, GroupResource, NamespaceScopedStrategy, RequestContext,
         RestCreateStrategy, RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_api_server::registry::scale::{Scalable, ScaleRest};
-    pub use k3rs_common::equality::semantic_equal;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_api_server::registry::scale::{Scalable, ScaleRest};
+    pub use kubernetes_rs_common::equality::semantic_equal;
+    pub use kubernetes_rs_common::resources::{
         ReplicationController, ReplicationControllerStatus, Scale, ScaleSpec, ScaleStatus,
     };
-    pub use k3rs_common::types::{ObjectMeta, TypeMeta};
-    pub use k3rs_common::validation::field::{Error, ErrorList, Path};
-    pub use k3rs_common::validation::metav1::is_dns1123_label;
-    pub use k3rs_common::validation::replicationcontroller::{
+    pub use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+    pub use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::metav1::is_dns1123_label;
+    pub use kubernetes_rs_common::validation::replicationcontroller::{
         validate_replication_controller, validate_replication_controller_status_update,
         validate_replication_controller_update,
     };
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::core::replicationcontroller::*;
+    use kubernetes_rs_api_server::registry::core::replicationcontroller::*;
     use std::collections::HashMap;
 
     fn rc() -> ReplicationController {

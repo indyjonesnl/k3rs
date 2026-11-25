@@ -2,18 +2,18 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_controller_manager::controllers::selinux_warning::cache::VolumeCache;
+    pub use kubernetes_rs_controller_manager::controllers::selinux_warning::cache::VolumeCache;
     pub use prometheus::{Encoder, GaugeVec, Opts, Registry, TextEncoder};
     pub use std::sync::{Arc, OnceLock};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_controller_manager::controllers::selinux_warning::cache::{
+    use kubernetes_rs_controller_manager::controllers::selinux_warning::cache::{
         ObjectName, VolumeLabelCache, SELINUX_CHANGE_POLICY_MOUNT_OPTION as MOUNT,
     };
-    use k3rs_controller_manager::controllers::selinux_warning::metrics::*;
-    use k3rs_controller_manager::controllers::selinux_warning::translator::ControllerSELinuxTranslator;
+    use kubernetes_rs_controller_manager::controllers::selinux_warning::metrics::*;
+    use kubernetes_rs_controller_manager::controllers::selinux_warning::translator::ControllerSELinuxTranslator;
 
     #[test]
     fn conflicts_are_exposed_as_gauges() {

@@ -1,6 +1,6 @@
 use crate::types::ConfigCommands;
 use anyhow::Result;
-use k3rs_client::kubeconfig::{
+use kubernetes_rs_client::kubeconfig::{
     Cluster, ClusterEntry, Context, ContextEntry, KubeConfig, User, UserEntry,
 };
 use std::path::PathBuf;

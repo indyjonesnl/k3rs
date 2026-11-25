@@ -1,22 +1,22 @@
 [package]
-name = "k3rs-middleware"
+name = "kubernetes-rs-middleware"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [lib]
-name = "k3rs_middleware"
+name = "kubernetes_rs_middleware"
 path = "src/lib.rs"
 # Unit tests live in tests/it: a second compilation of the lib as a test
 # target costs as much as the lib itself.
 test = false
 
 [dependencies]
-k3rs-common = { path = "../common", features = ["axum-support"] }
-k3rs-protobuf = { path = "../protobuf" }
-k3rs-storage = { path = "../storage" }
-k3rs-client = { path = "../client" } # delegated TokenReview/SubjectAccessReview client (#3437)
+kubernetes-rs-common = { path = "../common", features = ["axum-support"] }
+kubernetes-rs-protobuf = { path = "../protobuf" }
+kubernetes-rs-storage = { path = "../storage" }
+kubernetes-rs-client = { path = "../client" } # delegated TokenReview/SubjectAccessReview client (#3437)
 axum = { workspace = true, features = ["ws"] }
 anyhow.workspace = true
 serde.workspace = true

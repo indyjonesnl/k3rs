@@ -3,9 +3,9 @@
 //! Tests all CRUD operations, edge cases, and error handling for priorityclasses.
 //! PriorityClass defines priority values for pods, with higher values indicating higher priority.
 
-use k3rs_common::resources::PriorityClass;
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::PriorityClass;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_storage::{build_key, build_prefix, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 

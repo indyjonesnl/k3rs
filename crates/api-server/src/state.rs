@@ -8,10 +8,10 @@ use crate::registry::core::service::portallocator::{
     PortAllocator, PortRange, DEFAULT_SERVICE_NODE_PORT_RANGE,
 };
 use crate::watch_cache::WatchCache;
-use k3rs_common::auth::{BootstrapTokenManager, TokenManager};
-use k3rs_common::authz::Authorizer;
-use k3rs_common::observability::MetricsRegistry;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::auth::{BootstrapTokenManager, TokenManager};
+use kubernetes_rs_common::authz::Authorizer;
+use kubernetes_rs_common::observability::MetricsRegistry;
+use kubernetes_rs_storage::StorageBackend;
 use std::sync::Arc;
 
 /// Shared state for the API server
@@ -106,7 +106,7 @@ impl ApiServerState {
             &ServiceIpRanges::default().families(),
         ));
 
-        k3rs_common::authz_filter_metrics::register_metrics();
+        kubernetes_rs_common::authz_filter_metrics::register_metrics();
 
         let custom_metrics_mapper =
             crate::handlers::custom_metrics::new_served_rest_mapper(storage.clone());

@@ -4,16 +4,18 @@
 
 use std::sync::Arc;
 
-use k3rs_common::equality::semantic_equal;
-use k3rs_common::pod_warnings::get_warnings_for_pod_template;
-use k3rs_common::resources::{Deployment, DeploymentStatus, Scale, ScaleSpec, ScaleStatus};
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_common::validation::apps::{
+use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::pod_warnings::get_warnings_for_pod_template;
+use kubernetes_rs_common::resources::{
+    Deployment, DeploymentStatus, Scale, ScaleSpec, ScaleStatus,
+};
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_common::validation::apps::{
     validate_deployment, validate_deployment_status_update, validate_deployment_update,
 };
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::metav1::is_dns1123_label;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::metav1::is_dns1123_label;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{
@@ -43,7 +45,10 @@ impl RestCreateStrategy<Deployment> for Strategy {
     fn prepare_for_create(&self, _ctx: &RequestContext, obj: &mut Deployment) {
         obj.status = Some(DeploymentStatus::default());
         obj.metadata.generation = Some(1);
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(&mut obj.spec.template, None);
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
+            &mut obj.spec.template,
+            None,
+        );
     }
 
     fn validate(&self, _ctx: &RequestContext, obj: &Deployment) -> ErrorList {
@@ -80,7 +85,7 @@ impl RestUpdateStrategy<Deployment> for Strategy {
     /// generation.
     fn prepare_for_update(&self, _ctx: &RequestContext, obj: &mut Deployment, old: &Deployment) {
         obj.status = old.status.clone();
-        k3rs_common::pod_drop_disabled::drop_disabled_template_fields(
+        kubernetes_rs_common::pod_drop_disabled::drop_disabled_template_fields(
             &mut obj.spec.template,
             Some(&old.spec.template),
         );
@@ -247,8 +252,8 @@ fn drop_disabled_status_fields(
     status: &mut Option<DeploymentStatus>,
     old: &Option<DeploymentStatus>,
 ) {
-    if !k3rs_common::feature_gates::enabled(
-        k3rs_common::feature_gates::Feature::DeploymentReplicaSetTerminatingReplicas,
+    if !kubernetes_rs_common::feature_gates::enabled(
+        kubernetes_rs_common::feature_gates::Feature::DeploymentReplicaSetTerminatingReplicas,
     ) && old
         .as_ref()
         .is_none_or(|o| o.terminating_replicas.is_none())

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use k3rs_client::http::ApiClient;
+use kubernetes_rs_client::http::ApiClient;
 use serde::{Deserialize, Serialize};
 use tabled::{settings::Style, Table, Tabled};
 
@@ -65,8 +65,8 @@ pub async fn execute(
 
     // Get core API resources (v1)
     let core_resources: ApiResourceList = client.get("/api/v1").await.map_err(|e| match e {
-        k3rs_client::http::GetError::NotFound(_) => anyhow::anyhow!("Core API not found"),
-        k3rs_client::http::GetError::Other(e) => e,
+        kubernetes_rs_client::http::GetError::NotFound(_) => anyhow::anyhow!("Core API not found"),
+        kubernetes_rs_client::http::GetError::Other(e) => e,
     })?;
 
     for resource in core_resources.resources {
@@ -78,8 +78,10 @@ pub async fn execute(
 
     // Get API groups
     let api_groups: ApiGroupList = client.get("/apis").await.map_err(|e| match e {
-        k3rs_client::http::GetError::NotFound(_) => anyhow::anyhow!("API groups not found"),
-        k3rs_client::http::GetError::Other(e) => e,
+        kubernetes_rs_client::http::GetError::NotFound(_) => {
+            anyhow::anyhow!("API groups not found")
+        }
+        kubernetes_rs_client::http::GetError::Other(e) => e,
     })?;
 
     for group in api_groups.groups {

@@ -4,30 +4,32 @@
 mod __parent {
     pub use async_trait::async_trait;
     pub use futures::StreamExt;
-    pub use k3rs_api_server::admission::policy_dispatch::ParamScope;
-    pub use k3rs_api_server::admission::policy_matching::EquivalentResourceMapper;
-    pub use k3rs_api_server::admission::policy_mutating::{
+    pub use kubernetes_rs_api_server::admission::policy_dispatch::ParamScope;
+    pub use kubernetes_rs_api_server::admission::policy_matching::EquivalentResourceMapper;
+    pub use kubernetes_rs_api_server::admission::policy_mutating::{
         compile_policy, MutatingEvaluator, NamespaceObjects, ObjectDefaulter, TypeConverters,
     };
-    pub use k3rs_api_server::admission::policy_plugin::{HookSource, MutatingPolicyPlugin};
-    pub use k3rs_api_server::admission::policy_registry::{
+    pub use kubernetes_rs_api_server::admission::policy_plugin::{
+        HookSource, MutatingPolicyPlugin,
+    };
+    pub use kubernetes_rs_api_server::admission::policy_registry::{
         EquivalentResourceRegistry, StorageNamespaceLister,
     };
-    pub use k3rs_api_server::admission::policy_source::{
+    pub use kubernetes_rs_api_server::admission::policy_source::{
         Informer, ParamInformerFactory, PolicySource, RestMapper, RestMapping, StorageInformer,
         StorageParamInformerFactory,
     };
-    pub use k3rs_common::admission::{GroupVersionKind, GroupVersionResource};
-    pub use k3rs_common::authz::Authorizer;
-    pub use k3rs_common::resources::mutating_admission_policy::{
+    pub use kubernetes_rs_common::admission::{GroupVersionKind, GroupVersionResource};
+    pub use kubernetes_rs_common::authz::Authorizer;
+    pub use kubernetes_rs_common::resources::mutating_admission_policy::{
         MutatingAdmissionPolicy, MutatingAdmissionPolicyBinding,
     };
-    pub use k3rs_common::resources::Namespace;
-    pub use k3rs_common::Error;
-    pub use k3rs_discovery::restmapper::{
+    pub use kubernetes_rs_common::resources::Namespace;
+    pub use kubernetes_rs_common::Error;
+    pub use kubernetes_rs_discovery::restmapper::{
         new_discovery_rest_mapper, served_group_resources, Gk, PriorityRestMapper, Scope,
     };
-    pub use k3rs_storage::{build_prefix, Storage, WatchEvent};
+    pub use kubernetes_rs_storage::{build_prefix, Storage, WatchEvent};
     pub use serde_json::Value;
     pub use std::collections::BTreeMap;
     pub use std::sync::atomic::{AtomicU64, Ordering};
@@ -36,9 +38,9 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::policy_install::*;
-    use k3rs_common::resources::Namespace;
-    use k3rs_storage::MemoryStorage;
+    use kubernetes_rs_api_server::admission::policy_install::*;
+    use kubernetes_rs_common::resources::Namespace;
+    use kubernetes_rs_storage::MemoryStorage;
 
     fn gvk(g: &str, v: &str, k: &str) -> GroupVersionKind {
         GroupVersionKind {
@@ -48,8 +50,8 @@ mod tests {
         }
     }
 
-    fn config_map_attributes() -> k3rs_api_server::admission::policy_matching::Attributes {
-        k3rs_api_server::admission::policy_matching::Attributes {
+    fn config_map_attributes() -> kubernetes_rs_api_server::admission::policy_matching::Attributes {
+        kubernetes_rs_api_server::admission::policy_matching::Attributes {
             kind: gvk("", "v1", "ConfigMap"),
             resource: GroupVersionResource {
                 group: String::new(),
@@ -59,7 +61,7 @@ mod tests {
             subresource: String::new(),
             namespace: "default".into(),
             name: "cm".into(),
-            operation: k3rs_common::admission::Operation::Create,
+            operation: kubernetes_rs_common::admission::Operation::Create,
             object: Some(serde_json::json!({
                 "apiVersion": "v1",
                 "kind": "ConfigMap",
@@ -77,13 +79,13 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn plugin_is_not_installed_while_the_gate_is_off() {
-        let _g = k3rs_common::feature_gates::with_feature(
-            k3rs_common::feature_gates::Feature::MutatingAdmissionPolicy,
+        let _g = kubernetes_rs_common::feature_gates::with_feature(
+            kubernetes_rs_common::feature_gates::Feature::MutatingAdmissionPolicy,
             false,
         );
         let plugin = new_mutating_policy_plugin(
             Arc::new(MemoryStorage::new()),
-            Arc::new(k3rs_common::authz::AlwaysAllowAuthorizer),
+            Arc::new(kubernetes_rs_common::authz::AlwaysAllowAuthorizer),
         )
         .await;
         assert!(plugin.is_none());
@@ -94,9 +96,9 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn installed_plugin_applies_a_stored_policy() {
-        use k3rs_api_server::admission::policy_mutating::ReinvocationContext;
-        let _g = k3rs_common::feature_gates::with_feature(
-            k3rs_common::feature_gates::Feature::MutatingAdmissionPolicy,
+        use kubernetes_rs_api_server::admission::policy_mutating::ReinvocationContext;
+        let _g = kubernetes_rs_common::feature_gates::with_feature(
+            kubernetes_rs_common::feature_gates::Feature::MutatingAdmissionPolicy,
             true,
         );
         let storage = Arc::new(MemoryStorage::new());
@@ -157,7 +159,7 @@ mod tests {
             .unwrap();
         let plugin = new_mutating_policy_plugin(
             storage.clone(),
-            Arc::new(k3rs_common::authz::AlwaysAllowAuthorizer),
+            Arc::new(kubernetes_rs_common::authz::AlwaysAllowAuthorizer),
         )
         .await
         .expect("installed while the gate is on");
@@ -354,12 +356,16 @@ mod tests {
 
     #[tokio::test]
     async fn crd_snapshot_tracks_storage() {
-        let storage = Arc::new(k3rs_storage::MemoryStorage::new());
+        let storage = Arc::new(kubernetes_rs_storage::MemoryStorage::new());
         let crds = CrdSnapshot::spawn(storage.clone()).await;
         let m = DiscoveryRestMapper::new(crds.clone());
         storage
             .create(
-                &k3rs_storage::build_key("customresourcedefinitions", None, "widgets.example.com"),
+                &kubernetes_rs_storage::build_key(
+                    "customresourcedefinitions",
+                    None,
+                    "widgets.example.com",
+                ),
                 &widget_crd(true, "Namespaced"),
             )
             .await
@@ -377,7 +383,10 @@ mod tests {
         let mut ns = Namespace::new("team-a");
         ns.metadata.labels = Some([("env".to_string(), "dev".to_string())].into());
         storage
-            .create(&k3rs_storage::build_key("namespaces", None, "team-a"), &ns)
+            .create(
+                &kubernetes_rs_storage::build_key("namespaces", None, "team-a"),
+                &ns,
+            )
             .await
             .unwrap();
         let got = StorageNamespaceObjects::new(storage)
@@ -428,9 +437,9 @@ mod tests {
         );
     }
 
-    async fn widgets_crd_storage() -> Arc<k3rs_storage::memory::MemoryStorage> {
-        let storage = Arc::new(k3rs_storage::memory::MemoryStorage::new());
-        let crd: k3rs_common::resources::CustomResourceDefinition =
+    async fn widgets_crd_storage() -> Arc<kubernetes_rs_storage::memory::MemoryStorage> {
+        let storage = Arc::new(kubernetes_rs_storage::memory::MemoryStorage::new());
+        let crd: kubernetes_rs_common::resources::CustomResourceDefinition =
             serde_json::from_value(serde_json::json!({
                 "apiVersion": "apiextensions.k8s.io/v1",
                 "kind": "CustomResourceDefinition",
@@ -451,7 +460,11 @@ mod tests {
             .unwrap();
         storage
             .create(
-                &k3rs_storage::build_key("customresourcedefinitions", None, "widgets.example.com"),
+                &kubernetes_rs_storage::build_key(
+                    "customresourcedefinitions",
+                    None,
+                    "widgets.example.com",
+                ),
                 &crd,
             )
             .await

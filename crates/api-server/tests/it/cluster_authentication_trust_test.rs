@@ -7,13 +7,13 @@
 
 use std::sync::Arc;
 
-use k3rs_api_server::bootstrap::{
+use kubernetes_rs_api_server::bootstrap::{
     bootstrap_extension_apiserver_authentication_rbac, sync_cluster_authentication_trust,
 };
-use k3rs_common::clusterauthenticationtrust::ClusterAuthenticationInfo;
-use k3rs_common::resources::{ConfigMap, Namespace};
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage, StorageBackend};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::clusterauthenticationtrust::ClusterAuthenticationInfo;
+use kubernetes_rs_common::resources::{ConfigMap, Namespace};
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage, StorageBackend};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 /// `someRandomCA` and `anotherRandomCA`

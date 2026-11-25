@@ -18,9 +18,9 @@
 //! (`AuthorizeWithSelectors`) are ported: webhook.go:312-402.
 
 use async_trait::async_trait;
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
-use k3rs_common::error::{Error, Result as AuthzResult};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Authorizer, Decision, Opinion, RequestAttributes};
+use kubernetes_rs_common::error::{Error, Result as AuthzResult};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -149,7 +149,7 @@ pub fn parse_go_duration(s: &str) -> std::result::Result<Duration, String> {
     Ok(Duration::from_secs_f64(total))
 }
 
-pub use k3rs_common::wait::Backoff;
+pub use kubernetes_rs_common::wait::Backoff;
 
 /// `authzconfig.FailurePolicy` (`reload.go:136-143`): the decision when the
 /// webhook cannot be consulted. The legacy flags use `NoOpinion`
@@ -523,7 +523,7 @@ impl SarVersion {
 // LRU expire cache (`k8s.io/apimachinery/pkg/util/cache.LRUExpireCache`)
 // ---------------------------------------------------------------------------
 
-type ExpireCache = k3rs_common::lru_expire_cache::LruExpireCache<SarStatus>;
+type ExpireCache = kubernetes_rs_common::lru_expire_cache::LruExpireCache<SarStatus>;
 
 // ---------------------------------------------------------------------------
 // The authorizer
@@ -966,7 +966,7 @@ fn spec_from(attr: &RequestAttributes) -> SarSpec {
 fn field_selector_to_authorization_api(
     attr: &RequestAttributes,
 ) -> Option<Vec<SarSelectorRequirement>> {
-    use k3rs_common::field_selector::FieldOperator;
+    use kubernetes_rs_common::field_selector::FieldOperator;
     let out: Vec<_> = attr
         .field_selector_requirements
         .iter()
@@ -986,7 +986,7 @@ fn field_selector_to_authorization_api(
 fn label_selector_to_authorization_api(
     attr: &RequestAttributes,
 ) -> Option<Vec<SarSelectorRequirement>> {
-    use k3rs_common::label_selector::LabelOperator;
+    use kubernetes_rs_common::label_selector::LabelOperator;
     let out: Vec<_> = attr
         .label_selector_requirements
         .iter()
@@ -1165,8 +1165,8 @@ impl Authorizer for WebhookAuthorizer {
         &self,
         _user: &UserInfo,
         _namespace: &str,
-    ) -> AuthzResult<k3rs_common::authz::UserRulesOutcome> {
-        Ok(k3rs_common::authz::UserRulesOutcome {
+    ) -> AuthzResult<kubernetes_rs_common::authz::UserRulesOutcome> {
+        Ok(kubernetes_rs_common::authz::UserRulesOutcome {
             incomplete: true,
             error: Some("webhook authorizer does not support user rule resolution".to_string()),
             ..Default::default()

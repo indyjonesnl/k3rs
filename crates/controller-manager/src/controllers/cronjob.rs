@@ -2,11 +2,11 @@ use crate::controllers::replicationcontroller::is_namespace_terminating_rejectio
 use crate::controllers::worker_pool::spawn_workers;
 use anyhow::Result;
 use futures::StreamExt;
-use k3rs_common::resources::service_account::ObjectReference;
-use k3rs_common::resources::workloads::{CronJob, Job};
-use k3rs_common::resources::{EventSource, EventType};
-use k3rs_common::types::OwnerReference;
-use k3rs_storage::{build_key, extract_key, EventRecorder, Storage, WorkQueue};
+use kubernetes_rs_common::resources::service_account::ObjectReference;
+use kubernetes_rs_common::resources::workloads::{CronJob, Job};
+use kubernetes_rs_common::resources::{EventSource, EventType};
+use kubernetes_rs_common::types::OwnerReference;
+use kubernetes_rs_storage::{build_key, extract_key, EventRecorder, Storage, WorkQueue};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
@@ -67,7 +67,7 @@ pub fn parse_standard_schedule(schedule: &str) -> Result<Schedule, String> {
     // `@every <duration>` (robfig/cron v3 parser.go:424-431): a
     // ConstantDelaySchedule, which the 7-field `cron` crate cannot express.
     if let Some(d) = schedule.strip_prefix("@every ") {
-        let nanos = k3rs_common::go_duration::parse_go_duration(d)
+        let nanos = kubernetes_rs_common::go_duration::parse_go_duration(d)
             .map_err(|e| format!("failed to parse duration {schedule}: {e}"))?;
         return Ok(Schedule::every(nanos));
     }
@@ -469,9 +469,9 @@ impl<S: Storage + 'static> CronJobController<S> {
     pub async fn job_event_cronjob_keys(
         &self,
         cache: &mut JobRefCache,
-        ev: &k3rs_storage::WatchEvent,
+        ev: &kubernetes_rs_storage::WatchEvent,
     ) -> Vec<String> {
-        use k3rs_storage::WatchEvent;
+        use kubernetes_rs_storage::WatchEvent;
         let (storage_key, body) = match ev {
             WatchEvent::Added(k, v) | WatchEvent::Modified(k, v) | WatchEvent::Deleted(k, v) => {
                 (k, v)
@@ -535,10 +535,10 @@ impl<S: Storage + 'static> CronJobController<S> {
     pub async fn cronjob_event_enqueue(
         &self,
         cache: &mut CronJobSpecCache,
-        ev: &k3rs_storage::WatchEvent,
+        ev: &kubernetes_rs_storage::WatchEvent,
         now: chrono::DateTime<chrono::Utc>,
     ) -> CronJobEnqueue {
-        use k3rs_storage::WatchEvent;
+        use kubernetes_rs_storage::WatchEvent;
         let key = extract_key(ev);
         let body = match ev {
             WatchEvent::Deleted(..) => {
@@ -924,7 +924,7 @@ impl<S: Storage + 'static> CronJobController<S> {
                 r.name.as_deref().unwrap_or_default()
             );
             match self.storage.get::<Job>(&key).await {
-                Err(k3rs_common::Error::NotFound(_)) => {
+                Err(kubernetes_rs_common::Error::NotFound(_)) => {
                     self.record_normal(
                         cronjob,
                         "MissingJob",
@@ -1265,11 +1265,11 @@ impl<S: Storage + 'static> CronJobController<S> {
         let annotations = Some(annotations);
 
         let job = Job {
-            type_meta: k3rs_common::types::TypeMeta {
+            type_meta: kubernetes_rs_common::types::TypeMeta {
                 kind: "Job".to_string(),
                 api_version: "batch/v1".to_string(),
             },
-            metadata: k3rs_common::types::ObjectMeta {
+            metadata: kubernetes_rs_common::types::ObjectMeta {
                 name: job_name.clone(),
                 generate_name: None,
                 generation: None,
@@ -1299,7 +1299,7 @@ impl<S: Storage + 'static> CronJobController<S> {
         let key = format!("/registry/jobs/{}/{}", namespace, job_name);
         let created = match self.storage.create(&key, &job).await {
             Ok(created) => created,
-            Err(k3rs_common::Error::AlreadyExists(_)) => {
+            Err(kubernetes_rs_common::Error::AlreadyExists(_)) => {
                 // cronjob_controllerv2.go:615-632. A Job we created before
                 // losing the status write is re-added to the active list; one
                 // controlled by someone else is theirs to account for; one

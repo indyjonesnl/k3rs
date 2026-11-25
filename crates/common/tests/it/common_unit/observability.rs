@@ -11,7 +11,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::observability::*;
+    use kubernetes_rs_common::observability::*;
 
     #[test]
     fn test_api_server_metrics() {

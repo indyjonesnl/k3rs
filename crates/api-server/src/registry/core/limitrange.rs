@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::LimitRange;
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::limitrange::validate_limit_range;
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::resources::LimitRange;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::limitrange::validate_limit_range;
+use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
 use crate::registry::rest::{

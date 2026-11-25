@@ -25,8 +25,8 @@
 use std::time::Duration;
 
 use futures::StreamExt;
-use k3rs_api_server::bootstrap::reconcile_kubernetes_service;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_api_server::bootstrap::reconcile_kubernetes_service;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 fn rv_str(obj: &Value) -> String {

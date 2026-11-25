@@ -5,12 +5,12 @@
 //! :778-820 and `authorization/cel/matcher.go` `Eval`.
 
 use axum::{extract::State, routing::post, Json, Router};
-use k3rs_api_server::authorization_match_conditions::{CelMatcher, WebhookMatchCondition};
-use k3rs_api_server::authorization_webhook::{
+use kubernetes_rs_api_server::authorization_match_conditions::{CelMatcher, WebhookMatchCondition};
+use kubernetes_rs_api_server::authorization_webhook::{
     Backoff, FailurePolicy, WebhookAuthorizer, WebhookClientConfig,
 };
-use k3rs_common::auth::UserInfo;
-use k3rs_common::authz::{Authorizer, Opinion, RequestAttributes};
+use kubernetes_rs_common::auth::UserInfo;
+use kubernetes_rs_common::authz::{Authorizer, Opinion, RequestAttributes};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

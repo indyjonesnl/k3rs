@@ -1,7 +1,7 @@
 //! Port of pkg/proxy/healthcheck/proxy_health.go:41-271.
 use axum::{http::StatusCode, response::IntoResponse, routing::any, Router};
 use chrono::{DateTime, SecondsFormat, Utc};
-use k3rs_common::resources::Node;
+use kubernetes_rs_common::resources::Node;
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
@@ -235,13 +235,13 @@ impl ProxyHealthServer {
 
     /// Cache creation/update events and ignore deletions, exactly as upstream
     /// NodeManager.OnNodeChange/OnNodeDelete (pkg/proxy/node.go:175-179,205-210).
-    pub(crate) fn watch_node<S: k3rs_storage::Storage + Send + Sync + 'static>(
+    pub(crate) fn watch_node<S: kubernetes_rs_storage::Storage + Send + Sync + 'static>(
         &self,
         storage: Arc<S>,
         name: String,
     ) {
         use futures::StreamExt;
-        use k3rs_storage::WatchEvent;
+        use kubernetes_rs_storage::WatchEvent;
         let server = self.clone();
         tokio::spawn(async move {
             let key = format!("/registry/nodes/{name}");

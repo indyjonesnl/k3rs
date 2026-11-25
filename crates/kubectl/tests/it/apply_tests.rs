@@ -3,7 +3,7 @@
 
 #[cfg(test)]
 mod tests {
-    use k3rs_common::resources::*;
+    use kubernetes_rs_common::resources::*;
     use serde::Deserialize;
 
     #[test]

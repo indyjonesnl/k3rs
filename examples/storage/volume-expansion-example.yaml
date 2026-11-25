@@ -4,9 +4,9 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: expandable-storage
-provisioner: k3rs.io/hostpath
+provisioner: kubernetes-rs.io/hostpath
 parameters:
-  path: /tmp/k3rs/expandable-volumes
+  path: /tmp/kubernetes-rs/expandable-volumes
 reclaimPolicy: Delete
 allowVolumeExpansion: true
 

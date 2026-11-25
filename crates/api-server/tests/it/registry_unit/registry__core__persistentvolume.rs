@@ -3,28 +3,30 @@
 
 mod __parent {
     pub use chrono::Utc;
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy,
         RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_common::pod_warnings::warnings_for_volume_node_selector_term;
-    pub use k3rs_common::resources::volume::{PersistentVolumeMode, PersistentVolumeReclaimPolicy};
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::pod_warnings::warnings_for_volume_node_selector_term;
+    pub use kubernetes_rs_common::resources::volume::{
+        PersistentVolumeMode, PersistentVolumeReclaimPolicy,
+    };
+    pub use kubernetes_rs_common::resources::{
         PersistentVolume, PersistentVolumePhase, PersistentVolumeStatus,
     };
-    pub use k3rs_common::validation::field::{ErrorList, Path};
-    pub use k3rs_common::validation::persistentvolume::{
+    pub use kubernetes_rs_common::validation::field::{ErrorList, Path};
+    pub use kubernetes_rs_common::validation::persistentvolume::{
         validate_persistent_volume, validate_persistent_volume_plugin,
         validate_persistent_volume_status_update, validate_persistent_volume_update,
     };
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::core::persistentvolume::*;
+    use kubernetes_rs_api_server::registry::core::persistentvolume::*;
 
     fn pv() -> PersistentVolume {
         let mut pv: PersistentVolume = serde_json::from_value(serde_json::json!({

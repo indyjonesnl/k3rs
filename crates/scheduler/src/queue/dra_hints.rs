@@ -18,7 +18,7 @@
 //! ResourceSlice events carry no hint upstream either.
 
 use super::events::*;
-use k3rs_common::resources::{Pod, ResourceClaim};
+use kubernetes_rs_common::resources::{Pod, ResourceClaim};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tracing::debug;

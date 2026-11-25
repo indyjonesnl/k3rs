@@ -1,10 +1,10 @@
 // Integration tests for Dynamic Provisioner Controller
 // Note: These tests use in-memory storage for fast, isolated testing
 
-use k3rs_common::resources::volume::*;
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_controller_manager::controllers::dynamic_provisioner::DynamicProvisionerController;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::volume::*;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_controller_manager::controllers::dynamic_provisioner::DynamicProvisionerController;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
@@ -24,10 +24,13 @@ async fn test_provisions_pv_for_pvc_with_storageclass() {
             api_version: "storage.k8s.io/v1".to_string(),
         },
         metadata: ObjectMeta::new("fast"),
-        provisioner: "k3rs.io/hostpath".to_string(),
+        provisioner: "kubernetes-rs.io/hostpath".to_string(),
         parameters: Some({
             let mut params = HashMap::new();
-            params.insert("path".to_string(), "/tmp/k3rs/test-dynamic-pvs".to_string());
+            params.insert(
+                "path".to_string(),
+                "/tmp/kubernetes-rs/test-dynamic-pvs".to_string(),
+            );
             params
         }),
         reclaim_policy: Some(PersistentVolumeReclaimPolicy::Delete),
@@ -186,7 +189,7 @@ async fn test_skips_already_bound_pvcs() {
             api_version: "storage.k8s.io/v1".to_string(),
         },
         metadata: ObjectMeta::new("fast"),
-        provisioner: "k3rs.io/hostpath".to_string(),
+        provisioner: "kubernetes-rs.io/hostpath".to_string(),
         parameters: None,
         reclaim_policy: Some(PersistentVolumeReclaimPolicy::Delete),
         volume_binding_mode: Some(VolumeBindingMode::Immediate),
@@ -283,7 +286,7 @@ async fn test_honors_storage_capacity() {
             api_version: "storage.k8s.io/v1".to_string(),
         },
         metadata: ObjectMeta::new("fast"),
-        provisioner: "k3rs.io/hostpath".to_string(),
+        provisioner: "kubernetes-rs.io/hostpath".to_string(),
         parameters: None,
         reclaim_policy: Some(PersistentVolumeReclaimPolicy::Delete),
         volume_binding_mode: Some(VolumeBindingMode::Immediate),
@@ -368,7 +371,7 @@ async fn test_honors_access_modes() {
             api_version: "storage.k8s.io/v1".to_string(),
         },
         metadata: ObjectMeta::new("fast"),
-        provisioner: "k3rs.io/hostpath".to_string(),
+        provisioner: "kubernetes-rs.io/hostpath".to_string(),
         parameters: None,
         reclaim_policy: Some(PersistentVolumeReclaimPolicy::Delete),
         volume_binding_mode: Some(VolumeBindingMode::Immediate),
@@ -458,7 +461,7 @@ async fn test_honors_reclaim_policy_delete() {
             api_version: "storage.k8s.io/v1".to_string(),
         },
         metadata: ObjectMeta::new("delete-policy"),
-        provisioner: "k3rs.io/hostpath".to_string(),
+        provisioner: "kubernetes-rs.io/hostpath".to_string(),
         parameters: None,
         reclaim_policy: Some(PersistentVolumeReclaimPolicy::Delete),
         volume_binding_mode: Some(VolumeBindingMode::Immediate),
@@ -542,7 +545,7 @@ async fn test_honors_reclaim_policy_retain() {
             api_version: "storage.k8s.io/v1".to_string(),
         },
         metadata: ObjectMeta::new("retain-policy"),
-        provisioner: "k3rs.io/hostpath".to_string(),
+        provisioner: "kubernetes-rs.io/hostpath".to_string(),
         parameters: None,
         reclaim_policy: Some(PersistentVolumeReclaimPolicy::Retain),
         volume_binding_mode: Some(VolumeBindingMode::Immediate),
@@ -626,7 +629,7 @@ async fn test_non_csi_plugin_rejects_pvc_with_datasource() {
             api_version: "storage.k8s.io/v1".to_string(),
         },
         metadata: ObjectMeta::new("fast"),
-        provisioner: "k3rs.io/hostpath".to_string(),
+        provisioner: "kubernetes-rs.io/hostpath".to_string(),
         parameters: None,
         reclaim_policy: Some(PersistentVolumeReclaimPolicy::Delete),
         volume_binding_mode: Some(VolumeBindingMode::Immediate),
@@ -644,7 +647,7 @@ async fn test_non_csi_plugin_rejects_pvc_with_datasource() {
             api_version: "snapshot.storage.k8s.io/v1".to_string(),
         },
         metadata: ObjectMeta::new("hostpath-snapclass"),
-        driver: "k3rs.io/hostpath-snapshotter".to_string(),
+        driver: "kubernetes-rs.io/hostpath-snapshotter".to_string(),
         parameters: None,
         deletion_policy: DeletionPolicy::Delete,
     };
@@ -664,22 +667,23 @@ async fn test_non_csi_plugin_rejects_pvc_with_datasource() {
             meta
         },
         spec: VolumeSnapshotContentSpec {
-            source: k3rs_common::resources::volume::VolumeSnapshotContentSource {
+            source: kubernetes_rs_common::resources::volume::VolumeSnapshotContentSource {
                 volume_handle: Some("original-pv".to_string()),
                 snapshot_handle: None,
             },
-            volume_snapshot_ref: k3rs_common::resources::service_account::ObjectReference {
-                kind: Some("VolumeSnapshot".to_string()),
-                namespace: Some("default".to_string()),
-                name: Some("test-snapshot".to_string()),
-                uid: Some(uuid::Uuid::new_v4().to_string()),
-                api_version: Some("snapshot.storage.k8s.io/v1".to_string()),
-                resource_version: Some("1".to_string()),
-                field_path: None,
-            },
+            volume_snapshot_ref:
+                kubernetes_rs_common::resources::service_account::ObjectReference {
+                    kind: Some("VolumeSnapshot".to_string()),
+                    namespace: Some("default".to_string()),
+                    name: Some("test-snapshot".to_string()),
+                    uid: Some(uuid::Uuid::new_v4().to_string()),
+                    api_version: Some("snapshot.storage.k8s.io/v1".to_string()),
+                    resource_version: Some("1".to_string()),
+                    field_path: None,
+                },
             volume_snapshot_class_name: Some("hostpath-snapclass".to_string()),
             deletion_policy: DeletionPolicy::Delete,
-            driver: "k3rs.io/hostpath-snapshotter".to_string(),
+            driver: "kubernetes-rs.io/hostpath-snapshotter".to_string(),
             source_volume_mode: None,
         },
         status: Some(VolumeSnapshotContentStatus {
@@ -710,7 +714,7 @@ async fn test_non_csi_plugin_rejects_pvc_with_datasource() {
             meta
         },
         spec: VolumeSnapshotSpec {
-            source: k3rs_common::resources::volume::VolumeSnapshotSource {
+            source: kubernetes_rs_common::resources::volume::VolumeSnapshotSource {
                 persistent_volume_claim_name: Some("original-pvc".to_string()),
                 volume_snapshot_content_name: None,
             },
@@ -794,14 +798,17 @@ async fn test_non_csi_plugin_rejects_pvc_with_datasource() {
         "non-CSI plugin must not provision a claim with a dataSource"
     );
 
-    let events: Vec<k3rs_common::resources::Event> =
+    let events: Vec<kubernetes_rs_common::resources::Event> =
         storage.list("/registry/events/default/").await.unwrap();
     let ev = events
         .iter()
         .find(|e| e.reason == "ProvisioningFailed")
         .expect("ProvisioningFailed event");
     assert_eq!(ev.involved_object.name.as_deref(), Some("restored-pvc"));
-    assert_eq!(ev.event_type, k3rs_common::resources::EventType::Warning);
+    assert_eq!(
+        ev.event_type,
+        kubernetes_rs_common::resources::EventType::Warning
+    );
     assert_eq!(
         ev.message,
         "plugin \"kubernetes.io/host-path\" is not a CSI plugin. Only CSI plugin can provision a claim with a datasource"
@@ -819,7 +826,7 @@ async fn test_rejects_pvc_restore_from_non_ready_snapshot() {
             api_version: "storage.k8s.io/v1".to_string(),
         },
         metadata: ObjectMeta::new("fast"),
-        provisioner: "k3rs.io/hostpath".to_string(),
+        provisioner: "kubernetes-rs.io/hostpath".to_string(),
         parameters: None,
         reclaim_policy: Some(PersistentVolumeReclaimPolicy::Delete),
         volume_binding_mode: Some(VolumeBindingMode::Immediate),
@@ -843,7 +850,7 @@ async fn test_rejects_pvc_restore_from_non_ready_snapshot() {
             meta
         },
         spec: VolumeSnapshotSpec {
-            source: k3rs_common::resources::volume::VolumeSnapshotSource {
+            source: kubernetes_rs_common::resources::volume::VolumeSnapshotSource {
                 persistent_volume_claim_name: Some("original-pvc".to_string()),
                 volume_snapshot_content_name: None,
             },

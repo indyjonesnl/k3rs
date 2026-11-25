@@ -15,16 +15,18 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use k3rs_api_server::aggregated_discovery::{HandlerRequest, HandlerResponse};
-use k3rs_api_server::aggregator_mux::ProxyHandler;
-use k3rs_api_server::apiservice_registration::{APIHandlerManager, AggregatorHandlerManager};
-use k3rs_api_server::openapi_aggregator::{
+use kubernetes_rs_api_server::aggregated_discovery::{HandlerRequest, HandlerResponse};
+use kubernetes_rs_api_server::aggregator_mux::ProxyHandler;
+use kubernetes_rs_api_server::apiservice_registration::{
+    APIHandlerManager, AggregatorHandlerManager,
+};
+use kubernetes_rs_api_server::openapi_aggregator::{
     etag_for, sort_by_priority, AggregationController, Downloader, SpecAggregator, SyncAction,
 };
-use k3rs_api_server::openapiv3_aggregator::{
+use kubernetes_rs_api_server::openapiv3_aggregator::{
     Downloader as V3Downloader, SpecProxier, SpecServer, UpdateError,
 };
-use k3rs_common::resources::{APIService, APIServiceReference};
+use kubernetes_rs_common::resources::{APIService, APIServiceReference};
 use serde_json::{json, Value};
 
 /// `handlerTest`: serves `data` with `etag`, 304 on a matching `If-None-Match`.

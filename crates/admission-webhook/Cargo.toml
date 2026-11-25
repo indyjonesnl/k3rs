@@ -1,17 +1,17 @@
 [package]
-name = "k3rs-admission-webhook"
+name = "kubernetes-rs-admission-webhook"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [lib]
-name = "k3rs_admission_webhook"
+name = "kubernetes_rs_admission_webhook"
 path = "src/lib.rs"
 
 [dependencies]
-k3rs-common = { path = "../common" }
-k3rs-storage = { path = "../storage" }
+kubernetes-rs-common = { path = "../common" }
+kubernetes-rs-storage = { path = "../storage" }
 serde_json.workspace = true
 tracing.workspace = true
 tokio.workspace = true
@@ -25,6 +25,6 @@ prometheus.workspace = true
 rand = "0.9"
 
 [dev-dependencies]
-k3rs-storage = { path = "../storage" }
+kubernetes-rs-storage = { path = "../storage" }
 axum.workspace = true
 chrono.workspace = true

@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_middleware::request_header::RequestHeaderConfig;
+    pub use kubernetes_rs_middleware::request_header::RequestHeaderConfig;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
     use clap::Parser;
-    use k3rs_api_server::request_header_authentication::*;
+    use kubernetes_rs_api_server::request_header_authentication::*;
 
     #[derive(Parser, Debug)]
     struct Cli {

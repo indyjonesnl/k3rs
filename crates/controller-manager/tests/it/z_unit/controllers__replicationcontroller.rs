@@ -4,23 +4,23 @@
 mod __parent {
     pub use chrono::Utc;
     pub use futures::StreamExt;
-    pub use k3rs_common::{
+    pub use kubernetes_rs_common::{
         resources::{Pod, PodStatus, ReplicationController, ReplicationControllerCondition},
         types::{label_selector_as_selector, ObjectMeta, OwnerReference, Phase, Selector},
     };
-    pub use k3rs_controller_manager::controllers::controller_utils::{
+    pub use kubernetes_rs_controller_manager::controllers::controller_utils::{
         find_min_next_pod_availability_check, is_pod_active, pod_key,
     };
-    pub use k3rs_controller_manager::controllers::expectations::ControllerExpectations;
-    pub use k3rs_controller_manager::controllers::pod_informer::{
+    pub use kubernetes_rs_controller_manager::controllers::expectations::ControllerExpectations;
+    pub use kubernetes_rs_controller_manager::controllers::pod_informer::{
         apply_pod_observation, ControllerRef, PodEventTarget, PodObservation, ResolvedController,
         SharedPodInformer,
     };
-    pub use k3rs_controller_manager::controllers::replicaset::{
+    pub use kubernetes_rs_controller_manager::controllers::replicaset::{
         count_pods, get_pods_to_delete, indirectly_related_pods, PodCounts, RelatedSet,
     };
-    pub use k3rs_controller_manager::controllers::worker_pool::spawn_workers;
-    pub use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
+    pub use kubernetes_rs_controller_manager::controllers::worker_pool::spawn_workers;
+    pub use kubernetes_rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
     pub use std::collections::HashMap;
     pub use std::{sync::Arc, time::Duration};
     pub use tracing::{debug, error, info, warn};
@@ -28,10 +28,10 @@ mod __parent {
 
 pub(crate) mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::workloads::{PodTemplateSpec, ReplicationControllerSpec};
-    use k3rs_common::types::ObjectMeta;
-    use k3rs_controller_manager::controllers::replicationcontroller::*;
-    use k3rs_storage::MemoryStorage;
+    use kubernetes_rs_common::resources::workloads::{PodTemplateSpec, ReplicationControllerSpec};
+    use kubernetes_rs_common::types::ObjectMeta;
+    use kubernetes_rs_controller_manager::controllers::replicationcontroller::*;
+    use kubernetes_rs_storage::MemoryStorage;
     use std::collections::HashMap;
 
     const ZERO_COUNTS: PodCounts = PodCounts {
@@ -49,7 +49,7 @@ pub(crate) mod tests {
         template_labels: Option<HashMap<String, String>>,
     ) -> ReplicationController {
         ReplicationController {
-            type_meta: k3rs_common::types::TypeMeta {
+            type_meta: kubernetes_rs_common::types::TypeMeta {
                 kind: "ReplicationController".to_string(),
                 api_version: "v1".to_string(),
             },
@@ -67,8 +67,8 @@ pub(crate) mod tests {
                         m.labels = Some(labels);
                         m
                     }),
-                    spec: k3rs_common::resources::PodSpec {
-                        containers: vec![k3rs_common::resources::Container {
+                    spec: kubernetes_rs_common::resources::PodSpec {
+                        containers: vec![kubernetes_rs_common::resources::Container {
                             name: "test".to_string(),
                             image: "busybox".to_string(),
                             command: None,
@@ -145,7 +145,7 @@ pub(crate) mod tests {
 
     fn make_orphan_pod(name: &str, labels: HashMap<String, String>) -> Pod {
         Pod {
-            type_meta: k3rs_common::types::TypeMeta {
+            type_meta: kubernetes_rs_common::types::TypeMeta {
                 kind: "Pod".to_string(),
                 api_version: "v1".to_string(),
             },
@@ -155,8 +155,8 @@ pub(crate) mod tests {
                 m.labels = Some(labels);
                 m
             },
-            spec: Some(k3rs_common::resources::PodSpec {
-                containers: vec![k3rs_common::resources::Container {
+            spec: Some(kubernetes_rs_common::resources::PodSpec {
+                containers: vec![kubernetes_rs_common::resources::Container {
                     name: "test".to_string(),
                     image: "busybox".to_string(),
                     command: None,
@@ -267,7 +267,7 @@ pub(crate) mod tests {
     /// `update`), hence `StatusSubresourceStorage`.
     #[tokio::test]
     async fn rc_status_survives_an_apiserver_that_strips_status_on_put() {
-        use k3rs_controller_manager::controllers::status_subresource_double::StatusSubresourceStorage;
+        use kubernetes_rs_controller_manager::controllers::status_subresource_double::StatusSubresourceStorage;
 
         let storage = Arc::new(StatusSubresourceStorage::new());
         let mut selector = HashMap::new();
@@ -281,7 +281,10 @@ pub(crate) mod tests {
         // the controller observes a ready replica and reports it.
         controller.reconcile_all().await.unwrap();
         let pods: Vec<Pod> = storage
-            .list(&k3rs_storage::build_prefix("pods", Some("default")))
+            .list(&kubernetes_rs_storage::build_prefix(
+                "pods",
+                Some("default"),
+            ))
             .await
             .unwrap();
         assert_eq!(pods.len(), 1, "reconcile must create the replica");
@@ -289,7 +292,7 @@ pub(crate) mod tests {
         let mut pod = pods[0].clone();
         let mut status = pod.status.clone().unwrap_or_default();
         status.phase = Some(Phase::Running);
-        status.conditions = Some(vec![k3rs_common::resources::PodCondition {
+        status.conditions = Some(vec![kubernetes_rs_common::resources::PodCondition {
             condition_type: "Ready".to_string(),
             status: "True".to_string(),
             reason: None,
@@ -434,9 +437,9 @@ pub(crate) mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let controller = ReplicationControllerController::new(storage.clone(), 5);
 
-        let mut sa = k3rs_common::resources::ServiceAccount::new("default", "default");
+        let mut sa = kubernetes_rs_common::resources::ServiceAccount::new("default", "default");
         sa.image_pull_secrets = Some(vec![
-            k3rs_common::resources::service_account::LocalObjectReference {
+            kubernetes_rs_common::resources::service_account::LocalObjectReference {
                 name: "regcred".to_string(),
             },
         ]);
@@ -531,7 +534,7 @@ pub(crate) mod tests {
         // The api-server's quota admission denies the create; the controller has
         // no client-side quota check (#3618).
         let storage =
-            Arc::new(k3rs_controller_manager::controllers::quota_admission_double::QuotaAdmissionStorage::new());
+            Arc::new(kubernetes_rs_controller_manager::controllers::quota_admission_double::QuotaAdmissionStorage::new());
         let controller = ReplicationControllerController::new(storage.clone(), 5);
 
         let mut selector = HashMap::new();
@@ -612,7 +615,7 @@ pub(crate) mod tests {
         // The api-server's quota admission denies the create; the controller has
         // no client-side quota check (#3618).
         let storage =
-            Arc::new(k3rs_controller_manager::controllers::quota_admission_double::QuotaAdmissionStorage::new());
+            Arc::new(kubernetes_rs_controller_manager::controllers::quota_admission_double::QuotaAdmissionStorage::new());
         let controller = ReplicationControllerController::new(storage.clone(), 5);
 
         let mut selector = HashMap::new();
@@ -883,8 +886,8 @@ pub(crate) mod tests {
     }
 
     #[async_trait::async_trait]
-    impl k3rs_storage::Storage for ConcurrencyProbeStorage {
-        async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    impl kubernetes_rs_storage::Storage for ConcurrencyProbeStorage {
+        async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
@@ -902,14 +905,14 @@ pub(crate) mod tests {
             out
         }
 
-        async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+        async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
         where
             T: serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.get(key).await
         }
 
-        async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+        async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
@@ -920,22 +923,25 @@ pub(crate) mod tests {
             &self,
             key: &str,
             value: &serde_json::Value,
-        ) -> k3rs_common::Result<()> {
+        ) -> kubernetes_rs_common::Result<()> {
             self.inner.update_raw(key, value).await
         }
 
-        async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+        async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
             self.inner.delete(key).await
         }
 
-        async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+        async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.list(prefix).await
         }
 
-        async fn watch(&self, prefix: &str) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        async fn watch(
+            &self,
+            prefix: &str,
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch(prefix).await
         }
 
@@ -943,15 +949,15 @@ pub(crate) mod tests {
             &self,
             prefix: &str,
             revision: i64,
-        ) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch_from_revision(prefix, revision).await
         }
 
-        async fn current_revision(&self) -> k3rs_common::Result<i64> {
+        async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
             self.inner.current_revision().await
         }
 
-        async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+        async fn is_revision_compacted(&self, revision: i64) -> kubernetes_rs_common::Result<bool> {
             self.inner.is_revision_compacted(revision).await
         }
     }
@@ -1052,7 +1058,7 @@ pub(crate) mod tests {
     /// stamped a `ReplicaFailure` condition upstream deliberately does not set.
     #[test]
     fn namespace_terminating_rejection_is_recognised() {
-        use k3rs_common::Error;
+        use kubernetes_rs_common::Error;
 
         // The message our api-server produces (#1849), as it reaches the
         // controller through ApiStorage's stringified error chain.
@@ -1106,15 +1112,15 @@ pub(crate) mod tests {
     }
 
     #[async_trait::async_trait]
-    impl k3rs_storage::Storage for TerminatingNamespaceStorage {
-        async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    impl kubernetes_rs_storage::Storage for TerminatingNamespaceStorage {
+        async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
             if key.starts_with("/registry/pods/") {
                 self.pod_create_attempts
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                return Err(k3rs_common::Error::Forbidden(format!(
+                return Err(kubernetes_rs_common::Error::Forbidden(format!(
                     "POST {key} failed: (Forbidden) pods is forbidden: unable to create new \
                      content in namespace ns-term because it is being terminated"
                 )));
@@ -1122,14 +1128,14 @@ pub(crate) mod tests {
             self.inner.create(key, value).await
         }
 
-        async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+        async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
         where
             T: serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.get(key).await
         }
 
-        async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+        async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
@@ -1140,22 +1146,25 @@ pub(crate) mod tests {
             &self,
             key: &str,
             value: &serde_json::Value,
-        ) -> k3rs_common::Result<()> {
+        ) -> kubernetes_rs_common::Result<()> {
             self.inner.update_raw(key, value).await
         }
 
-        async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+        async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
             self.inner.delete(key).await
         }
 
-        async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+        async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.list(prefix).await
         }
 
-        async fn watch(&self, prefix: &str) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        async fn watch(
+            &self,
+            prefix: &str,
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch(prefix).await
         }
 
@@ -1163,15 +1172,15 @@ pub(crate) mod tests {
             &self,
             prefix: &str,
             revision: i64,
-        ) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch_from_revision(prefix, revision).await
         }
 
-        async fn current_revision(&self) -> k3rs_common::Result<i64> {
+        async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
             self.inner.current_revision().await
         }
 
-        async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+        async fn is_revision_compacted(&self, revision: i64) -> kubernetes_rs_common::Result<bool> {
             self.inner.is_revision_compacted(revision).await
         }
     }
@@ -1250,7 +1259,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn rc_returns_create_failure_after_updating_status_for_requeue() {
         let storage =
-            Arc::new(k3rs_controller_manager::controllers::quota_admission_double::QuotaAdmissionStorage::new());
+            Arc::new(kubernetes_rs_controller_manager::controllers::quota_admission_double::QuotaAdmissionStorage::new());
         let controller = ReplicationControllerController::new(storage.clone(), 5);
         let mut selector = HashMap::new();
         selector.insert("app".to_string(), "cf".to_string());
@@ -1314,22 +1323,22 @@ pub(crate) mod tests {
     }
 
     #[async_trait::async_trait]
-    impl k3rs_storage::Storage for DeleteFailingStorage {
-        async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    impl kubernetes_rs_storage::Storage for DeleteFailingStorage {
+        async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.create(key, value).await
         }
 
-        async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+        async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
         where
             T: serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.get(key).await
         }
 
-        async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+        async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
@@ -1340,37 +1349,40 @@ pub(crate) mod tests {
             &self,
             key: &str,
             value: &serde_json::Value,
-        ) -> k3rs_common::Result<()> {
+        ) -> kubernetes_rs_common::Result<()> {
             self.inner.update_raw(key, value).await
         }
 
-        async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+        async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
             self.inner.delete(key).await
         }
 
-        async fn delete_gracefully(&self, key: &str) -> k3rs_common::Result<()> {
+        async fn delete_gracefully(&self, key: &str) -> kubernetes_rs_common::Result<()> {
             if key.starts_with("/registry/pods/")
                 && self.armed.load(std::sync::atomic::Ordering::SeqCst)
             {
                 self.delete_attempts
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 return Err(if self.fail_with_not_found {
-                    k3rs_common::Error::NotFound(format!("pod {key} not found"))
+                    kubernetes_rs_common::Error::NotFound(format!("pod {key} not found"))
                 } else {
-                    k3rs_common::Error::Internal(format!("delete {key} failed"))
+                    kubernetes_rs_common::Error::Internal(format!("delete {key} failed"))
                 });
             }
             self.inner.delete_gracefully(key).await
         }
 
-        async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+        async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.list(prefix).await
         }
 
-        async fn watch(&self, prefix: &str) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        async fn watch(
+            &self,
+            prefix: &str,
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch(prefix).await
         }
 
@@ -1378,15 +1390,15 @@ pub(crate) mod tests {
             &self,
             prefix: &str,
             revision: i64,
-        ) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch_from_revision(prefix, revision).await
         }
 
-        async fn current_revision(&self) -> k3rs_common::Result<i64> {
+        async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
             self.inner.current_revision().await
         }
 
-        async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+        async fn is_revision_compacted(&self, revision: i64) -> kubernetes_rs_common::Result<bool> {
             self.inner.is_revision_compacted(revision).await
         }
     }
@@ -1397,7 +1409,7 @@ pub(crate) mod tests {
         storage: &Arc<DeleteFailingStorage>,
     ) -> (
         ReplicationControllerController<DeleteFailingStorage>,
-        k3rs_common::Result<()>,
+        kubernetes_rs_common::Result<()>,
     ) {
         let controller = ReplicationControllerController::new(storage.clone(), 5);
         let mut selector = HashMap::new();
@@ -1627,8 +1639,8 @@ pub(crate) mod tests {
     }
 
     #[async_trait::async_trait]
-    impl k3rs_storage::Storage for NameCollisionStorage {
-        async fn create<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+    impl kubernetes_rs_storage::Storage for NameCollisionStorage {
+        async fn create<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
@@ -1645,21 +1657,21 @@ pub(crate) mod tests {
                     })
                     .is_ok()
             {
-                return Err(k3rs_common::Error::AlreadyExists(format!(
+                return Err(kubernetes_rs_common::Error::AlreadyExists(format!(
                     "pods {key} already exists"
                 )));
             }
             self.inner.create(key, value).await
         }
 
-        async fn get<T>(&self, key: &str) -> k3rs_common::Result<T>
+        async fn get<T>(&self, key: &str) -> kubernetes_rs_common::Result<T>
         where
             T: serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.get(key).await
         }
 
-        async fn update<T>(&self, key: &str, value: &T) -> k3rs_common::Result<T>
+        async fn update<T>(&self, key: &str, value: &T) -> kubernetes_rs_common::Result<T>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
@@ -1670,22 +1682,25 @@ pub(crate) mod tests {
             &self,
             key: &str,
             value: &serde_json::Value,
-        ) -> k3rs_common::Result<()> {
+        ) -> kubernetes_rs_common::Result<()> {
             self.inner.update_raw(key, value).await
         }
 
-        async fn delete(&self, key: &str) -> k3rs_common::Result<()> {
+        async fn delete(&self, key: &str) -> kubernetes_rs_common::Result<()> {
             self.inner.delete(key).await
         }
 
-        async fn list<T>(&self, prefix: &str) -> k3rs_common::Result<Vec<T>>
+        async fn list<T>(&self, prefix: &str) -> kubernetes_rs_common::Result<Vec<T>>
         where
             T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
         {
             self.inner.list(prefix).await
         }
 
-        async fn watch(&self, prefix: &str) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        async fn watch(
+            &self,
+            prefix: &str,
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch(prefix).await
         }
 
@@ -1693,15 +1708,15 @@ pub(crate) mod tests {
             &self,
             prefix: &str,
             revision: i64,
-        ) -> k3rs_common::Result<k3rs_storage::WatchStream> {
+        ) -> kubernetes_rs_common::Result<kubernetes_rs_storage::WatchStream> {
             self.inner.watch_from_revision(prefix, revision).await
         }
 
-        async fn current_revision(&self) -> k3rs_common::Result<i64> {
+        async fn current_revision(&self) -> kubernetes_rs_common::Result<i64> {
             self.inner.current_revision().await
         }
 
-        async fn is_revision_compacted(&self, revision: i64) -> k3rs_common::Result<bool> {
+        async fn is_revision_compacted(&self, revision: i64) -> kubernetes_rs_common::Result<bool> {
             self.inner.is_revision_compacted(revision).await
         }
     }
@@ -1846,7 +1861,7 @@ pub(crate) mod tests {
         controller
             .enqueue_owner_rc(
                 &queue,
-                &k3rs_storage::WatchEvent::Modified(key.clone(), pod.clone()),
+                &kubernetes_rs_storage::WatchEvent::Modified(key.clone(), pod.clone()),
             )
             .await;
         assert_eq!(
@@ -1855,7 +1870,10 @@ pub(crate) mod tests {
             "the deletionTimestamp update is the observation"
         );
         controller
-            .enqueue_owner_rc(&queue, &k3rs_storage::WatchEvent::Deleted(key, pod))
+            .enqueue_owner_rc(
+                &queue,
+                &kubernetes_rs_storage::WatchEvent::Deleted(key, pod),
+            )
             .await;
         assert_eq!(
             controller.expectations.get_expectations("default/g"),
@@ -1922,7 +1940,7 @@ pub(crate) mod tests {
     fn make_ready(pod: &mut Pod, since: chrono::DateTime<chrono::Utc>) {
         let status = pod.status.get_or_insert_with(Default::default);
         status.phase = Some(Phase::Running);
-        status.conditions = Some(vec![k3rs_common::resources::pod::PodCondition {
+        status.conditions = Some(vec![kubernetes_rs_common::resources::pod::PodCondition {
             condition_type: "Ready".to_string(),
             status: "True".to_string(),
             reason: None,
@@ -1941,7 +1959,7 @@ pub(crate) mod tests {
         rc.status.expect("status written")
     }
 
-    use k3rs_common::resources::ReplicationControllerStatus;
+    use kubernetes_rs_common::resources::ReplicationControllerStatus;
 
     /// `calculateStatus(rs, activePods, ...)` over the pods listed before
     /// `manageReplicas` (replica_set.go:743, :597 "Does NOT modify
@@ -2156,12 +2174,12 @@ pub(crate) mod tests {
 
     /// A pod event for `p` in `default`. `owner` is (kind, name, uid, controller).
     fn rc_pod_event(
-        make: fn(String, String) -> k3rs_storage::WatchEvent,
+        make: fn(String, String) -> kubernetes_rs_storage::WatchEvent,
         name: &str,
         labels: &[(&str, &str)],
         owner: Option<(&str, &str, &str, bool)>,
         rv: &str,
-    ) -> k3rs_storage::WatchEvent {
+    ) -> kubernetes_rs_storage::WatchEvent {
         let labels: HashMap<&str, &str> = labels.iter().copied().collect();
         let mut v = serde_json::json!({
             "metadata": {"name": name, "namespace": "default", "labels": labels,
@@ -2243,7 +2261,7 @@ pub(crate) mod tests {
             .enqueue_owner_rc(
                 &queue,
                 &rc_pod_event(
-                    k3rs_storage::WatchEvent::Added,
+                    kubernetes_rs_storage::WatchEvent::Added,
                     "p",
                     &[("other", "x")],
                     Some(("ReplicationController", "g", &rc.metadata.uid, false)),
@@ -2282,7 +2300,7 @@ pub(crate) mod tests {
                 .enqueue_owner_rc(
                     &queue,
                     &rc_pod_event(
-                        k3rs_storage::WatchEvent::Added,
+                        kubernetes_rs_storage::WatchEvent::Added,
                         &format!("p{i}"),
                         &[("app", "g")],
                         Some((kind, name, uid, true)),
@@ -2330,7 +2348,7 @@ pub(crate) mod tests {
             .enqueue_owner_rc(
                 &queue,
                 &rc_pod_event(
-                    k3rs_storage::WatchEvent::Added,
+                    kubernetes_rs_storage::WatchEvent::Added,
                     "orphan",
                     &[("app", "a")],
                     None,
@@ -2350,7 +2368,13 @@ pub(crate) mod tests {
         controller
             .enqueue_owner_rc(
                 &queue,
-                &rc_pod_event(k3rs_storage::WatchEvent::Added, "unlabeled", &[], None, "1"),
+                &rc_pod_event(
+                    kubernetes_rs_storage::WatchEvent::Added,
+                    "unlabeled",
+                    &[],
+                    None,
+                    "1",
+                ),
             )
             .await;
         assert!(queued(&queue).await.is_empty());
@@ -2367,8 +2391,8 @@ pub(crate) mod tests {
         let rc2 = make_rc("barfoo", "default", 1, rc_selector("bar"), None);
         put_rc(&storage, &rc1).await;
         put_rc(&storage, &rc2).await;
-        let added = k3rs_storage::WatchEvent::Added;
-        let modified = k3rs_storage::WatchEvent::Modified;
+        let added = kubernetes_rs_storage::WatchEvent::Added;
+        let modified = kubernetes_rs_storage::WatchEvent::Modified;
 
         controller
             .enqueue_owner_rc(

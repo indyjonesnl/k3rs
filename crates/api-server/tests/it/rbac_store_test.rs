@@ -8,9 +8,9 @@
 //! through.
 
 use axum::http::StatusCode;
-use k3rs_common::resources::{ClusterRole, ClusterRoleBinding};
-use k3rs_storage::{build_key, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_common::resources::{ClusterRole, ClusterRoleBinding};
+use kubernetes_rs_storage::{build_key, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const RBAC: &str = "/apis/rbac.authorization.k8s.io/v1";

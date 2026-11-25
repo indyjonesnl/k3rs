@@ -13,7 +13,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::audit::*;
+    use kubernetes_rs_common::audit::*;
 
     #[test]
     fn test_audit_level() {

@@ -2,10 +2,10 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::ClusterTrustBundle;
-    pub use k3rs_common::validation::certificatesigningrequest::validate_signer_name;
-    pub use k3rs_common::validation::field::{Error, ErrorList, Path};
-    pub use k3rs_common::validation::objectmeta::{
+    pub use kubernetes_rs_common::resources::ClusterTrustBundle;
+    pub use kubernetes_rs_common::validation::certificatesigningrequest::validate_signer_name;
+    pub use kubernetes_rs_common::validation::field::{Error, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::objectmeta::{
         name_is_dns_subdomain, validate_immutable_field,
         validate_object_meta_accessor_with_opts_common, validate_object_meta_update,
     };
@@ -13,7 +13,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::validation::clustertrustbundle::*;
+    use kubernetes_rs_common::validation::clustertrustbundle::*;
     use rcgen::{BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair};
 
     /// A DER certificate; `ca` sets the basic-constraints CA bit

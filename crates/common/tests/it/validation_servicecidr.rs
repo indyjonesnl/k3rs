@@ -1,8 +1,8 @@
 //! Tests for ServiceCIDR validation (port of upstream `ValidateServiceCIDR`).
 
-use k3rs_common::resources::servicecidr::{ServiceCIDR, ServiceCIDRSpec};
-use k3rs_common::validation::field::ErrorType;
-use k3rs_common::validation::servicecidr::validate_service_cidr;
+use kubernetes_rs_common::resources::servicecidr::{ServiceCIDR, ServiceCIDRSpec};
+use kubernetes_rs_common::validation::field::ErrorType;
+use kubernetes_rs_common::validation::servicecidr::validate_service_cidr;
 
 fn sc(cidrs: Vec<&str>) -> ServiceCIDR {
     let mut x = ServiceCIDR {
@@ -17,7 +17,7 @@ fn sc(cidrs: Vec<&str>) -> ServiceCIDR {
     x
 }
 
-fn has(errs: &[k3rs_common::validation::field::Error], field_substr: &str) -> bool {
+fn has(errs: &[kubernetes_rs_common::validation::field::Error], field_substr: &str) -> bool {
     errs.iter().any(|e| e.field.contains(field_substr))
 }
 
@@ -92,7 +92,7 @@ fn name_must_be_dns_subdomain() {
 /// metadata update rules.
 #[test]
 fn status_update_checks_only_metadata() {
-    use k3rs_common::validation::servicecidr::validate_service_cidr_status_update;
+    use kubernetes_rs_common::validation::servicecidr::validate_service_cidr_status_update;
     let mut old = sc(vec!["10.96.0.0/12"]);
     old.metadata.resource_version = Some("1".to_string());
     let mut new = old.clone();

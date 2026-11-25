@@ -3,8 +3,8 @@
 
 mod __parent {
     pub use anyhow::Result;
-    pub use k3rs_common::resources::LimitRange;
-    pub use k3rs_storage::{build_prefix, extract_key, Storage, WorkQueue};
+    pub use kubernetes_rs_common::resources::LimitRange;
+    pub use kubernetes_rs_storage::{build_prefix, extract_key, Storage, WorkQueue};
     pub use std::sync::Arc;
     pub use std::time::Duration;
     pub use tokio::time;
@@ -13,8 +13,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_controller_manager::controllers::limitrange::*;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_controller_manager::controllers::limitrange::*;
+    use kubernetes_rs_storage::memory::MemoryStorage;
 
     #[tokio::test]
     async fn test_reconcile_all_is_noop_on_empty_storage() {

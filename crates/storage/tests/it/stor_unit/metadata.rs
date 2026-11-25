@@ -7,7 +7,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_storage::metadata::*;
+    use kubernetes_rs_storage::metadata::*;
 
     #[test]
     fn stamps_all_fields_when_missing() {

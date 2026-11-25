@@ -9,14 +9,14 @@ mod __parent {
     pub use axum::response::Response;
     pub use axum::Router;
     pub use futures::FutureExt;
-    pub use k3rs_common::auth::UserInfo;
-    pub use k3rs_common::authz::{Authorizer, Decision, RequestAttributes};
-    pub use k3rs_common::error::Error;
-    pub use k3rs_middleware::secure_serving::authn::{
+    pub use kubernetes_rs_common::auth::UserInfo;
+    pub use kubernetes_rs_common::authz::{Authorizer, Decision, RequestAttributes};
+    pub use kubernetes_rs_common::error::Error;
+    pub use kubernetes_rs_middleware::secure_serving::authn::{
         clear_authentication_headers, AuthRequest, RequestAuthenticator, ALL_UNAUTHENTICATED,
         ANONYMOUS_USER,
     };
-    pub use k3rs_middleware::PeerCertificates;
+    pub use kubernetes_rs_middleware::PeerCertificates;
     pub use std::collections::HashMap;
     pub use std::sync::Arc;
 }
@@ -27,12 +27,12 @@ mod tests {
     use axum::http::HeaderMap;
     use axum::routing::get;
     use http_body_util::BodyExt;
-    use k3rs_common::authz::Opinion;
-    use k3rs_middleware::secure_serving::authn::{
+    use kubernetes_rs_common::authz::Opinion;
+    use kubernetes_rs_middleware::secure_serving::authn::{
         AuthRequest, AuthResult, Response as AuthResponse, ALL_AUTHENTICATED,
     };
-    use k3rs_middleware::secure_serving::filters::*;
-    use k3rs_middleware::PeerCertificates;
+    use kubernetes_rs_middleware::secure_serving::filters::*;
+    use kubernetes_rs_middleware::PeerCertificates;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tower::ServiceExt;
@@ -61,18 +61,18 @@ mod tests {
     #[async_trait]
     impl<F> Authorizer for Authz<F>
     where
-        F: Fn(&RequestAttributes) -> k3rs_common::error::Result<Decision> + Send + Sync,
+        F: Fn(&RequestAttributes) -> kubernetes_rs_common::error::Result<Decision> + Send + Sync,
     {
         async fn authorize(
             &self,
             attrs: &RequestAttributes,
-        ) -> k3rs_common::error::Result<Decision> {
+        ) -> kubernetes_rs_common::error::Result<Decision> {
             (self.0)(attrs)
         }
         async fn authorize_opinion(
             &self,
             attrs: &RequestAttributes,
-        ) -> k3rs_common::error::Result<Opinion> {
+        ) -> kubernetes_rs_common::error::Result<Opinion> {
             Ok(match (self.0)(attrs)? {
                 Decision::Allow => Opinion::Allow(String::new()),
                 Decision::Deny(r) => Opinion::NoOpinion {
@@ -85,8 +85,9 @@ mod tests {
             &self,
             _u: &UserInfo,
             _ns: &str,
-        ) -> k3rs_common::error::Result<k3rs_common::authz::UserRulesOutcome> {
-            Ok(k3rs_common::authz::UserRulesOutcome::default())
+        ) -> kubernetes_rs_common::error::Result<kubernetes_rs_common::authz::UserRulesOutcome>
+        {
+            Ok(kubernetes_rs_common::authz::UserRulesOutcome::default())
         }
     }
 
@@ -439,7 +440,7 @@ mod tests {
     #[tokio::test]
     async fn authorization_error_is_an_internal_error() {
         let authz: Arc<dyn Authorizer> = Arc::new(Authz(|_a: &RequestAttributes| {
-            Err(k3rs_common::error::Error::Authorization(
+            Err(kubernetes_rs_common::error::Error::Authorization(
                 "sar failed".into(),
             ))
         }));

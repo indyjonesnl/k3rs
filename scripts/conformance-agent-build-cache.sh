@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build the k3rs service images once on the host, then `docker
+# Build the kubernetes-rs service images once on the host, then `docker
 # save` them to a tarball that every parallel-conformance agent dind
 # loads at start-up. Eliminates the ~5–30 min per-dind cold build.
 #
-# Output: ${HOME}/.cache/rusternetes-conformance-agents/images.tar
+# Output: ${HOME}/.cache/kubernetes-rs-conformance-agents/images.tar
 # (override via AGENT_CACHE_DIR=…)
 #
 # Re-run after touching any crate or Dockerfile.services. Agents only
@@ -15,7 +15,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-AGENT_CACHE_DIR="${AGENT_CACHE_DIR:-${HOME}/.cache/rusternetes-conformance-agents}"
+AGENT_CACHE_DIR="${AGENT_CACHE_DIR:-${HOME}/.cache/kubernetes-rs-conformance-agents}"
 AGENT_IMAGES_TAR="${AGENT_CACHE_DIR}/images.tar"
 mkdir -p "$AGENT_CACHE_DIR"
 
@@ -27,9 +27,9 @@ fi
 # Compose default project name is the dir basename, so `compose build`
 # tags images as `<dir>-<service>`. Force a stable project name so the
 # tags don't shift if someone renames the worktree.
-export COMPOSE_PROJECT_NAME=k3rs
+export COMPOSE_PROJECT_NAME=kubernetes-rs
 
-echo "==> Building k3rs service images (compose project: k3rs)"
+echo "==> Building kubernetes-rs service images (compose project: kubernetes-rs)"
 # --profile build includes the build-only scheduler / controller-manager images
 # (they run as static pods, not compose containers — the kubelets inside each
 # agent dind need them loaded locally).
@@ -39,20 +39,20 @@ docker compose -f compose.yml --profile build build --parallel
 # is upstream and pulled fresh inside each dind (cheap), no need to
 # tarball it. Same for any future externally-pulled images.
 IMAGES=(
-  k3rs-api-server
-  k3rs-scheduler
-  k3rs-controller-manager
-  k3rs-kubelet
-  k3rs-kubelet2
-  k3rs-kube-proxy
-  k3rs-dns
+  kubernetes-rs-api-server
+  kubernetes-rs-scheduler
+  kubernetes-rs-controller-manager
+  kubernetes-rs-kubelet
+  kubernetes-rs-kubelet2
+  kubernetes-rs-kube-proxy
+  kubernetes-rs-dns
 )
 
 echo "==> Verifying images exist before save"
 for img in "${IMAGES[@]}"; do
   if ! docker image inspect "$img" >/dev/null 2>&1; then
     echo "image $img missing after build — compose tag scheme drifted?" >&2
-    docker image ls | grep -E "k3rs|rusternetes" || true
+    docker image ls | grep -E "kubernetes-rs|kubernetes-rs" || true
     exit 1
   fi
 done

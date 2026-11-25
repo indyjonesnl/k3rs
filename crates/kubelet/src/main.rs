@@ -5,7 +5,7 @@
 #[global_allocator]
 static GLOBAL_ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use k3rs_kubelet::{
+use kubernetes_rs_kubelet::{
     config, credentialprovider_plugin, eviction, image_gc, kubelet, node_ip, pluginmanager, server,
     server_auth, server_logs, serving_tls, volume_plugins,
 };
@@ -16,15 +16,15 @@ use config::{KubeletConfiguration, RuntimeConfig};
 use eviction::{
     build_thresholds, parse_duration, parse_eviction_flag, EvictionManager, EvictionSignal,
 };
-use k3rs_common::observability::MetricsRegistry;
-use k3rs_storage::{StorageBackend, StorageConfig};
 use kubelet::Kubelet;
+use kubernetes_rs_common::observability::MetricsRegistry;
+use kubernetes_rs_storage::{StorageBackend, StorageConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
 
-/// k3rs Kubelet — node agent that manages containers.
+/// kubernetes-rs Kubelet — node agent that manages containers.
 ///
 /// ## Eviction flags (upstream parity)
 ///
@@ -52,8 +52,8 @@ use tracing::{info, warn};
 /// `nodefs.inodesFree`, `imagefs.available`, `imagefs.inodesFree`,
 /// `pid.available`. Only the `<` operator is supported (upstream parity).
 #[derive(Parser, Debug)]
-#[command(name = "k3rs-kubelet")]
-#[command(about = "k3rs Kubelet - Node agent that manages containers", long_about = None)]
+#[command(name = "kubernetes-rs-kubelet")]
+#[command(about = "kubernetes-rs Kubelet - Node agent that manages containers", long_about = None)]
 #[command(version)]
 struct Args {
     /// Comma-separated `Gate=bool` pairs, e.g. `StorageCapacityScoring=true`
@@ -140,7 +140,7 @@ struct Args {
     cluster_domain: String,
 
     /// Container network to connect pods to
-    #[arg(long, default_value = "k3rs-network")]
+    #[arg(long, default_value = "kubernetes-rs-network")]
     network: String,
 
     /// Comma-separated list of unsafe sysctls (or `*`-suffixed patterns) to
@@ -155,7 +155,7 @@ struct Args {
     storage_backend: String,
 
     /// SQLite database path (only used when --storage-backend=sqlite)
-    #[arg(long, default_value = "./data/k3rs.db")]
+    #[arg(long, default_value = "./data/kubernetes-rs.db")]
     data_dir: String,
 
     /// Fallback api-server URL for API mode (e.g. https://api-server:6443).
@@ -330,7 +330,7 @@ fn build_eviction_manager(
 
 /// A Go `time.Duration` flag value (`fs.DurationVar`).
 fn parse_go_duration_flag(s: &str) -> Result<std::time::Duration, String> {
-    let nanos = k3rs_common::go_duration::parse_go_duration(s)?;
+    let nanos = kubernetes_rs_common::go_duration::parse_go_duration(s)?;
     u64::try_from(nanos)
         .map(std::time::Duration::from_nanos)
         .map_err(|_| format!("negative duration {s}"))
@@ -339,7 +339,7 @@ fn parse_go_duration_flag(s: &str) -> Result<std::time::Duration, String> {
 /// Apply `--feature-gates` process-wide. Port of `featureGate.Set`
 /// (staging/src/k8s.io/component-base/featuregate/feature_gate.go:340-359).
 fn apply_feature_gates(args: &Args) -> Result<()> {
-    k3rs_common::feature_gates::set_from_str(&args.feature_gates)
+    kubernetes_rs_common::feature_gates::set_from_str(&args.feature_gates)
         .map_err(|e| anyhow::anyhow!("invalid --feature-gates: {e}"))?;
     Ok(())
 }
@@ -354,8 +354,10 @@ async fn main() -> Result<()> {
     apply_feature_gates(&args)?;
     // cmd/kubelet/app/server.go:270-275: once the feature gates are applied,
     // the flagz reader exists only when ComponentFlagz is enabled.
-    if k3rs_common::feature_gates::enabled(k3rs_common::feature_gates::Feature::ComponentFlagz) {
-        server::set_flagz_reader(k3rs_common::flagz::flags_from_clap(&cmd, &matches));
+    if kubernetes_rs_common::feature_gates::enabled(
+        kubernetes_rs_common::feature_gates::Feature::ComponentFlagz,
+    ) {
+        server::set_flagz_reader(kubernetes_rs_common::flagz::flags_from_clap(&cmd, &matches));
     }
 
     // Load configuration file if specified
@@ -506,12 +508,12 @@ async fn main() -> Result<()> {
         etcd_endpoints,
     )?;
 
-    k3rs_common::tracing::init_basic_tracing("kubelet", &runtime_config.log_level)?;
-    k3rs_common::dump::install_panic_hook("kubelet");
+    kubernetes_rs_common::tracing::init_basic_tracing("kubelet", &runtime_config.log_level)?;
+    kubernetes_rs_common::dump::install_panic_hook("kubelet");
 
     info!(
-        "Starting k3rs Kubelet {}",
-        k3rs_common::build_info::version_line()
+        "Starting kubernetes-rs Kubelet {}",
+        kubernetes_rs_common::build_info::version_line()
     );
     info!("{}", runtime_config.display());
 
@@ -520,10 +522,10 @@ async fn main() -> Result<()> {
     // the kubelet keeps its ordinary Arc<StorageBackend> handle unchanged.
     // The API client, kept for `BuildAuth` (`kubeDeps.KubeClient`); `None` in
     // standalone (storage) mode.
-    let mut api_client: Option<Arc<k3rs_client::http::ApiClient>> = None;
+    let mut api_client: Option<Arc<kubernetes_rs_client::http::ApiClient>> = None;
     let storage = if let Some(kubeconfig) = args.kubeconfig.as_deref() {
-        use k3rs_client::http::ApiClient;
-        use k3rs_client::kubeconfig::KubeConfig;
+        use kubernetes_rs_client::http::ApiClient;
+        use kubernetes_rs_client::kubeconfig::KubeConfig;
 
         let cfg = KubeConfig::load_from_file(&std::path::PathBuf::from(kubeconfig))?;
         let ca_pem = cfg.get_ca_cert_pem().ok().flatten();
@@ -566,7 +568,9 @@ async fn main() -> Result<()> {
                 token,
             )?
             // `rest.SetKubernetesDefaults`: the component's default User-Agent.
-            .with_default_user_agent(k3rs_common::compatibility::default_kubernetes_user_agent()),
+            .with_default_user_agent(
+                kubernetes_rs_common::compatibility::default_kubernetes_user_agent(),
+            ),
         );
         api_client = Some(client.clone());
         Arc::new(StorageBackend::new_api(client))
@@ -597,8 +601,8 @@ async fn main() -> Result<()> {
         }
         None => {
             info!("Discovering cluster DNS IP from kube-dns service...");
-            use k3rs_common::resources::Service;
-            use k3rs_storage::Storage;
+            use kubernetes_rs_common::resources::Service;
+            use kubernetes_rs_storage::Storage;
 
             match storage
                 .get::<Service>("/registry/services/kube-system/kube-dns")
@@ -679,7 +683,7 @@ async fn main() -> Result<()> {
             external_cloud_provider,
             // Standalone kubelet: tokens come from the api-server's
             // TokenRequest; this signer is only the storage-direct fallback.
-            k3rs_kubelet::kubelet::service_account_token_manager(&Default::default())?,
+            kubernetes_rs_kubelet::kubelet::service_account_token_manager(&Default::default())?,
         )
         .await?
         .with_hostname(&hostname)
@@ -744,8 +748,8 @@ async fn main() -> Result<()> {
             let mut handler = pluginmanager::csi_handler::RegistrationHandler::new(nim.clone());
             // `csi_plugin.go:417-426`: the csiNodeUpdater runs only with the
             // `MutableCSINodeAllocatableCount` gate (on by default in 1.35).
-            if k3rs_common::feature_gates::enabled(
-                k3rs_common::feature_gates::Feature::MutableCSINodeAllocatableCount,
+            if kubernetes_rs_common::feature_gates::enabled(
+                kubernetes_rs_common::feature_gates::Feature::MutableCSINodeAllocatableCount,
             ) {
                 let updater = Arc::new(volume_plugins::csi_node_updater::CsiNodeUpdater::new(
                     updater_storage,
@@ -868,7 +872,7 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod feature_gates_flag_tests {
     use super::*;
-    use k3rs_common::feature_gates::{enabled, reset_to_defaults, Feature};
+    use kubernetes_rs_common::feature_gates::{enabled, reset_to_defaults, Feature};
     use serial_test::serial;
 
     fn parse(gates: &str) -> Args {

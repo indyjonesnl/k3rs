@@ -3,22 +3,22 @@
 
 mod __parent {
     pub use async_trait::async_trait;
-    pub use k3rs_common::auth::UserInfo;
-    pub use k3rs_common::authz::{
+    pub use kubernetes_rs_common::auth::UserInfo;
+    pub use kubernetes_rs_common::authz::{
         AuthorizationOutcome, Authorizer, Decision, Opinion, RequestAttributes,
     };
-    pub use k3rs_common::resources::{NonResourceRule, ResourceRule};
-    pub use k3rs_common::{Error, Result};
+    pub use kubernetes_rs_common::resources::{NonResourceRule, ResourceRule};
+    pub use kubernetes_rs_common::{Error, Result};
     pub use std::collections::{BTreeMap, HashMap};
     pub use std::sync::{Arc, Mutex};
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::admission::caching_authorizer::*;
-    use k3rs_common::field_selector::FieldSelector;
-    use k3rs_common::label_selector::LabelSelector;
-    use k3rs_common::Error;
+    use kubernetes_rs_api_server::admission::caching_authorizer::*;
+    use kubernetes_rs_common::field_selector::FieldSelector;
+    use kubernetes_rs_common::label_selector::LabelSelector;
+    use kubernetes_rs_common::Error;
     use std::collections::VecDeque;
 
     struct Scripted {
@@ -42,8 +42,8 @@ mod tests {
             &self,
             _: &UserInfo,
             _: &str,
-        ) -> Result<k3rs_common::authz::UserRulesOutcome> {
-            Ok(k3rs_common::authz::UserRulesOutcome::default())
+        ) -> Result<kubernetes_rs_common::authz::UserRulesOutcome> {
+            Ok(kubernetes_rs_common::authz::UserRulesOutcome::default())
         }
     }
 
@@ -223,8 +223,8 @@ mod tests {
                 &self,
                 _: &UserInfo,
                 _: &str,
-            ) -> Result<k3rs_common::authz::UserRulesOutcome> {
-                Ok(k3rs_common::authz::UserRulesOutcome::default())
+            ) -> Result<kubernetes_rs_common::authz::UserRulesOutcome> {
+                Ok(kubernetes_rs_common::authz::UserRulesOutcome::default())
             }
         }
         let inner = Arc::new(Op(Mutex::new(0)));

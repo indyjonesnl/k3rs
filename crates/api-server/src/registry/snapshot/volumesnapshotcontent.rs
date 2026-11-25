@@ -7,13 +7,13 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::VolumeSnapshotContent;
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
-use k3rs_common::validation::volumesnapshot::{
+use kubernetes_rs_common::resources::VolumeSnapshotContent;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{name_is_dns_subdomain, validate_object_meta};
+use kubernetes_rs_common::validation::volumesnapshot::{
     validate_volume_snapshot_content, validate_volume_snapshot_content_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use super::{same_json, GROUP};
 use crate::registry::generic::Store;

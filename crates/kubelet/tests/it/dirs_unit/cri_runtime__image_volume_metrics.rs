@@ -2,8 +2,8 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::feature_gates::{enabled, Feature};
-    pub use k3rs_common::resources::pod::Container;
+    pub use kubernetes_rs_common::feature_gates::{enabled, Feature};
+    pub use kubernetes_rs_common::resources::pod::Container;
     pub use prometheus::{IntCounter, Opts};
     pub use std::collections::HashMap;
     pub use std::sync::{LazyLock, Once};
@@ -11,9 +11,9 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::feature_gates::{with_feature, Feature};
-    use k3rs_common::resources::pod::VolumeMount;
-    use k3rs_kubelet::cri_runtime::image_volume_metrics::*;
+    use kubernetes_rs_common::feature_gates::{with_feature, Feature};
+    use kubernetes_rs_common::resources::pod::VolumeMount;
+    use kubernetes_rs_kubelet::cri_runtime::image_volume_metrics::*;
     use std::sync::Arc;
 
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

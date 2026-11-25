@@ -2,25 +2,25 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_api_server::registry::generic::Store;
-    pub use k3rs_api_server::registry::rest::{
+    pub use kubernetes_rs_api_server::registry::generic::Store;
+    pub use kubernetes_rs_api_server::registry::rest::{
         GarbageCollectionPolicy, GroupResource, NamespaceScopedStrategy, RequestContext,
         RestCreateStrategy, RestDeleteStrategy, RestUpdateStrategy,
     };
-    pub use k3rs_api_server::ssa::ResetFields;
-    pub use k3rs_common::equality::semantic_equal;
-    pub use k3rs_common::resources::{DaemonSet, DaemonSetStatus};
-    pub use k3rs_common::validation::apps::{
+    pub use kubernetes_rs_api_server::ssa::ResetFields;
+    pub use kubernetes_rs_common::equality::semantic_equal;
+    pub use kubernetes_rs_common::resources::{DaemonSet, DaemonSetStatus};
+    pub use kubernetes_rs_common::validation::apps::{
         validate_daemonset, validate_daemonset_status_update, validate_daemonset_update,
     };
-    pub use k3rs_common::validation::field::ErrorList;
-    pub use k3rs_storage::StorageBackend;
+    pub use kubernetes_rs_common::validation::field::ErrorList;
+    pub use kubernetes_rs_storage::StorageBackend;
     pub use std::sync::Arc;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_api_server::registry::apps::daemonset::*;
+    use kubernetes_rs_api_server::registry::apps::daemonset::*;
     use std::collections::HashMap;
 
     fn daemon_set() -> DaemonSet {

@@ -3,7 +3,7 @@
 //! autoscaling/v2 defaults of `pkg/apis/autoscaling/v2/defaults.go`.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const BASE: &str = "/apis/autoscaling/v2/namespaces/default/horizontalpodautoscalers";

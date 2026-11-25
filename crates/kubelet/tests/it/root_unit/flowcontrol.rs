@@ -1,6 +1,6 @@
 //! Ports of `flowcontrol.Backoff` semantics
 //! (`staging/src/k8s.io/client-go/util/flowcontrol/backoff_test.go`).
-use k3rs_kubelet::flowcontrol::Backoff;
+use kubernetes_rs_kubelet::flowcontrol::Backoff;
 use std::time::{Duration, Instant};
 
 const S: Duration = Duration::from_secs(1);

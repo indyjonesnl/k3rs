@@ -13,7 +13,7 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_controller_manager::controllers::typed_workqueue::*;
+    use kubernetes_rs_controller_manager::controllers::typed_workqueue::*;
     use std::sync::Arc;
 
     #[tokio::test]

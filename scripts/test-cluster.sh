@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# k3rs Cluster Testing Script
+# kubernetes-rs Cluster Testing Script
 # Tests all functionality of the cluster
 #
 
@@ -9,7 +9,7 @@ set -e
 KUBECTL="./target/release/kubectl --insecure-skip-tls-verify"
 API_SERVER="https://localhost:6443"
 
-echo "=== k3rs Cluster Test Suite ==="
+echo "=== kubernetes-rs Cluster Test Suite ==="
 echo ""
 
 # Color codes for output

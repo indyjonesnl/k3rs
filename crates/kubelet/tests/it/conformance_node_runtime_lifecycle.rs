@@ -25,16 +25,16 @@
 //! Style notes:
 //!   - This is a kubelet-internal conformance unit: there is no axum
 //!     router here. We exercise the pure helpers in
-//!     `k3rs_kubelet::lifecycle` (and `runtime`) directly, mirroring
+//!     `kubernetes_rs_kubelet::lifecycle` (and `runtime`) directly, mirroring
 //!     the prior-art `runtime_prestop_exit_test.rs`.
 //!   - Tests are synchronous (`#[test]`) because every helper is pure.
 
-use k3rs_common::resources::{
+use kubernetes_rs_common::resources::{
     Container, ContainerState, ContainerStateTerminated, ContainerStatus, ExecAction, Lifecycle,
     LifecycleHandler, Pod, PodSpec, SleepAction,
 };
-use k3rs_common::types::{ObjectMeta, TypeMeta};
-use k3rs_kubelet::lifecycle;
+use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_kubelet::lifecycle;
 
 // ---------------------------------------------------------------------------
 // Test fixtures

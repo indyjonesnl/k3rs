@@ -3,8 +3,8 @@
 //! (`pkg/server/options/audit.go`, `plugin/pkg/audit/log/backend.go`).
 
 use async_trait::async_trait;
-use k3rs_api_server::audit_webhook::*;
-use k3rs_common::audit::{AuditBackend, AuditEvent, AuditLevel, AuditStage, UserInfo};
+use kubernetes_rs_api_server::audit_webhook::*;
+use kubernetes_rs_common::audit::{AuditBackend, AuditEvent, AuditLevel, AuditStage, UserInfo};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

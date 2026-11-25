@@ -25,12 +25,12 @@
 //! (lines 415-451 — JSON projection already worked) plus the new proto
 //! envelope path. Run with:
 //!
-//!   cargo test -p k3rs-api-server --test conformance_partialmetadata_proto_test
+//!   cargo test -p kubernetes-rs-api-server --test conformance_partialmetadata_proto_test
 
 use axum::http::StatusCode;
-use k3rs_api_server::protobuf::ProtoRegistry;
-use k3rs_storage::{build_key, memory::MemoryStorage, Storage};
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_api_server::protobuf::ProtoRegistry;
+use kubernetes_rs_storage::{build_key, memory::MemoryStorage, Storage};
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 

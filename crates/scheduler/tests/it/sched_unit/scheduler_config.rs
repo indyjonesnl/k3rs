@@ -2,18 +2,18 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::go_duration::format_go_duration;
-    pub use k3rs_common::label_selector::{LabelOperator, LabelRequirement};
-    pub use k3rs_common::quota::is_extended_resource_name;
-    pub use k3rs_common::resources::pod::{
+    pub use kubernetes_rs_common::go_duration::format_go_duration;
+    pub use kubernetes_rs_common::label_selector::{LabelOperator, LabelRequirement};
+    pub use kubernetes_rs_common::quota::is_extended_resource_name;
+    pub use kubernetes_rs_common::resources::pod::{
         NodeAffinity, NodeSelectorRequirement, NodeSelectorTerm, TopologySpreadConstraint,
     };
-    pub use k3rs_common::validation::field::{self, BadValue, ErrorList, Path};
-    pub use k3rs_common::validation::metav1::{is_qualified_name, validate_label_name};
-    pub use k3rs_scheduler::framework_runtime::{
+    pub use kubernetes_rs_common::validation::field::{self, BadValue, ErrorList, Path};
+    pub use kubernetes_rs_common::validation::metav1::{is_qualified_name, validate_label_name};
+    pub use kubernetes_rs_scheduler::framework_runtime::{
         default_plugins, merge_plugins, PluginSet, Plugins,
     };
-    pub use k3rs_scheduler::volume_binding::{
+    pub use kubernetes_rs_scheduler::volume_binding::{
         FunctionShapePoint, MAX_CUSTOM_PRIORITY_SCORE, MAX_NODE_SCORE,
     };
     pub use serde::{Deserialize, Serialize};
@@ -21,8 +21,8 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::validation::field::ErrorType;
-    use k3rs_scheduler::scheduler_config::*;
+    use kubernetes_rs_common::validation::field::ErrorType;
+    use kubernetes_rs_scheduler::scheduler_config::*;
 
     fn pt(utilization: i32, score: i32) -> UtilizationShapePoint {
         UtilizationShapePoint { utilization, score }
@@ -212,7 +212,7 @@ profiles:
             .iter()
             .map(|p| (p.utilization, p.score))
             .collect();
-        let want: Vec<_> = k3rs_scheduler::volume_binding::default_shape()
+        let want: Vec<_> = kubernetes_rs_scheduler::volume_binding::default_shape()
             .iter()
             .map(|p| (p.utilization, p.score))
             .collect();
@@ -1154,7 +1154,7 @@ profiles:
         #[test]
         #[serial_test::serial]
         fn wired_into_validate_profiles() {
-            k3rs_common::feature_gates::reset_to_defaults();
+            kubernetes_rs_common::feature_gates::reset_to_defaults();
             let bad = "profiles:\n- pluginConfig:\n  - name: DynamicResources\n    args:\n      filterTimeout: -1s\n";
             let err = volume_binding_args_from_config(bad, false).unwrap_err();
             assert!(

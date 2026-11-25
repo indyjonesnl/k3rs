@@ -60,10 +60,10 @@ Subcommands:
 
 Options:
   --state PATH              JSON state file path.
-                            Default: .k3rs/volumes/conformance-coordinator-state.json
+                            Default: .kubernetes-rs/volumes/conformance-coordinator-state.json
   --per-test-dir DIR        Directory of per-test .txt files (output of
                             conformance-split-junit.sh).
-                            Default: .k3rs/volumes/conformance-per-test
+                            Default: .kubernetes-rs/volumes/conformance-per-test
   -h, --help                Show this help.
 
 State schema:
@@ -109,8 +109,8 @@ fi
 SUBCOMMAND="$1"; shift
 
 # Defaults derived after flag parsing so explicit flags win.
-: "${STATE:=.k3rs/volumes/conformance-coordinator-state.json}"
-: "${PERTEST:=.k3rs/volumes/conformance-per-test}"
+: "${STATE:=.kubernetes-rs/volumes/conformance-coordinator-state.json}"
+: "${PERTEST:=.kubernetes-rs/volumes/conformance-per-test}"
 
 command -v jq >/dev/null 2>&1 || {
     echo "error: jq is required (sudo apt-get install jq)" >&2

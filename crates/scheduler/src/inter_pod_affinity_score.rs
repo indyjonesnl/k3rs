@@ -19,9 +19,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use k3rs_common::resources::pod::{PodAffinityTerm, WeightedPodAffinityTerm};
-use k3rs_common::resources::{Namespace, Node, Pod};
-use k3rs_common::types::{label_selector_as_selector, Phase, Selector};
+use kubernetes_rs_common::resources::pod::{PodAffinityTerm, WeightedPodAffinityTerm};
+use kubernetes_rs_common::resources::{Namespace, Node, Pod};
+use kubernetes_rs_common::types::{label_selector_as_selector, Phase, Selector};
 
 /// `config.InterPodAffinityArgs` as the plugin consumes it (`pl.args`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

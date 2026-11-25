@@ -2,15 +2,15 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::csi::CSINode;
-    pub use k3rs_common::resources::volume::{
+    pub use kubernetes_rs_common::resources::csi::CSINode;
+    pub use kubernetes_rs_common::resources::volume::{
         NodeSelector, NodeSelectorRequirement, NodeSelectorTerm, TopologySelectorTerm,
         VolumeNodeAffinity,
     };
-    pub use k3rs_common::resources::Node;
-    pub use k3rs_common::Error;
-    pub use k3rs_csi::proto::{Topology, TopologyRequirement};
-    pub use k3rs_storage::{build_key, build_prefix, Storage};
+    pub use kubernetes_rs_common::resources::Node;
+    pub use kubernetes_rs_common::Error;
+    pub use kubernetes_rs_csi::proto::{Topology, TopologyRequirement};
+    pub use kubernetes_rs_storage::{build_key, build_prefix, Storage};
     pub use std::cmp::Ordering;
     pub use std::collections::{BTreeSet, HashMap, HashSet};
     pub use std::sync::Mutex;
@@ -18,11 +18,11 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::csi::{CSINodeDriver, CSINodeSpec};
-    use k3rs_common::resources::volume::TopologySelectorLabelRequirement;
-    use k3rs_common::types::{ObjectMeta, TypeMeta};
-    use k3rs_controller_manager::controllers::csi_topology::*;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_common::resources::csi::{CSINodeDriver, CSINodeSpec};
+    use kubernetes_rs_common::resources::volume::TopologySelectorLabelRequirement;
+    use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+    use kubernetes_rs_controller_manager::controllers::csi_topology::*;
+    use kubernetes_rs_storage::memory::MemoryStorage;
 
     const DRIVER: &str = "com.example.csi/driver";
     const ZONE: &str = "com.example.csi/zone";

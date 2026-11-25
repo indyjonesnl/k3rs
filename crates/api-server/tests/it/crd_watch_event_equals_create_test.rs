@@ -7,7 +7,7 @@
 //! be semantically identical to what the create call returned.
 
 use axum::http::StatusCode;
-use k3rs_test_support::harness::TestApiServer;
+use kubernetes_rs_test_support::harness::TestApiServer;
 use serde_json::{json, Value};
 
 const BASE: &str = "/apis/mygroup.example.com/v1beta1/noxus";

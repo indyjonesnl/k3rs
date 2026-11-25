@@ -6,15 +6,15 @@
 
 use std::sync::Arc;
 
-use k3rs_common::resources::ResourceClaimTemplate;
-use k3rs_common::validation::field::{ErrorList, Path};
-use k3rs_common::validation::objectmeta::{
+use kubernetes_rs_common::resources::ResourceClaimTemplate;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
+use kubernetes_rs_common::validation::objectmeta::{
     name_is_dns_subdomain, validate_object_meta, validate_object_meta_update,
 };
-use k3rs_common::validation::resourceclaim::{
+use kubernetes_rs_common::validation::resourceclaim::{
     validate_resource_claim_template, validate_resource_claim_template_update,
 };
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_storage::StorageBackend;
 
 use super::admin::authorized_for_admin;
 use super::spec::drop_disabled_fields;

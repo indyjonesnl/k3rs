@@ -11,10 +11,10 @@
 //!   `node(s) didn't match scheduler-enforced node affinity`) and `Score`
 //!   :264-296 (`addedPrefSchedTerms`).
 
-use k3rs_common::resources::{Node, Pod};
-use k3rs_scheduler::scheduler::Scheduler;
-use k3rs_scheduler::scheduler_config::profiles_from_config;
-use k3rs_storage::{memory::MemoryStorage, Storage};
+use kubernetes_rs_common::resources::{Node, Pod};
+use kubernetes_rs_scheduler::scheduler::Scheduler;
+use kubernetes_rs_scheduler::scheduler_config::profiles_from_config;
+use kubernetes_rs_storage::{memory::MemoryStorage, Storage};
 use serde_json::json;
 use std::sync::Arc;
 

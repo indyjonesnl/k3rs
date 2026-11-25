@@ -2,13 +2,13 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::quantity::parse_resource_value;
-    pub use k3rs_common::resources::Pod;
+    pub use kubernetes_rs_common::quantity::parse_resource_value;
+    pub use kubernetes_rs_common::resources::Pod;
     pub use tracing::{info, warn};
 }
 
 mod tests {
-    use k3rs_kubelet::runtime::parse_quantity_bytes;
+    use kubernetes_rs_kubelet::runtime::parse_quantity_bytes;
 
     #[test]
     fn parse_quantity_bytes_handles_binary_and_decimal_suffixes() {
@@ -43,11 +43,11 @@ mod tests {
         assert_eq!(parse_quantity_bytes("-1Gi"), None);
         assert_eq!(parse_quantity_bytes("-1"), None);
     }
-    use k3rs_common::resources::{
+    use kubernetes_rs_common::resources::{
         Container, ContainerState, ContainerStateRunning, ContainerStateTerminated,
         ContainerStateWaiting, ContainerStatus, Pod, PodSpec,
     };
-    use k3rs_common::types::{ObjectMeta, TypeMeta};
+    use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
 
     fn make_container(name: &str) -> Container {
         Container {
@@ -143,7 +143,7 @@ mod tests {
     /// Delegates to the canonical kubelet helper; returns an empty string for
     /// hostNetwork pods (these tests don't exercise that branch).
     fn build_hosts_content(pod: &Pod, pod_ip: Option<&str>, cluster_domain: &str) -> String {
-        k3rs_kubelet::kubelet::build_managed_hosts_content(pod, pod_ip, cluster_domain)
+        kubernetes_rs_kubelet::kubelet::build_managed_hosts_content(pod, pod_ip, cluster_domain)
             .unwrap_or_default()
     }
 
@@ -237,16 +237,16 @@ mod tests {
 
     #[test]
     fn test_hosts_file_path_format() {
-        let volumes_base = "/var/lib/k3rs/volumes";
+        let volumes_base = "/var/lib/kubernetes-rs/volumes";
         let pod_name = "my-pod";
         let expected = format!("{}/{}/hosts", volumes_base, pod_name);
-        assert_eq!(expected, "/var/lib/k3rs/volumes/my-pod/hosts");
+        assert_eq!(expected, "/var/lib/kubernetes-rs/volumes/my-pod/hosts");
     }
 
     #[test]
     fn test_resolv_conf_and_hosts_colocated() {
         // Both files should live in the same pod directory
-        let volumes_base = "/var/lib/k3rs/volumes";
+        let volumes_base = "/var/lib/kubernetes-rs/volumes";
         let pod_name = "my-pod";
         let hosts_path = format!("{}/{}/hosts", volumes_base, pod_name);
         let resolv_path = format!("{}/{}/resolv.conf", volumes_base, pod_name);
@@ -313,7 +313,7 @@ mod tests {
     #[cfg(unix)]
     fn unique_tmp_dir(tag: &str) -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!(
-            "k3rs-emptydir-test-{}-{}-{}",
+            "kubernetes-rs-emptydir-test-{}-{}-{}",
             tag,
             std::process::id(),
             std::time::SystemTime::now()
@@ -336,7 +336,7 @@ mod tests {
     fn test_setup_emptydir_dir_sets_mode_0777_on_new_dir() {
         let tmp = unique_tmp_dir("new");
 
-        k3rs_kubelet::runtime::setup_emptydir_dir(tmp.to_str().unwrap())
+        kubernetes_rs_kubelet::runtime::setup_emptydir_dir(tmp.to_str().unwrap())
             .expect("setup_emptydir_dir");
 
         let mode = mode_of(&tmp);
@@ -361,7 +361,7 @@ mod tests {
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(mode_of(&tmp), 0o700, "pre-condition: mode 0o700");
 
-        k3rs_kubelet::runtime::setup_emptydir_dir(tmp.to_str().unwrap())
+        kubernetes_rs_kubelet::runtime::setup_emptydir_dir(tmp.to_str().unwrap())
             .expect("setup_emptydir_dir");
 
         let after = mode_of(&tmp);
@@ -382,7 +382,7 @@ mod tests {
         let root = unique_tmp_dir("nested");
         let target = root.join("pod-x").join("vol-y");
 
-        k3rs_kubelet::runtime::setup_emptydir_dir(target.to_str().unwrap())
+        kubernetes_rs_kubelet::runtime::setup_emptydir_dir(target.to_str().unwrap())
             .expect("setup_emptydir_dir");
 
         assert!(target.exists(), "nested target dir must exist");
@@ -404,7 +404,7 @@ mod tests {
     fn test_setup_emptydir_dir_linux_full_bit_pattern() {
         let tmp = unique_tmp_dir("linux");
 
-        k3rs_kubelet::runtime::setup_emptydir_dir(tmp.to_str().unwrap())
+        kubernetes_rs_kubelet::runtime::setup_emptydir_dir(tmp.to_str().unwrap())
             .expect("setup_emptydir_dir");
 
         let mode = mode_of(&tmp);
@@ -617,7 +617,7 @@ mod tests {
         let pod_name = "my-pod";
         let use_cni = false;
         let network_mode = if use_cni {
-            "k3rs-network".to_string()
+            "kubernetes-rs-network".to_string()
         } else {
             format!("container:{}_pause", pod_name)
         };
@@ -629,20 +629,20 @@ mod tests {
         // In CNI mode, containers join the named Docker network directly.
         let pod_name = "my-pod";
         let use_cni = true;
-        let bridge_network = "k3rs-network";
+        let bridge_network = "kubernetes-rs-network";
         let network_mode = if use_cni {
             bridge_network.to_string()
         } else {
             format!("container:{}_pause", pod_name)
         };
-        assert_eq!(network_mode, "k3rs-network");
+        assert_eq!(network_mode, "kubernetes-rs-network");
     }
 
     // --- lifecycle hook tests ---
 
     #[test]
     fn test_lifecycle_handler_exec_is_recognized() {
-        use k3rs_common::resources::{ExecAction, Lifecycle, LifecycleHandler};
+        use kubernetes_rs_common::resources::{ExecAction, Lifecycle, LifecycleHandler};
 
         let lifecycle = Lifecycle {
             post_start: Some(LifecycleHandler {
@@ -669,7 +669,7 @@ mod tests {
 
     #[test]
     fn test_lifecycle_handler_http_get_is_recognized() {
-        use k3rs_common::resources::{HTTPGetAction, Lifecycle, LifecycleHandler};
+        use kubernetes_rs_common::resources::{HTTPGetAction, Lifecycle, LifecycleHandler};
 
         let lifecycle = Lifecycle {
             post_start: None,
@@ -677,7 +677,7 @@ mod tests {
                 exec: None,
                 http_get: Some(HTTPGetAction {
                     path: Some("/shutdown".to_string()),
-                    port: k3rs_common::resources::IntOrString::Int(8080),
+                    port: kubernetes_rs_common::resources::IntOrString::Int(8080),
                     host: Some("localhost".to_string()),
                     scheme: Some("HTTP".to_string()),
                     http_headers: None,
@@ -692,13 +692,16 @@ mod tests {
         let handler = lifecycle.pre_stop.unwrap();
         assert!(handler.http_get.is_some());
         let http = handler.http_get.unwrap();
-        assert_eq!(http.port, k3rs_common::resources::IntOrString::Int(8080));
+        assert_eq!(
+            http.port,
+            kubernetes_rs_common::resources::IntOrString::Int(8080)
+        );
         assert_eq!(http.path.as_deref(), Some("/shutdown"));
     }
 
     #[test]
     fn test_lifecycle_handler_sleep_is_recognized() {
-        use k3rs_common::resources::{Lifecycle, LifecycleHandler, SleepAction};
+        use kubernetes_rs_common::resources::{Lifecycle, LifecycleHandler, SleepAction};
 
         let lifecycle = Lifecycle {
             post_start: None,
@@ -719,7 +722,7 @@ mod tests {
 
     #[test]
     fn test_container_lifecycle_field_present() {
-        use k3rs_common::resources::{ExecAction, Lifecycle, LifecycleHandler};
+        use kubernetes_rs_common::resources::{ExecAction, Lifecycle, LifecycleHandler};
 
         let mut container = make_container("app");
         assert!(container.lifecycle.is_none());
@@ -760,7 +763,7 @@ mod tests {
 
     #[test]
     fn test_lifecycle_serializes_correctly() {
-        use k3rs_common::resources::{ExecAction, Lifecycle, LifecycleHandler};
+        use kubernetes_rs_common::resources::{ExecAction, Lifecycle, LifecycleHandler};
 
         let mut container = make_container("app");
         container.lifecycle = Some(Lifecycle {
@@ -786,7 +789,7 @@ mod tests {
 
     #[test]
     fn test_container_startup_probe_field() {
-        use k3rs_common::resources::{ExecAction, Probe};
+        use kubernetes_rs_common::resources::{ExecAction, Probe};
 
         let mut container = make_container("app");
         assert!(container.startup_probe.is_none());
@@ -865,7 +868,7 @@ mod tests {
 
     #[test]
     fn test_lifecycle_and_startup_probe_on_same_container() {
-        use k3rs_common::resources::{ExecAction, Lifecycle, LifecycleHandler, Probe};
+        use kubernetes_rs_common::resources::{ExecAction, Lifecycle, LifecycleHandler, Probe};
 
         let mut container = make_container("app");
         container.lifecycle = Some(Lifecycle {
@@ -929,7 +932,7 @@ mod tests {
 
     #[test]
     fn test_probe_threshold_defaults() {
-        use k3rs_common::resources::Probe;
+        use kubernetes_rs_common::resources::Probe;
 
         let probe = Probe {
             http_get: None,
@@ -1064,7 +1067,7 @@ mod tests {
 
     #[test]
     fn test_dns_config_nameserver_prepend() {
-        use k3rs_common::resources::pod::PodDNSConfig;
+        use kubernetes_rs_common::resources::pod::PodDNSConfig;
 
         let dns_config = PodDNSConfig {
             nameservers: Some(vec!["8.8.8.8".to_string()]),
@@ -1085,7 +1088,7 @@ mod tests {
 
     #[test]
     fn test_dns_config_search_domains() {
-        use k3rs_common::resources::pod::PodDNSConfig;
+        use kubernetes_rs_common::resources::pod::PodDNSConfig;
 
         let dns_config = PodDNSConfig {
             nameservers: None,
@@ -1106,7 +1109,7 @@ mod tests {
 
     #[test]
     fn test_dns_config_options_with_value() {
-        use k3rs_common::resources::pod::PodDNSConfigOption;
+        use kubernetes_rs_common::resources::pod::PodDNSConfigOption;
 
         let opt = PodDNSConfigOption {
             name: "ndots".to_string(),
@@ -1124,7 +1127,7 @@ mod tests {
 
     #[test]
     fn test_dns_config_options_without_value() {
-        use k3rs_common::resources::pod::PodDNSConfigOption;
+        use kubernetes_rs_common::resources::pod::PodDNSConfigOption;
 
         let opt = PodDNSConfigOption {
             name: "single-request-reopen".to_string(),
@@ -1216,7 +1219,7 @@ mod tests {
 
     // --- Sysctl tests ---
 
-    use k3rs_common::resources::pod::{PodSecurityContext, Sysctl};
+    use kubernetes_rs_common::resources::pod::{PodSecurityContext, Sysctl};
     use std::collections::HashMap;
 
     /// Helper: build a pod with optional sysctls in its security context
@@ -1538,11 +1541,11 @@ mod tests {
     fn test_http_probe_url_scheme_lowercased() {
         // Kubernetes sends scheme as uppercase ("HTTP", "HTTPS").
         // The probe URL must use lowercase scheme for correct reqwest handling.
-        use k3rs_common::resources::HTTPGetAction;
+        use kubernetes_rs_common::resources::HTTPGetAction;
 
         let http_get = HTTPGetAction {
             path: Some("/readyz".to_string()),
-            port: k3rs_common::resources::IntOrString::Int(443),
+            port: kubernetes_rs_common::resources::IntOrString::Int(443),
             host: None,
             scheme: Some("HTTPS".to_string()),
             http_headers: None,
@@ -1558,11 +1561,11 @@ mod tests {
 
     #[test]
     fn test_http_probe_url_scheme_default_is_http() {
-        use k3rs_common::resources::HTTPGetAction;
+        use kubernetes_rs_common::resources::HTTPGetAction;
 
         let http_get = HTTPGetAction {
             path: Some("/healthz".to_string()),
-            port: k3rs_common::resources::IntOrString::Int(8080),
+            port: kubernetes_rs_common::resources::IntOrString::Int(8080),
             host: None,
             scheme: None,
             http_headers: None,
@@ -1578,11 +1581,11 @@ mod tests {
 
     #[test]
     fn test_http_probe_url_with_uppercase_http_scheme() {
-        use k3rs_common::resources::HTTPGetAction;
+        use kubernetes_rs_common::resources::HTTPGetAction;
 
         let http_get = HTTPGetAction {
             path: None,
-            port: k3rs_common::resources::IntOrString::Int(80),
+            port: kubernetes_rs_common::resources::IntOrString::Int(80),
             host: Some("my-service".to_string()),
             scheme: Some("HTTP".to_string()),
             http_headers: None,
@@ -1598,11 +1601,11 @@ mod tests {
 
     #[test]
     fn test_http_probe_custom_headers_parsed() {
-        use k3rs_common::resources::{HTTPGetAction, HTTPHeader};
+        use kubernetes_rs_common::resources::{HTTPGetAction, HTTPHeader};
 
         let http_get = HTTPGetAction {
             path: Some("/readyz".to_string()),
-            port: k3rs_common::resources::IntOrString::Int(443),
+            port: kubernetes_rs_common::resources::IntOrString::Int(443),
             host: None,
             scheme: Some("HTTPS".to_string()),
             http_headers: Some(vec![
@@ -1662,7 +1665,7 @@ mod tests {
         data.insert("data-3".to_string(), "value-3".to_string());
 
         // Items: only mount data-2 at path/to/data-2
-        let items = vec![k3rs_common::resources::KeyToPath {
+        let items = vec![kubernetes_rs_common::resources::KeyToPath {
             key: "data-2".to_string(),
             path: "path/to/data-2".to_string(),
             mode: None,
@@ -1704,7 +1707,7 @@ mod tests {
         data.insert("data-2".to_string(), b"value-2".to_vec());
 
         // Items: only mount data-1 at new-path-data-1
-        let items = vec![k3rs_common::resources::KeyToPath {
+        let items = vec![kubernetes_rs_common::resources::KeyToPath {
             key: "data-1".to_string(),
             path: "new-path-data-1".to_string(),
             mode: None,
@@ -1749,7 +1752,7 @@ mod tests {
         data.insert("data-2".to_string(), b"value-2".to_vec());
 
         // Items mapping
-        let items = vec![k3rs_common::resources::KeyToPath {
+        let items = vec![kubernetes_rs_common::resources::KeyToPath {
             key: "data-1".to_string(),
             path: "new-path-data-1".to_string(),
             mode: None,
@@ -1804,7 +1807,7 @@ mod tests {
         let mut data = std::collections::BTreeMap::new();
         data.insert("data-2".to_string(), "value-2".to_string());
 
-        let items = vec![k3rs_common::resources::KeyToPath {
+        let items = vec![kubernetes_rs_common::resources::KeyToPath {
             key: "data-2".to_string(),
             path: "path/to/data-2".to_string(),
             mode: None,
@@ -1832,10 +1835,10 @@ mod tests {
     /// Test that Docker volume sentinel path is correctly detected.
     #[test]
     fn test_docker_volume_sentinel_path_detection() {
-        let sentinel = "docker-vol::k3rs-emptydir-test-pod-vol1";
+        let sentinel = "docker-vol::kubernetes-rs-emptydir-test-pod-vol1";
         assert!(sentinel.starts_with("docker-vol::"));
         let vol_name = sentinel.strip_prefix("docker-vol::").unwrap();
-        assert_eq!(vol_name, "k3rs-emptydir-test-pod-vol1");
+        assert_eq!(vol_name, "kubernetes-rs-emptydir-test-pod-vol1");
 
         // Non-sentinel paths should not match
         let regular = "/volumes/test-pod/vol1";
@@ -1847,11 +1850,11 @@ mod tests {
     fn test_emptydir_docker_volume_name_format() {
         let pod_name = "test-pod";
         let volume_name = "cache-vol";
-        let docker_vol_name = format!("k3rs-emptydir-{}-{}", pod_name, volume_name);
-        assert_eq!(docker_vol_name, "k3rs-emptydir-test-pod-cache-vol");
+        let docker_vol_name = format!("kubernetes-rs-emptydir-{}-{}", pod_name, volume_name);
+        assert_eq!(docker_vol_name, "kubernetes-rs-emptydir-test-pod-cache-vol");
 
         // Cleanup prefix detection
-        let prefix = format!("k3rs-emptydir-{}-", pod_name);
+        let prefix = format!("kubernetes-rs-emptydir-{}-", pod_name);
         assert!(docker_vol_name.starts_with(&prefix));
     }
 
@@ -2043,9 +2046,9 @@ mod tests {
     /// due to init container failure, and return the resulting PodStatus.
     fn simulate_init_container_failure(
         restart_policy: &str,
-    ) -> k3rs_common::resources::pod::PodStatus {
-        use k3rs_common::resources::pod::PodStatus;
-        use k3rs_common::types::Phase;
+    ) -> kubernetes_rs_common::resources::pod::PodStatus {
+        use kubernetes_rs_common::resources::pod::PodStatus;
+        use kubernetes_rs_common::types::Phase;
 
         // Build a pod with an init container that will "fail" (exit code 1)
         // and an app container that should NOT be started.
@@ -2209,7 +2212,7 @@ mod tests {
 
     #[test]
     fn test_init_container_failure_restart_never_pod_phase_is_failed() {
-        use k3rs_common::types::Phase;
+        use kubernetes_rs_common::types::Phase;
 
         let status = simulate_init_container_failure("Never");
 
@@ -2288,7 +2291,7 @@ mod tests {
 
     #[test]
     fn test_init_container_failure_restart_always_pod_stays_pending() {
-        use k3rs_common::types::Phase;
+        use kubernetes_rs_common::types::Phase;
 
         let status = simulate_init_container_failure("Always");
 
@@ -2331,7 +2334,7 @@ mod tests {
 
     #[test]
     fn test_hosts_file_contains_host_aliases() {
-        use k3rs_common::resources::pod::HostAlias;
+        use kubernetes_rs_common::resources::pod::HostAlias;
 
         let mut pod = make_pod("alias-pod", "default", None, None);
         pod.spec.as_mut().unwrap().host_aliases = Some(vec![
@@ -2369,7 +2372,7 @@ mod tests {
 
     #[test]
     fn test_hosts_file_empty_host_aliases_ignored() {
-        use k3rs_common::resources::pod::HostAlias;
+        use kubernetes_rs_common::resources::pod::HostAlias;
 
         let mut pod = make_pod("empty-alias", "default", None, None);
         pod.spec.as_mut().unwrap().host_aliases = Some(vec![
@@ -2589,7 +2592,7 @@ mod tests {
 
     #[test]
     fn test_has_emptydir_mount_detection() {
-        use k3rs_common::resources::pod::VolumeMount;
+        use kubernetes_rs_common::resources::pod::VolumeMount;
         use std::collections::HashSet;
 
         let mut empty_dir_volumes: HashSet<String> = HashSet::new();
@@ -2798,7 +2801,7 @@ mod tests {
 
     #[test]
     fn test_new_ephemeral_containers_detected() {
-        use k3rs_common::resources::EphemeralContainer;
+        use kubernetes_rs_common::resources::EphemeralContainer;
 
         // Simulate detecting new ephemeral containers that don't exist yet.
         // The kubelet iterates over spec.ephemeralContainers and checks
@@ -2874,7 +2877,7 @@ mod tests {
 
     #[test]
     fn test_ephemeral_container_to_container_conversion() {
-        use k3rs_common::resources::EphemeralContainer;
+        use kubernetes_rs_common::resources::EphemeralContainer;
 
         // Verify the conversion from EphemeralContainer to Container
         // preserves the correct fields and nullifies probe/lifecycle fields.
@@ -3128,7 +3131,7 @@ mod tests {
     fn test_pod_stays_pending_during_init_failure() {
         // K8s conformance expects: pod phase remains Pending while init containers fail.
         // See: init_container.go:444 — gomega.Expect(endPod.Status.Phase).To(Equal(v1.PodPending))
-        use k3rs_common::types::Phase;
+        use kubernetes_rs_common::types::Phase;
         let pod = Pod {
             type_meta: TypeMeta {
                 kind: "Pod".to_string(),
@@ -3141,7 +3144,7 @@ mod tests {
                 restart_policy: Some("Always".to_string()),
                 ..Default::default()
             }),
-            status: Some(k3rs_common::resources::PodStatus {
+            status: Some(kubernetes_rs_common::resources::PodStatus {
                 phase: Some(Phase::Pending),
                 reason: Some("PodInitializing".to_string()),
                 ..Default::default()
@@ -3369,7 +3372,7 @@ mod tests {
     /// the kubelet needs to support during graceful termination.
     #[test]
     fn test_prestop_lifecycle_handler_variants() {
-        use k3rs_common::resources::{
+        use kubernetes_rs_common::resources::{
             ExecAction, HTTPGetAction, Lifecycle, LifecycleHandler, SleepAction, TCPSocketAction,
         };
 
@@ -3393,7 +3396,7 @@ mod tests {
                 host: None,
                 http_headers: None,
                 path: Some("/shutdown".to_string()),
-                port: k3rs_common::resources::IntOrString::Int(8080),
+                port: kubernetes_rs_common::resources::IntOrString::Int(8080),
                 scheme: None,
             }),
             tcp_socket: None,
@@ -3406,7 +3409,7 @@ mod tests {
             http_get: None,
             tcp_socket: Some(TCPSocketAction {
                 host: None,
-                port: k3rs_common::resources::IntOrString::Int(9000),
+                port: kubernetes_rs_common::resources::IntOrString::Int(9000),
             }),
             sleep: None,
         };
@@ -3455,8 +3458,8 @@ mod tests {
 
     mod group_add {
         use super::*;
-        use k3rs_common::resources::pod::PodSecurityContext;
-        use k3rs_kubelet::runtime::compute_group_add;
+        use kubernetes_rs_common::resources::pod::PodSecurityContext;
+        use kubernetes_rs_kubelet::runtime::compute_group_add;
 
         fn pod_with_security_context(sc: PodSecurityContext) -> Pod {
             let mut pod = make_pod("p", "default", None, None);
@@ -3534,7 +3537,7 @@ mod tests {
     }
 
     mod downward_api_quantities {
-        use k3rs_kubelet::runtime::{parse_cpu_quantity, parse_memory_quantity};
+        use kubernetes_rs_kubelet::runtime::{parse_cpu_quantity, parse_memory_quantity};
 
         /// Every input the old `trim_end_matches` + `parse::<i64>()` chain
         /// handled correctly still parses the same way.

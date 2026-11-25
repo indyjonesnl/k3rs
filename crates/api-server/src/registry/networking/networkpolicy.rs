@@ -4,14 +4,14 @@ use crate::registry::rest::{
     GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy, RestDeleteStrategy,
     RestUpdateStrategy,
 };
-use k3rs_common::resources::IPBlock;
-use k3rs_common::resources::NetworkPolicy;
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::networkpolicy::{
+use kubernetes_rs_common::resources::IPBlock;
+use kubernetes_rs_common::resources::NetworkPolicy;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::networkpolicy::{
     validate_network_policy, validate_network_policy_update,
 };
-use k3rs_common::validation::{field::Path, ipaddress::get_warnings_for_cidr};
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::validation::{field::Path, ipaddress::get_warnings_for_cidr};
+use kubernetes_rs_storage::StorageBackend;
 use std::sync::Arc;
 /// SetDefaults_NetworkPolicy (pkg/apis/networking/v1/defaults.go:38-45).
 /// SetDefaults_NetworkPolicyPort (:30-35) defaults nil protocol pointers only.

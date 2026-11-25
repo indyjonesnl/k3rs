@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::resources::pod::Pod;
-    pub use k3rs_common::types::Phase;
+    pub use kubernetes_rs_common::resources::pod::Pod;
+    pub use kubernetes_rs_common::types::Phase;
 }
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::pod::{Container, ContainerPort, PodSpec, PodStatus};
-    use k3rs_kubelet::host_port::*;
+    use kubernetes_rs_common::resources::pod::{Container, ContainerPort, PodSpec, PodStatus};
+    use kubernetes_rs_kubelet::host_port::*;
 
     fn port(host_port: Option<u16>, protocol: &str, host_ip: Option<&str>) -> ContainerPort {
         ContainerPort {

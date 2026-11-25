@@ -2,18 +2,18 @@
 #![allow(unused_imports, dead_code)]
 
 mod __parent {
-    pub use k3rs_common::feature_gates::{enabled, Feature};
-    pub use k3rs_common::resources::pod::{Container, EnvVar, Lifecycle};
-    pub use k3rs_common::resources::{ContainerStatus, Pod, PodSpec, PodStatus};
+    pub use kubernetes_rs_common::feature_gates::{enabled, Feature};
+    pub use kubernetes_rs_common::resources::pod::{Container, EnvVar, Lifecycle};
+    pub use kubernetes_rs_common::resources::{ContainerStatus, Pod, PodSpec, PodStatus};
 }
 
 mod tests {
     //! `TestDropFileKeyRefInUse` and `TestPodFileKeyRefInUse`
     //! (pkg/api/pod/util_test.go:5400-5920).
     use super::__parent::*;
-    use k3rs_common::feature_gates::with_feature;
-    use k3rs_common::pod_drop_disabled::*;
-    use k3rs_common::resources::pod::{EnvVarSource, EphemeralContainer, FileKeySelector};
+    use kubernetes_rs_common::feature_gates::with_feature;
+    use kubernetes_rs_common::pod_drop_disabled::*;
+    use kubernetes_rs_common::resources::pod::{EnvVarSource, EphemeralContainer, FileKeySelector};
 
     fn file_env(name: &str) -> EnvVar {
         EnvVar {

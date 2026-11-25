@@ -3,13 +3,13 @@
 
 mod __parent {
     pub use anyhow::Result;
-    pub use k3rs_common::resources::{
+    pub use kubernetes_rs_common::resources::{
         AllocationResult, DeviceAllocationResult, DeviceClass, DeviceRequestAllocationResult,
         DeviceToleration, ResourceClaim, ResourceClaimStatus, ResourceSlice,
     };
-    pub use k3rs_controller_manager::controllers::device_taint_eviction::tolerates_taint;
-    pub use k3rs_controller_manager::controllers::worker_pool::spawn_workers;
-    pub use k3rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
+    pub use kubernetes_rs_controller_manager::controllers::device_taint_eviction::tolerates_taint;
+    pub use kubernetes_rs_controller_manager::controllers::worker_pool::spawn_workers;
+    pub use kubernetes_rs_storage::{build_key, build_prefix, extract_key, Storage, WorkQueue};
     pub use std::sync::Arc;
     pub use std::time::Duration;
     pub use tokio::time;
@@ -18,9 +18,9 @@ mod __parent {
 
 mod tests {
     use super::__parent::*;
-    use k3rs_common::resources::{DeviceClaim, DeviceClassSpec, ResourceClaimSpec};
-    use k3rs_controller_manager::controllers::resourceclaim::*;
-    use k3rs_storage::memory::MemoryStorage;
+    use kubernetes_rs_common::resources::{DeviceClaim, DeviceClassSpec, ResourceClaimSpec};
+    use kubernetes_rs_controller_manager::controllers::resourceclaim::*;
+    use kubernetes_rs_storage::memory::MemoryStorage;
 
     #[tokio::test]
     async fn test_device_matching_no_selectors() {
@@ -30,7 +30,7 @@ mod tests {
         let device_class = DeviceClass {
             api_version: "resource.k8s.io/v1".to_string(),
             kind: "DeviceClass".to_string(),
-            metadata: k3rs_common::resources::dra::ObjectMeta {
+            metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
                 name: "test-class".to_string(),
                 ..Default::default()
             },
@@ -54,7 +54,7 @@ mod tests {
         let mut claim = ResourceClaim {
             api_version: "resource.k8s.io/v1".to_string(),
             kind: "ResourceClaim".to_string(),
-            metadata: k3rs_common::resources::dra::ObjectMeta {
+            metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
                 name: "test-claim".to_string(),
                 namespace: Some("default".to_string()),
                 ..Default::default()
@@ -89,7 +89,7 @@ mod tests {
         let device_class = DeviceClass {
             api_version: "resource.k8s.io/v1".to_string(),
             kind: "DeviceClass".to_string(),
-            metadata: k3rs_common::resources::dra::ObjectMeta {
+            metadata: kubernetes_rs_common::resources::dra::ObjectMeta {
                 name: "test-class".to_string(),
                 ..Default::default()
             },

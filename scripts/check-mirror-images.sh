@@ -43,7 +43,7 @@ done <<<"$refs"
 # binary will actually pull (the authoritative set; manifest.go alone drifts).
 if [ "${1:-}" = "--list-images" ]; then
     conf="$(grep -E '^conformance:' "$LIST" | head -1)"
-    mirror="ghcr.io/indyjonesnl/rusternetes/mirror/$conf"
+    mirror="ghcr.io/indyjonesnl/kubernetes-rs/mirror/$conf"
     img="registry.k8s.io/$conf"
     docker pull -q "$mirror" >/dev/null 2>&1 && img="$mirror"
     echo "listing images from $img"
@@ -61,7 +61,7 @@ if [ "${1:-}" = "--list-images" ]; then
         # (an image name may itself contain a slash, e.g. e2e-test-images/volume/nfs).
         mapped=0
         while IFS= read -r v; do
-            case "ghcr.io/indyjonesnl/rusternetes/mirror/$ref" in "$v"/*) mapped=1 ;; esac
+            case "ghcr.io/indyjonesnl/kubernetes-rs/mirror/$ref" in "$v"/*) mapped=1 ;; esac
         done < <(sed -nE 's/^[A-Za-z0-9]+Registry: *//p' "$REPO_LIST")
         [ "$mapped" -eq 1 ] || { echo "$REPO_LIST maps no registry covering $ref" >&2; drift=1; }
     done <<<"$actual"

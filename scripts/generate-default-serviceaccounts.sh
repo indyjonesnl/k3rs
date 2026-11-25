@@ -39,12 +39,12 @@ EOF
 
 # Main script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUTPUT_FILE="${SCRIPT_DIR}/.k3rs/default-serviceaccounts.yaml"
+OUTPUT_FILE="${SCRIPT_DIR}/.kubernetes-rs/default-serviceaccounts.yaml"
 
 print_step "Generating default ServiceAccounts..."
 
-# Create .k3rs directory if it doesn't exist
-mkdir -p "${SCRIPT_DIR}/.k3rs"
+# Create .kubernetes-rs directory if it doesn't exist
+mkdir -p "${SCRIPT_DIR}/.kubernetes-rs"
 
 # Generate the YAML file
 {
@@ -61,6 +61,6 @@ echo ""
 print_warning "It is automatically created during bootstrap and is .gitignored"
 echo ""
 echo "To apply these resources:"
-echo "  export KUBECONFIG=.k3rs/kubeconfig"
+echo "  export KUBECONFIG=.kubernetes-rs/kubeconfig"
 echo "  ./target/release/kubectl apply -f $OUTPUT_FILE"
 echo ""

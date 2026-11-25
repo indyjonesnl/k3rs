@@ -4,10 +4,12 @@ use crate::registry::rest::{
     GroupResource, NamespaceScopedStrategy, RequestContext, RestCreateStrategy, RestDeleteStrategy,
     RestUpdateStrategy,
 };
-use k3rs_common::resources::IPAddress;
-use k3rs_common::validation::field::ErrorList;
-use k3rs_common::validation::ipaddress::{validate_ip_address, validate_ip_address_update};
-use k3rs_storage::StorageBackend;
+use kubernetes_rs_common::resources::IPAddress;
+use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::ipaddress::{
+    validate_ip_address, validate_ip_address_update,
+};
+use kubernetes_rs_storage::StorageBackend;
 use std::sync::Arc;
 
 pub struct Strategy;
@@ -91,8 +93,8 @@ impl Loopback {
         }
     }
 
-    fn user() -> k3rs_common::auth::UserInfo {
-        k3rs_common::auth::UserInfo {
+    fn user() -> kubernetes_rs_common::auth::UserInfo {
+        kubernetes_rs_common::auth::UserInfo {
             username: "system:apiserver".to_string(),
             uid: String::new(),
             groups: vec!["system:masters".to_string()],
@@ -101,16 +103,16 @@ impl Loopback {
     }
 }
 
-fn gvk() -> k3rs_common::admission::GroupVersionKind {
-    k3rs_common::admission::GroupVersionKind {
+fn gvk() -> kubernetes_rs_common::admission::GroupVersionKind {
+    kubernetes_rs_common::admission::GroupVersionKind {
         group: "networking.k8s.io".to_string(),
         version: "v1".to_string(),
         kind: "IPAddress".to_string(),
     }
 }
 
-fn gvr() -> k3rs_common::admission::GroupVersionResource {
-    k3rs_common::admission::GroupVersionResource {
+fn gvr() -> kubernetes_rs_common::admission::GroupVersionResource {
+    kubernetes_rs_common::admission::GroupVersionResource {
         group: "networking.k8s.io".to_string(),
         version: "v1".to_string(),
         resource: "ipaddresses".to_string(),
@@ -119,13 +121,12 @@ fn gvr() -> k3rs_common::admission::GroupVersionResource {
 
 #[async_trait::async_trait]
 impl crate::registry::core::service::ipallocator::IpAddressClient for Loopback {
-    async fn create(&self, ip: IPAddress) -> k3rs_common::Result<()> {
+    async fn create(&self, ip: IPAddress) -> kubernetes_rs_common::Result<()> {
         use crate::endpoints::handlers::admission::{Admission, CreateValidation};
-        use k3rs_common::admission::Operation;
-        let state = self
-            .state
-            .upgrade()
-            .ok_or_else(|| k3rs_common::Error::Internal("api-server state is gone".to_string()))?;
+        use kubernetes_rs_common::admission::Operation;
+        let state = self.state.upgrade().ok_or_else(|| {
+            kubernetes_rs_common::Error::Internal("api-server state is gone".to_string())
+        })?;
         let (kind, resource, user) = (gvk(), gvr(), Self::user());
         let admission = Admission {
             state: &state,
@@ -156,12 +157,11 @@ impl crate::registry::core::service::ipallocator::IpAddressClient for Loopback {
             .map(|_| ())
     }
 
-    async fn delete(&self, name: &str) -> k3rs_common::Result<()> {
+    async fn delete(&self, name: &str) -> kubernetes_rs_common::Result<()> {
         use crate::endpoints::handlers::admission::{Admission, DeleteValidation};
-        let state = self
-            .state
-            .upgrade()
-            .ok_or_else(|| k3rs_common::Error::Internal("api-server state is gone".to_string()))?;
+        let state = self.state.upgrade().ok_or_else(|| {
+            kubernetes_rs_common::Error::Internal("api-server state is gone".to_string())
+        })?;
         let (kind, resource, user) = (gvk(), gvr(), Self::user());
         let admission = Admission {
             state: &state,
