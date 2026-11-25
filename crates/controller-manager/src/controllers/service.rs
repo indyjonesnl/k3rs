@@ -8,7 +8,6 @@
 ///
 /// The controller works in conjunction with:
 /// - EndpointsController: Manages endpoint discovery based on selectors
-/// - LoadBalancerController: Provisions external load balancers
 /// - EndpointSliceController: Maintains endpoint slices for scalability
 use anyhow::Result;
 use futures::StreamExt;

@@ -21,7 +21,6 @@ mod __parent {
         hpa_metrics_client::HttpMetricsConfig,
         ingress::IngressController,
         job::JobController,
-        loadbalancer::LoadBalancerController,
         namespace::NamespaceController,
         network_policy::NetworkPolicyController,
         node::NodeController,

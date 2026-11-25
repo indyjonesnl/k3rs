@@ -20,7 +20,6 @@ use controllers::{
     hpa_metrics_client::HttpMetricsConfig,
     ingress::IngressController,
     job::JobController,
-    loadbalancer::LoadBalancerController,
     namespace::NamespaceController,
     network_policy::NetworkPolicyController,
     node::NodeController,
@@ -292,18 +291,6 @@ where
 
     // No leader election in all-in-one mode — single instance
     // Spawn all controllers
-    let s = storage_for("LoadBalancer");
-    handles.push(tokio::spawn(async move {
-        let c = Arc::new(LoadBalancerController::new(
-            s,
-            "kubernetes-rs".to_string(),
-            interval,
-        ));
-        if let Err(e) = c.run().await {
-            error!("LoadBalancer controller error: {}", e);
-        }
-    }));
-
     let s = storage_for("Deployment");
     handles.push(tokio::spawn(async move {
         let c = Arc::new(DeploymentController::new(s, interval));

@@ -1,17 +1,9 @@
-# Upstream (Go) addon images the k3s manifests in deploy/addons/ run, mirrored
+# Upstream (Go) addon images the manifests in deploy/addons/ run, mirrored
 # from Docker Hub (docker.io) to ghcr.io/indyjonesnl/kubernetes-rs/mirror/<path>
 # by .github/workflows/mirror-images.yml (SOURCE_REGISTRY=docker.io). One
-# "<path>:<tag>" per line, <path> relative to docker.io. Tags are the ones k3s
-# pins in scripts/airgap/image-list.txt (v1.35.9+k3s1); keep them in step with
+# "<path>:<tag>" per line, <path> relative to docker.io. Keep the tags in step with
 # the manifests. scripts/bootstrap-cluster.sh import_addon_image pulls from the
 # mirror first and falls back to docker.io.
 rancher/mirrored-coredns-coredns:1.14.7
 rancher/local-path-provisioner:v0.0.37
 rancher/mirrored-library-busybox:1.37.0
-# pause image of k3s's docker/basics volume-test pod (scripts/airgap/volume-test.yaml)
-rancher/mirrored-pause:3.10.2
-rancher/mirrored-metrics-server:v0.9.0
-# helm-controller, its helm job image and traefik (deploy/addons/helm-controller/, deploy/addons/traefik.yaml)
-rancher/helm-controller:v0.17.9
-rancher/klipper-helm:v0.13.3-build20260727
-rancher/mirrored-library-traefik:3.7.13

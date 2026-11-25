@@ -5,14 +5,11 @@
 //!
 //! Sub-bugs:
 //!   1. Service deletion must promptly remove its Endpoints (and EndpointSlices).
-//!   2. LoadBalancer Service status.loadBalancer.ingress must be populated even
-//!      when no cloud provider is configured (the e2e harness has none).
 //!   3. Endpoints for a Service+matching ready pods must be created on the
 //!      first reconcile (latency budget).
 //!   4. The api-server proxy subresource path resolver must find a pod IP via
 //!      Endpoints when EndpointSlices are not yet mirrored.
 
-use kubernetes_rs_common::resources::service::LoadBalancerIngress;
 use kubernetes_rs_common::resources::{
     Container, ContainerStatus, EndpointAddress, EndpointPort, EndpointSubset, Endpoints,
     IntOrString, Pod, PodCondition, PodSpec, PodStatus, Service, ServicePort, ServiceSpec,
@@ -20,7 +17,6 @@ use kubernetes_rs_common::resources::{
 };
 use kubernetes_rs_common::types::{ObjectMeta, Phase, TypeMeta};
 use kubernetes_rs_controller_manager::controllers::endpoints::EndpointsController;
-use kubernetes_rs_controller_manager::controllers::loadbalancer::LoadBalancerController;
 use kubernetes_rs_storage::{build_key, MemoryStorage, Storage};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -197,14 +193,6 @@ fn make_ready_pod(name: &str, namespace: &str, labels: HashMap<String, String>, 
     }
 }
 
-fn make_lb_service(name: &str, namespace: &str) -> Service {
-    let mut svc = make_service(name, namespace, HashMap::new());
-    svc.spec.service_type = Some(ServiceType::LoadBalancer);
-    svc.spec.ports[0].node_port = Some(30080);
-    svc
-}
-
-/// Sub-bug 1: e2e `service.go:3459` — Endpoints cleanup after Service deletion.
 #[tokio::test]
 async fn test_endpoints_cleaned_up_after_service_deletion() {
     let storage = Arc::new(MemoryStorage::new());
@@ -243,48 +231,6 @@ async fn test_endpoints_cleaned_up_after_service_deletion() {
         after.is_err(),
         "Endpoints {} must be deleted after its Service is deleted (e2e service.go:3459)",
         ep_key
-    );
-}
-
-/// Sub-bug 2: e2e `service.go:4291` — LoadBalancer status.loadBalancer.ingress
-/// must be populated. When no cloud provider is configured the controller
-/// still needs to mark the service so the e2e finalization step does not hang.
-#[tokio::test]
-async fn test_loadbalancer_status_populated_without_cloud_provider() {
-    let storage = Arc::new(MemoryStorage::new());
-    let controller =
-        LoadBalancerController::new(storage.clone(), "kubernetes-rs-test".to_string(), 30);
-
-    let svc = make_lb_service("lb-svc", "default");
-    let svc_key = build_key("services", Some("default"), "lb-svc");
-    storage.create(&svc_key, &svc).await.unwrap();
-
-    // Run the no-cloud-provider reconciliation. With no provider, the
-    // controller must still populate ingress with at least an empty stub
-    // so e2e LB-status checks complete.
-    controller
-        .reconcile_no_cloud_provider()
-        .await
-        .expect("reconcile_no_cloud_provider should succeed");
-
-    let after: Service = storage.get(&svc_key).await.unwrap();
-    let status = after
-        .status
-        .as_ref()
-        .expect("LoadBalancer service must have status set");
-    let lb = status
-        .load_balancer
-        .as_ref()
-        .expect("status.loadBalancer must be populated");
-    assert!(
-        !lb.ingress.is_empty(),
-        "status.loadBalancer.ingress must contain at least one entry (e2e service.go:4291)"
-    );
-    // Verify the ingress entry has some addressable value (ip or hostname)
-    let ing: &LoadBalancerIngress = &lb.ingress[0];
-    assert!(
-        ing.ip.is_some() || ing.hostname.is_some(),
-        "ingress entry must carry an ip or hostname"
     );
 }
 

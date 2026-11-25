@@ -26,7 +26,6 @@ use controllers::{
     hpa_metrics_client::HttpMetricsConfig,
     ingress::IngressController,
     job::JobController,
-    loadbalancer::LoadBalancerController,
     namespace::NamespaceController,
     network_policy::NetworkPolicyController,
     node::NodeController,
@@ -1163,21 +1162,6 @@ async fn main() -> Result<()> {
             })
         }};
     }
-
-    // Start LoadBalancer controller
-    let lb_controller = Arc::new(LoadBalancerController::new(
-        storage.clone(),
-        args.cluster_name.clone(),
-        args.sync_interval,
-    ));
-    spawn_controller!("LoadBalancer controller", leader_elector, {
-        let controller = lb_controller.clone();
-        async move {
-            if let Err(e) = controller.run().await {
-                tracing::error!("LoadBalancer controller error: {}", e);
-            }
-        }
-    });
 
     // Start deployment controller
     let deployment_controller = Arc::new(DeploymentController::new(

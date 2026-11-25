@@ -1,12 +1,12 @@
 # Performance & Footprint
 
-The "k3s without melting your laptop" thesis rests on a number nobody had
+The "light enough for small hardware" thesis rests on a number nobody had
 measured. This page is the home for those numbers and how to reproduce them.
 
 > Status: harness landed (`scripts/footprint-benchmark.sh`). Both binary-size
 > rows below are **real measurements** (release; glibc dynamic and musl static).
 > The idle RSS / CPU / time-to-cluster cells are placeholders until run on
-> reference hardware head-to-head against k3s — run the harness and replace the
+> reference hardware head-to-head against another distribution — run the harness and replace the
 > `TBD` cells.
 
 ## Why this matters

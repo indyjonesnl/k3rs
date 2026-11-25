@@ -1,6 +1,6 @@
 # kubernetes-rs
 
-> **Disclaimer:** kubernetes-rs is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by k3s, SUSE, Rancher, or the CNCF. k3s is a trademark of its respective owners; the name kubernetes-rs only describes the goal of reimplementing k3s in Rust.
+> **Disclaimer:** kubernetes-rs is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by the Kubernetes project, the Linux Foundation, or the CNCF. Kubernetes is a trademark of The Linux Foundation; the name kubernetes-rs only describes the goal of implementing Kubernetes in Rust.
 >
 > kubernetes-rs derives from [calfonso/rusternetes](https://github.com/calfonso/rusternetes) (Apache-2.0).
 
