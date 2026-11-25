@@ -1870,6 +1870,24 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Start the ResourceClaim controller (`newResourceClaimController`,
+    // cmd/kube-controller-manager/app/core.go:463-499; `requiredFeatureGates`:
+    // DynamicResourceAllocation).
+    if controllers::resourceclaim::feature_enabled() {
+        let resourceclaim = Arc::new(controllers::resourceclaim::ResourceClaimController::new(
+            storage.clone(),
+            controllers::resourceclaim::Features::from_gates(),
+        ));
+        spawn_controller!("ResourceClaim controller", leader_elector, {
+            let controller = resourceclaim.clone();
+            async move {
+                if let Err(e) = controller.run().await {
+                    tracing::error!("ResourceClaim controller error: {}", e);
+                }
+            }
+        });
+    }
+
     // Start the CSR cleaner (`newCertificateSigningRequestCleanerController`,
     // cmd/kube-controller-manager/app/certificates.go:217-230).
     let csr_cleaner = Arc::new(controllers::csr_cleaner::CsrCleanerController::new(
