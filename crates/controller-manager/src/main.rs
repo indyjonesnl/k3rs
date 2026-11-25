@@ -1818,6 +1818,24 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Start the storage version migrator (`newSVMController`,
+    // cmd/kube-controller-manager/app/storageversionmigrator.go:33-110;
+    // gated on `StorageVersionMigrator`). `SVMController` and
+    // `ResourceVersionController` run together (`concurrentRun`).
+    if controllers::storage_version_migrator::feature_enabled() {
+        let svm_storage = storage.clone();
+        spawn_controller!("Storage version migrator", leader_elector, {
+            let storage = svm_storage.clone();
+            async move {
+                if let Err(e) =
+                    controllers::storage_version_migrator::run_controllers(storage).await
+                {
+                    tracing::error!("Storage version migrator error: {}", e);
+                }
+            }
+        });
+    }
+
     // Start the CSR cleaner (`newCertificateSigningRequestCleanerController`,
     // cmd/kube-controller-manager/app/certificates.go:217-230).
     let csr_cleaner = Arc::new(controllers::csr_cleaner::CsrCleanerController::new(
