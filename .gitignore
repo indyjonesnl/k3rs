@@ -41,4 +41,3 @@ etcd-data/
 .bin/
 
 *.db*
-ci/local-runner/.env
