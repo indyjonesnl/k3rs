@@ -1,0 +1,20 @@
+[Unit]
+Description=kubernetes-rs kubelet
+After=containerd.service
+Wants=containerd.service
+ConditionPathExists=/usr/local/bin/kubelet
+[Service]
+Environment=RUST_LOG=info RUST_MIN_STACK=8388608
+Environment=CONTAINER_RUNTIME_ENDPOINT=unix:///run/containerd/containerd.sock
+Environment=KUBELET_VOLUMES_PATH=/var/lib/kubernetes-rs/volumes
+# NODE_IP is written by sync.sh to /etc/kubernetes-rs/node.env.
+EnvironmentFile=/etc/kubernetes-rs/node.env
+ExecStartPre=/bin/mkdir -p /var/lib/kubernetes-rs/volumes
+# Flags mirror compose.sqlite.yml's kubelet service (+ --node-ip: one netns per node).
+ExecStart=/usr/local/bin/kubelet --hostname-override %H --node-ip ${NODE_IP} \
+  --api-server-url https://api-server:6443 --kubeconfig /etc/kubernetes-rs/pki/kubelet.conf \
+  --cluster-dns 10.96.0.10 --metrics-port 10250 --sync-interval 3 \
+  --volume-dir /var/lib/kubernetes-rs/volumes
+Restart=always
+[Install]
+WantedBy=multi-user.target

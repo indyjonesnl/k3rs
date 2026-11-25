@@ -1,0 +1,19 @@
+[Unit]
+Description=containerd (CRI) for kubernetes-rs
+After=network.target
+
+[Service]
+ExecStartPre=-/sbin/modprobe overlay
+ExecStartPre=-/sbin/modprobe br_netfilter
+ExecStart=/usr/local/bin/containerd --config /etc/containerd/config.toml
+Delegate=yes
+KillMode=process
+Restart=always
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target
