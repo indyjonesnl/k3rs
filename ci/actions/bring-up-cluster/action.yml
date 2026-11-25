@@ -8,8 +8,7 @@ description: >
 inputs:
   compose-file:
     description: >-
-      Compose stack to bring up. Defaults to the rhino/SQLite stack; pass
-      compose.kine.yml to run the same topology against kine instead. Any
+      Compose stack to bring up. Defaults to the rhino/SQLite stack. Any
       value must expose the same service names, since later steps address
       services (kubelet, kube-proxy, kubernetes-rs) by name.
     required: false
@@ -185,8 +184,8 @@ runs:
         if [ -n "$IMAGE_TAG" ]; then
           export KUBERNETES_RS_IMAGE_TAG="$IMAGE_TAG"
           # compose.ghcr.yml pins prebuilt image refs per service and is only
-          # valid for the default stack. Callers on another stack (the kine
-          # leg) pass an empty image-tag, which skips this branch entirely and
+          # valid for the default stack. Callers on another stack
+          # pass an empty image-tag, which skips this branch entirely and
           # builds from source — which is what you want anyway when the point
           # of the run is to exercise this ref's storage code.
           # --progress quiet: the default TTY-less renderer prints one line per

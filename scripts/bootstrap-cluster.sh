@@ -303,8 +303,8 @@ import_addon_image() {
     import_image_into_containerd "$image"
 }
 
-# Every image of ci/mirror/addon-images.txt (the upstream images the k3s
-# manifests in deploy/addons/ run, plus the pause image k3s's own tests use),
+# Every image of ci/mirror/addon-images.txt (the upstream images the
+# manifests in deploy/addons/ run),
 # side-loaded under its docker.io name.
 import_addon_images() {
     local list="$PROJECT_ROOT/ci/mirror/addon-images.txt" path
@@ -320,7 +320,7 @@ import_addon_images() {
 # CLUSTER_DNS_IPFAMILYPOLICY, SYSTEM_DEFAULT_REGISTRY, DEFAULT_LOCAL_STORAGE_PATH,
 # PREFERRED_ADDRESS_TYPES = addrTypesPrioTemplate(false)).
 # Same substitution here; the empty registry leaves the docker.io/rancher/...
-# names the airgap list pins. Prints the templated manifest on stdout.
+# names the addon image list pins. Prints the templated manifest on stdout.
 template_k3s_manifest() {
     sed -e 's|%{CLUSTER_DOMAIN}%|cluster.local|g' \
         -e 's|%{SYSTEM_DEFAULT_REGISTRY}%||g' \
@@ -749,74 +749,6 @@ EOF
                 print_warning "local-path-provisioner not ready after ${MAX_WAIT} attempts (readyReplicas: ${LP_READY:-none})"
             else
                 echo "  Waiting for local-path-provisioner... ($i/$MAX_WAIT)"
-                sleep 2
-            fi
-        done
-
-        # Upstream metrics-server exactly as k3s ships it (k3s
-        # manifests/metrics-server/*.yaml: ServiceAccount, Deployment, Service,
-        # APIService v1beta1.metrics.k8s.io and the four RBAC manifests).
-        print_step "Applying metrics-server (deploy/addons/metrics-server/, from k3s manifests/metrics-server/)..."
-        for ms_manifest in "$PROJECT_ROOT"/deploy/addons/metrics-server/*.yaml; do
-            template_k3s_manifest "$ms_manifest" | $KUBECTL $KUBECTL_FLAGS apply -f -
-        done
-
-        print_step "Waiting for the metrics-server Deployment to be ready..."
-        MAX_WAIT=90
-        for i in $(seq 1 $MAX_WAIT); do
-            MS_READY=$($KUBECTL $KUBECTL_FLAGS get deployment metrics-server -n kube-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "")
-            if [ "$MS_READY" == "1" ]; then
-                print_success "metrics-server Deployment is ready!"
-                break
-            fi
-            if [ $i -eq $MAX_WAIT ]; then
-                print_warning "metrics-server not ready after ${MAX_WAIT} attempts (readyReplicas: ${MS_READY:-none})"
-                $KUBECTL $KUBECTL_FLAGS -n kube-system logs deploy/metrics-server --tail=40 2>&1 | sed 's/^/    metrics-server: /' || true
-            else
-                echo "  Waiting for metrics-server... ($i/$MAX_WAIT)"
-                sleep 2
-            fi
-        done
-
-        # Bundled traefik, run the way k3s runs it: two HelmChart CRs
-        # (deploy/addons/traefik.yaml, k3s manifests/traefik.yaml) reconciled by
-        # the upstream helm-controller, whose klipper-helm job installs the
-        # traefik-crd and traefik charts the api-server serves at
-        # /static/charts/ (KUBERNETES_RS_STATIC_DIR). The helm.cattle.io CRDs k3s
-        # registers in-process (pkg/server/context.go registerCRDs) are applied
-        # from deploy/addons/helm-controller/.
-        print_step "Applying the helm.cattle.io CRDs and helm-controller (deploy/addons/helm-controller/)..."
-        for crd in "$PROJECT_ROOT"/deploy/addons/helm-controller/helm.cattle.io_*.yaml; do
-            $KUBECTL $KUBECTL_FLAGS apply -f "$crd"
-        done
-        for crd_name in helmcharts.helm.cattle.io helmchartconfigs.helm.cattle.io; do
-            $KUBECTL $KUBECTL_FLAGS wait --for=condition=Established "crd/$crd_name" --timeout=60s \
-                || print_warning "CRD $crd_name not Established"
-        done
-        template_k3s_manifest "$PROJECT_ROOT/deploy/addons/helm-controller/helm-controller.yaml" | $KUBECTL $KUBECTL_FLAGS apply -f -
-        print_step "Applying traefik HelmCharts (deploy/addons/traefik.yaml, from k3s manifests/traefik.yaml)..."
-        template_k3s_manifest "$PROJECT_ROOT/deploy/addons/traefik.yaml" | $KUBECTL $KUBECTL_FLAGS apply -f -
-
-        print_step "Waiting for the traefik Deployment (installed by the helm-controller job)..."
-        MAX_WAIT=300
-        for i in $(seq 1 $MAX_WAIT); do
-            TR_READY=$($KUBECTL $KUBECTL_FLAGS get deployment traefik -n kube-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "")
-            if [ "$TR_READY" == "1" ]; then
-                print_success "traefik Deployment is ready!"
-                break
-            fi
-            if [ $i -eq $MAX_WAIT ]; then
-                print_warning "traefik not ready after ${MAX_WAIT} attempts (readyReplicas: ${TR_READY:-none})"
-                $KUBECTL $KUBECTL_FLAGS -n helm-controller logs deploy/helm-controller --tail=40 2>&1 | sed 's/^/    helm-controller: /' || true
-                $KUBECTL $KUBECTL_FLAGS get helmcharts,jobs,pods -A 2>&1 | sed 's/^/    state: /' || true
-                $KUBECTL $KUBECTL_FLAGS -n kube-system get job helm-install-traefik -o yaml 2>&1 | sed 's/^/    jobyaml: /' || true
-                $KUBECTL $KUBECTL_FLAGS get events -A 2>&1 | tail -40 | sed 's/^/    event: /' || true
-                $KUBECTL $KUBECTL_FLAGS -n kube-system logs kube-controller-manager-node-1 --tail=80 2>&1 | grep -i "job\|error" | tail -30 | sed 's/^/    kcm: /' || true
-                for j in $($KUBECTL $KUBECTL_FLAGS -n kube-system get jobs -o name 2>/dev/null | grep helm-install || true); do
-                    $KUBECTL $KUBECTL_FLAGS -n kube-system logs "$j" --tail=30 2>&1 | sed "s|^|    $j: |" || true
-                done
-            else
-                echo "  Waiting for traefik... ($i/$MAX_WAIT)"
                 sleep 2
             fi
         done

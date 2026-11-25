@@ -95,7 +95,7 @@ services:
       # — every conformance pod's log fetch died there. Read-only is enough.
       - ${KUBELET_VOLUMES_PATH}:${KUBELET_VOLUMES_PATH}:ro
     environment:
-      # Default StorageClass comes from the k3s local-path-provisioner manifest
+      # Default StorageClass comes from the local-path-provisioner manifest
       # (scripts/bootstrap-cluster.sh), not from the api-server.
       - KUBERNETES_RS_NO_DEFAULT_STORAGE_CLASS=1
       - RUST_LOG=info

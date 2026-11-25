@@ -110,7 +110,7 @@ pub async fn etcd() -> Option<Fixture<EtcdStorage>> {
 
 pub async fn kine() -> Option<Fixture<EtcdStorage>> {
     // `/db` (not `/data/db`): the image ships that directory owned by `nobody`,
-    // the uid kine runs as. See compose.kine.yml.
+    // the uid kine runs as.
     let started = GenericImage::new("rancher/kine", "v0.13.11")
         .with_exposed_port(2379.tcp())
         .with_wait_for(WaitFor::message_on_stderr("Kine available at"))

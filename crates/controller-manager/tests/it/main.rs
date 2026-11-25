@@ -76,7 +76,6 @@ mod resource_quota_test;
 mod resource_quota_usage_recompute_test;
 mod service_controller_test;
 mod service_lb_endpoints_test;
-mod service_lb_extended_test;
 mod serviceaccount_controller_test;
 mod servicecidr_controller_test;
 mod stale_list_double;

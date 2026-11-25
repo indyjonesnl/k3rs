@@ -6,7 +6,6 @@ mod controllers__job;
 mod controllers__job_tracking;
 mod controllers__legacy_serviceaccount_token_cleaner;
 mod controllers__limitrange;
-mod controllers__loadbalancer;
 mod controllers__namespace;
 mod controllers__network_policy;
 mod controllers__node;

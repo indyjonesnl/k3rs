@@ -50,8 +50,8 @@ export KUBERNETES_RS_DUMP_PAYLOADS=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 MANIFEST="${TARGETS_MANIFEST:-$REPO_ROOT/ci/conformance/targets.json}"
-# Compose stack the caller brought up. The nine sig legs use the default
-# rhino/SQLite stack; the kine leg passes compose.kine.yml. Only affects which
+# Compose stack the caller brought up. The sig legs use the default
+# rhino/SQLite stack. Only affects which
 # file `compose logs` reads component logs from.
 COMPOSE_STACK="${COMPOSE_STACK:-compose.sqlite.yml}"
 

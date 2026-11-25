@@ -141,12 +141,11 @@ pub async fn register_post_start_hooks(
         ),
     );
 
-    // Create default StorageClass (like k3s/kind ship with a default).
+    // Create default StorageClass.
     //
-    // Upstream's kube-apiserver seeds no StorageClass; k3s gets its default
-    // (`local-path`) from the bundled local-path-provisioner manifest
-    // (manifests/local-storage.yaml). The multi-container stacks apply exactly
-    // that manifest from scripts/bootstrap-cluster.sh and set
+    // Upstream's kube-apiserver seeds no StorageClass. The multi-container
+    // stacks apply the local-path-provisioner manifest from
+    // scripts/bootstrap-cluster.sh (deploy/addons/local-storage.yaml) and set
     // `KUBERNETES_RS_NO_DEFAULT_STORAGE_CLASS=1` on the api-server so two defaults never
     // coexist. This seeded `standard` class (kubernetes-rs-only, served by the in-tree
     // kubernetes-rs.io/hostpath provisioner) remains for the all-in-one binary, which

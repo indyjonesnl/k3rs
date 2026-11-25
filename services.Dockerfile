@@ -390,26 +390,6 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Bundled addon charts, served at /static/charts/ (KUBERNETES_RS_STATIC_DIR) for the
-# traefik HelmChart specs (deploy/addons/traefik.yaml, from k3s
-# manifests/traefik.yaml: `chart: https://%{KUBERNETES_API}%/static/charts/...`).
-# k3s fetches the same files in scripts/download (CHARTS_URL
-# https://k3s.io/k3s-charts/assets) and embeds them in the binary
-# (pkg/static). sha256-pinned; keep in step with the chart versions in
-# deploy/addons/traefik.yaml.
-ARG TRAEFIK_CHART=40.1.5+up40.1.0
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && mkdir -p /var/lib/kubernetes-rs/static/charts && cd /var/lib/kubernetes-rs/static/charts \
-    && for c in traefik:d4d0e818284d310372d38adfce9a1cfb3179a69fc9f3ca8bfadb33581000b778 \
-                traefik-crd:749676684b53240c9024578b8e211053d4e6881c3d54dccb66d5308a01bcb489; do \
-         n="${c%%:*}"; sum="${c##*:}"; \
-         curl -fSL --retry 5 --retry-all-errors --retry-delay 5 \
-           "https://k3s.io/k3s-charts/assets/${n}/${n}-${TRAEFIK_CHART}.tgz" -o "${n}-${TRAEFIK_CHART}.tgz" \
-         && echo "${sum}  ${n}-${TRAEFIK_CHART}.tgz" | sha256sum -c - || exit 1; \
-       done \
-    && rm -rf /var/lib/apt/lists/*
-ENV KUBERNETES_RS_STATIC_DIR=/var/lib/kubernetes-rs/static
-
 COPY --from=cargo-builder /out/api-server /app/api-server
 # Upstream's server images install the binary at /usr/local/bin/<name>
 # (build/server-image/kube-apiserver/Dockerfile); kubeadm/Talos manifests exec
@@ -472,10 +452,7 @@ COPY cni-config/10-kubernetes-rs.conflist /etc/cni/net.d/
 COPY --from=cargo-builder /out/kubelet /app/kubelet
 RUN ln -s /app/kubelet /usr/local/bin/kubelet
 
-# Upstream (Go) kubectl, like the one k3s bundles (scripts/package-cli symlinks
-# kubectl into the k3s multi-call binary; the k3s docker tests run
-# `kubectl version` inside the server container). The release-1.35 binary from
-# dl.k8s.io, sha256-verified. Pinned to the patch k3s v1.35.9+k3s1 vendors.
+# Upstream (Go) kubectl, release-1.35 binary from dl.k8s.io, sha256-verified.
 # It reaches the api-server with the kubelet's own client kubeconfig, mounted at
 # /root/.kubernetes-rs/certs (compose), via kubectl's default ~/.kube/config.
 ARG KUBECTL_VERSION=v1.35.9
