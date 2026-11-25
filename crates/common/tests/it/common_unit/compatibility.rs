@@ -441,8 +441,10 @@ mod tests {
         assert!(!cmd.is_empty() && !cmd.contains('/'), "{ua}");
         assert!(rest.starts_with("v1.35.0 (linux/"), "{ua}");
         assert!(
-            rest.ends_with("/amd64) kubernetes/kubernetes-rs-v0")
-                || rest.ends_with("/arm64) kubernetes/kubernetes-rs-v0"),
+            // adjustCommit keeps the first 7 characters of the stamped commit
+            // ("kubernetes-rs-v0.1.0" -> "kuberne").
+            rest.ends_with("/amd64) kubernetes/kuberne")
+                || rest.ends_with("/arm64) kubernetes/kuberne"),
             "{ua}"
         );
     }
