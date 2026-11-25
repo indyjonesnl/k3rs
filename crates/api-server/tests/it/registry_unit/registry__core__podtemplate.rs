@@ -20,6 +20,7 @@ mod __parent {
 mod tests {
     use super::__parent::*;
     use kubernetes_rs_api_server::registry::core::podtemplate::*;
+    use std::collections::HashMap;
 
     fn pod_template() -> PodTemplate {
         let mut pt: PodTemplate = serde_json::from_value(serde_json::json!({
@@ -72,5 +73,38 @@ mod tests {
         assert_eq!(reimaged.metadata.generation, Some(4));
         let errs = Strategy.validate_update(&ctx(), &reimaged, &old);
         assert!(errs.is_empty(), "{errs:?}");
+    }
+
+    fn with_template_node_selector(o: &mut PodTemplate) {
+        o.template.spec.node_selector = Some(HashMap::from([(
+            "beta.kubernetes.io/os".to_string(),
+            "linux".to_string(),
+        )]));
+    }
+
+    /// `GetWarningsForPodTemplate` on create, rooted at `template`.
+    #[test]
+    fn create_warns_about_the_pod_template() {
+        let mut o = pod_template();
+        assert!(Strategy
+            .warnings_on_create(&ctx(), &o)
+            .iter()
+            .all(|w| !w.contains("nodeSelector")));
+        with_template_node_selector(&mut o);
+        let warnings = Strategy.warnings_on_create(&ctx(), &o);
+        assert!(warnings.contains(&r#"template.spec.nodeSelector[beta.kubernetes.io/os]: deprecated since v1.14; use "kubernetes.io/os" instead"#.to_string()), "{warnings:?}");
+    }
+
+    /// Only a changed generation re-evaluates the template.
+    #[test]
+    fn update_warns_only_when_the_generation_changed() {
+        let old = pod_template();
+        let mut new = old.clone();
+
+        with_template_node_selector(&mut new);
+        assert!(Strategy.warnings_on_update(&ctx(), &new, &old).is_empty());
+        new.metadata.generation = Some(old.metadata.generation.unwrap() + 1);
+        let warnings = Strategy.warnings_on_update(&ctx(), &new, &old);
+        assert_eq!(warnings, vec![r#"template.spec.nodeSelector[beta.kubernetes.io/os]: deprecated since v1.14; use "kubernetes.io/os" instead"#.to_string()]);
     }
 }

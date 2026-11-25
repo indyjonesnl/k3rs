@@ -9,11 +9,12 @@
 use std::sync::Arc;
 
 use kubernetes_rs_common::equality::semantic_equal;
+use kubernetes_rs_common::pod_warnings::get_warnings_for_pod_template;
 use kubernetes_rs_common::resources::{DaemonSet, DaemonSetStatus};
 use kubernetes_rs_common::validation::apps::{
     validate_daemonset, validate_daemonset_status_update, validate_daemonset_update,
 };
-use kubernetes_rs_common::validation::field::ErrorList;
+use kubernetes_rs_common::validation::field::{ErrorList, Path};
 use kubernetes_rs_storage::StorageBackend;
 
 use crate::registry::generic::Store;
@@ -58,8 +59,15 @@ impl RestCreateStrategy<DaemonSet> for Strategy {
         validate_daemonset(obj)
     }
 
-    // `WarningsOnCreate` (strategy.go:124-127) is only
-    // `GetWarningsForPodTemplate`, which is not ported (#1996).
+    /// `WarningsOnCreate` (strategy.go:124-127): only
+    /// `GetWarningsForPodTemplate`.
+    fn warnings_on_create(&self, _ctx: &RequestContext, obj: &DaemonSet) -> Vec<String> {
+        get_warnings_for_pod_template(
+            &Path::new("spec").child("template"),
+            &obj.spec.template,
+            None,
+        )
+    }
 }
 
 impl RestUpdateStrategy<DaemonSet> for Strategy {
@@ -100,8 +108,23 @@ impl RestUpdateStrategy<DaemonSet> for Strategy {
         validate_daemonset_update(obj, old)
     }
 
-    // `WarningsOnUpdate` (strategy.go:151-159) is only
-    // `GetWarningsForPodTemplate`, which is not ported (#1996).
+    /// `WarningsOnUpdate` (strategy.go:151-159): the template warnings, only
+    /// when `spec.templateGeneration` changed.
+    fn warnings_on_update(
+        &self,
+        _ctx: &RequestContext,
+        obj: &DaemonSet,
+        old: &DaemonSet,
+    ) -> Vec<String> {
+        if obj.template_generation() == old.template_generation() {
+            return Vec::new();
+        }
+        get_warnings_for_pod_template(
+            &Path::new("spec").child("template"),
+            &obj.spec.template,
+            Some(&old.spec.template),
+        )
+    }
 
     fn allow_unconditional_update(&self) -> bool {
         true
