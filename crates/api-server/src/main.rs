@@ -659,6 +659,16 @@ async fn main() -> Result<()> {
     for msg in args.upstream.partial_flags() {
         warn!("{msg}");
     }
+    // `--kubelet-certificate-authority`: the kubelet client transport verifies
+    // serving certs against it (kubelet_client.go:114-128). Upstream builds
+    // that transport at startup and fails on an unreadable CA
+    // (`NewNodeConnectionInfoGetter` error), so load it once here.
+    if let Some(ca) = &args.upstream.kubelet_certificate_authority {
+        kubernetes_rs_streamproxy::set_kubelet_certificate_authority(ca.into())
+            .map_err(|e| anyhow::anyhow!(e))?;
+        kubernetes_rs_streamproxy::kubelet_ca_roots()
+            .map_err(|e| anyhow::anyhow!("--kubelet-certificate-authority: {e}"))?;
+    }
 
     let mut image_policy_config = None;
     if let Some(path) = &args.admission_control_config_file {
