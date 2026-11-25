@@ -640,6 +640,19 @@ where
         }));
     }
 
+    // `newSVMController` (cmd/kube-controller-manager/app/
+    // storageversionmigrator.go:33-110), registered only with the
+    // `StorageVersionMigrator` gate on. Runs `SVMController` and
+    // `ResourceVersionController` together (`concurrentRun`).
+    if controllers::storage_version_migrator::feature_enabled() {
+        let s = storage_for("StorageVersionMigrator");
+        handles.push(tokio::spawn(async move {
+            if let Err(e) = controllers::storage_version_migrator::run_controllers(s).await {
+                error!("StorageVersionMigrator controller error: {}", e);
+            }
+        }));
+    }
+
     // `newCertificateSigningRequestCleanerController`
     // (cmd/kube-controller-manager/app/certificates.go:217-230).
     let s = storage_for("CertificateSigningRequestCleaner");

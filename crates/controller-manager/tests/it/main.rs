@@ -85,6 +85,7 @@ mod statefulset_extended_test;
 mod statefulset_status_correctness_test;
 mod status_cas_adoption_test;
 mod status_subresource_guard;
+mod storage_version_migrator_launcher_test;
 mod storage_version_migrator_rv_test;
 mod storage_version_migrator_svm_test;
 mod storageclass_controller_test;
