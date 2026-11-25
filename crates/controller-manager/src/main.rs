@@ -45,6 +45,7 @@ use controllers::{
     statefulset::StatefulSetController,
     storage_class::StorageClassController,
     storageversiongc::StorageVersionGCController,
+    ttl::TtlController,
     ttl_after_finished::TTLAfterFinishedController,
     vac_protection::VacProtectionController,
     volume_data_source_validator::VolumeDataSourceValidator,
@@ -1726,6 +1727,17 @@ async fn main() -> Result<()> {
         let controller = vpa_controller.clone();
         async move {
             controller.run().await;
+        }
+    });
+
+    // Start TTL controller (newTTLController, cmd/kube-controller-manager/app/core.go:721)
+    let node_ttl_controller = Arc::new(TtlController::new(storage.clone()));
+    spawn_controller!("TTL controller", leader_elector, {
+        let controller = node_ttl_controller.clone();
+        async move {
+            if let Err(e) = controller.run().await {
+                error!("TTL controller error: {}", e);
+            }
         }
     });
 
