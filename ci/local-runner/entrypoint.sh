@@ -11,6 +11,10 @@ RUNNER_NAME="${RUNNER_NAME_PREFIX:-kubernetes-rs}-$(hostname)"
 # One container per job (docker run --rm): nothing survives. The only secret
 # present is a one-time registration token, already spent by config.sh.
 # --- private dockerd (needs --privileged or a sysbox runtime) ----------------
+# The compose stacks bind-mount the kubelet volumes path with `rshared`
+# (compose.sqlite.yml, emptyDir tmpfs propagation, #445); dockerd refuses that
+# unless the container's `/` is a shared mount. Docker hosts default to private.
+sudo mount --make-rshared /
 rm -f /var/run/docker.pid
 sudo env PATH="$PATH" /usr/bin/dockerd --host=unix:///var/run/docker.sock >/tmp/dockerd.log 2>&1 &
 for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
