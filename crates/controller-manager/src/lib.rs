@@ -180,6 +180,12 @@ pub struct ControllerManagerConfig {
     /// whose first address it reserves for `default/kubernetes`
     /// (#2446 item 3). Empty is the default range.
     pub service_cluster_ip_range: String,
+    /// `--service-account-private-key-file`
+    /// (`SAControllerConfiguration.ServiceAccountKeyFile`): the private key the
+    /// tokens controller signs legacy `kubernetes.io/service-account-token`
+    /// Secrets with (cmd/kube-controller-manager/app/service_accounts.go:45-80).
+    /// RSA or ECDSA. `None` keeps the kubernetes-rs-only `SA_SIGNING_KEY_PATH` lookup.
+    pub service_account_private_key_file: Option<std::path::PathBuf>,
 }
 
 /// Run the controller-manager against a storage backend directly (all-in-one
@@ -255,6 +261,11 @@ where
     F: Fn(&'static str) -> Arc<S>,
 {
     info!("Starting kubernetes-rs Controller Manager");
+    // `newServiceAccountTokenController` reads the key before the controller
+    // starts and fails on error (service_accounts.go:55-58).
+    if let Some(p) = &config.service_account_private_key_file {
+        controllers::serviceaccount::load_signing_key_file(p)?;
+    }
     let _handles = spawn_controllers(storage_for, config);
     info!("All controllers started successfully");
 
@@ -719,8 +730,19 @@ where
 
     let s = storage_for("ServiceAccount");
     let sa_ca = config.ca_cert_pem.clone();
+    let sa_key_file = config.service_account_private_key_file.clone();
     handles.push(tokio::spawn(async move {
-        let c = Arc::new(ServiceAccountController::new(s).with_ca_cert(sa_ca));
+        let mut c = ServiceAccountController::new(s).with_ca_cert(sa_ca);
+        if let Some(p) = sa_key_file {
+            match controllers::serviceaccount::load_signing_key_file(&p) {
+                Ok(k) => c = c.with_signing_key(k),
+                Err(e) => {
+                    error!("ServiceAccount controller: {e:#}");
+                    return;
+                }
+            }
+        }
+        let c = Arc::new(c);
         if let Err(e) = c.run().await {
             error!("ServiceAccount controller error: {}", e);
         }

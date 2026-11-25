@@ -651,6 +651,14 @@ async fn async_main() -> Result<()> {
         service_cluster_ip_range: args.service_cluster_ip_range.clone(),
         legacy_sa_token_clean_up_period:
             kubernetes_rs_controller_manager::controllers::legacy_serviceaccount_token_cleaner::DEFAULT_CLEAN_UP_PERIOD,
+        // The all-in-one binary hands the api-server's signing key to the
+        // controller-manager, as kube-controller-manager's
+        // `--service-account-private-key-file` (service_accounts.go:47-77).
+        service_account_private_key_file: args
+            .service_account
+            .service_account_signing_key_file
+            .as_ref()
+            .map(std::path::PathBuf::from),
     };
     // The controller-manager reaches cluster state through the embedded
     // api-server over the same loopback client as scheduler/DNS (#1128),
