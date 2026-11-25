@@ -38,6 +38,7 @@ use controllers::{
     statefulset::StatefulSetController,
     storage_class::StorageClassController,
     storageversiongc::StorageVersionGCController,
+    ttl::TtlController,
     ttl_after_finished::TTLAfterFinishedController,
     vac_protection::VacProtectionController,
     volume_expansion::VolumeExpansionController,
@@ -537,6 +538,14 @@ where
     handles.push(tokio::spawn(async move {
         let c = Arc::new(VerticalPodAutoscalerController::new(s));
         c.run().await;
+    }));
+
+    let s = storage_for("TTLController");
+    handles.push(tokio::spawn(async move {
+        let c = Arc::new(TtlController::new(s));
+        if let Err(e) = c.run().await {
+            error!("TTL controller error: {}", e);
+        }
     }));
 
     let s = storage_for("TTL");
