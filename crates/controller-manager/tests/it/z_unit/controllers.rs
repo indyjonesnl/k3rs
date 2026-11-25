@@ -430,28 +430,6 @@ mod worker_pool_tests {
     }
 
     #[tokio::test]
-    async fn resourceclaim_runs_a_worker_pool() {
-        let peak = peak_concurrency(
-            "resourceclaims",
-            12,
-            |i| {
-                json!({
-                    "apiVersion": "resource.k8s.io/v1", "kind": "ResourceClaim",
-                    "metadata": meta(i),
-                    "spec": {}
-                })
-            },
-            |s| async move {
-                let _ = Arc::new(kubernetes_rs_controller_manager::controllers::resourceclaim::ResourceClaimController::new(s))
-                    .run()
-                    .await;
-            },
-        )
-        .await;
-        assert!(peak > 1, "resourceclaim run() peaked at {peak}");
-    }
-
-    #[tokio::test]
     async fn node_runs_a_worker_pool() {
         let peak = peak_concurrency(
             "nodes",

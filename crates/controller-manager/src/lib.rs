@@ -653,6 +653,21 @@ where
         }));
     }
 
+    // `newResourceClaimController` (cmd/kube-controller-manager/app/core.go:463-499),
+    // registered only with `DynamicResourceAllocation` enabled (`requiredFeatureGates`).
+    if controllers::resourceclaim::feature_enabled() {
+        let s = storage_for("ResourceClaim");
+        handles.push(tokio::spawn(async move {
+            let c = Arc::new(controllers::resourceclaim::ResourceClaimController::new(
+                s,
+                controllers::resourceclaim::Features::from_gates(),
+            ));
+            if let Err(e) = c.run().await {
+                error!("ResourceClaim controller error: {}", e);
+            }
+        }));
+    }
+
     // `newCertificateSigningRequestCleanerController`
     // (cmd/kube-controller-manager/app/certificates.go:217-230).
     let s = storage_for("CertificateSigningRequestCleaner");
