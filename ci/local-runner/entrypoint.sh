@@ -15,6 +15,17 @@ RUNNER_NAME="${RUNNER_NAME_PREFIX:-kubernetes-rs}-$(hostname)"
 # (compose.sqlite.yml, emptyDir tmpfs propagation, #445); dockerd refuses that
 # unless the container's `/` is a shared mount. Docker hosts default to private.
 sudo mount --make-rshared /
+# cgroup v2 nesting for the private dockerd (as docker:dind's entrypoint does):
+# on a cgroup v2 host the container's root cgroup holds this process, and the
+# "no internal processes" rule then stops dockerd from delegating controllers to
+# the containers it runs. Without this, systemd in a `kind` node container never
+# boots ("could not find a log line that matches \"Reached target .*Multi-User
+# System.*\""). Move everything into an `init` leaf and enable the controllers.
+if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+  sudo bash -c 'mkdir -p /sys/fs/cgroup/init
+    xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs || :
+    sed -e "s/ / +/g" -e "s/^/+/" < /sys/fs/cgroup/cgroup.controllers > /sys/fs/cgroup/cgroup.subtree_control'
+fi
 rm -f /var/run/docker.pid
 sudo env PATH="$PATH" /usr/bin/dockerd --host=unix:///var/run/docker.sock >/tmp/dockerd.log 2>&1 &
 for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
