@@ -16,6 +16,9 @@ sudo env PATH="$PATH" /usr/bin/dockerd --host=unix:///var/run/docker.sock >/tmp/
 for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
 docker info >/dev/null 2>&1 || { echo "dockerd failed:"; cat /tmp/dockerd.log; exit 1; }
 
+# Named volumes are created root-owned; sccache runs as `runner`.
+sudo chown runner:runner /cache/sccache 2>/dev/null || true
+
 cd /home/runner
 # /var/lib/docker is a per-slot volume reused across containers: drop any
 # containers/networks/volumes an earlier job left in it (images stay cached).
