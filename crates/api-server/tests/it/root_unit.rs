@@ -27,7 +27,6 @@ mod crdregistration;
 mod deprecation;
 mod deprecation__warnings;
 mod dynamic_certificates;
-mod dynamic_routes;
 mod egress_http;
 mod egress_selector;
 mod fieldmanager;
