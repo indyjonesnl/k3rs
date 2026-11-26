@@ -858,16 +858,6 @@ impl KubeletConfiguration {
 
         Ok(())
     }
-
-    /// Save configuration to a YAML file
-    pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let contents = serde_yaml::to_string(self).context("Failed to serialize configuration")?;
-
-        std::fs::write(path.as_ref(), contents)
-            .with_context(|| format!("Failed to write config file: {:?}", path.as_ref()))?;
-
-        Ok(())
-    }
 }
 
 /// RuntimeConfig holds the resolved runtime configuration for the kubelet
