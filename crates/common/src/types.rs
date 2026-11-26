@@ -149,11 +149,6 @@ impl ObjectMeta {
         self
     }
 
-    pub fn with_finalizers(mut self, finalizers: Vec<String>) -> Self {
-        self.finalizers = Some(finalizers);
-        self
-    }
-
     /// Resolve `generateName` into a concrete name. If `name` is empty and
     /// `generateName` is a non-empty prefix, append a random 5-character suffix.
     ///
@@ -184,13 +179,6 @@ impl ObjectMeta {
     pub fn ensure_creation_timestamp(&mut self) {
         if self.creation_timestamp.is_none() {
             self.creation_timestamp = Some(Utc::now());
-        }
-    }
-
-    /// Ensure generation is set (defaults to 1 for new resources)
-    pub fn ensure_generation(&mut self) {
-        if self.generation.is_none() {
-            self.generation = Some(1);
         }
     }
 

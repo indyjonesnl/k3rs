@@ -4,7 +4,6 @@ use base64::Engine;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 /// Nested kubernetes.io claim in JWT tokens (matches K8s pkg/serviceaccount/claims.go)
@@ -1077,13 +1076,6 @@ impl BootstrapToken {
         Ok((token_id, token_secret))
     }
 
-    /// Hash the token secret for secure storage
-    pub fn hash_secret(secret: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(secret.as_bytes());
-        format!("{:x}", hasher.finalize())
-    }
-
     /// Check if token is expired
     pub fn is_expired(&self) -> bool {
         if let Some(exp) = self.expiration {
@@ -1293,18 +1285,6 @@ impl BootstrapTokenManager {
                 "Bootstrap token not found".to_string(),
             ))
         }
-    }
-
-    /// Remove a bootstrap token
-    pub fn remove_token(&self, token_id: &str) {
-        let mut tokens = self.tokens.write().unwrap();
-        tokens.remove(token_id);
-    }
-
-    /// List all tokens
-    pub fn list_tokens(&self) -> Vec<BootstrapToken> {
-        let tokens = self.tokens.read().unwrap();
-        tokens.values().cloned().collect()
     }
 }
 

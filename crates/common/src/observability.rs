@@ -314,12 +314,6 @@ impl MetricsRegistry {
         Ok(self)
     }
 
-    pub fn with_storage_metrics(mut self) -> Result<Self, prometheus::Error> {
-        let metrics = Arc::new(StorageMetrics::new(&self.registry)?);
-        self.storage = Some(metrics);
-        Ok(self)
-    }
-
     /// Get metrics in Prometheus text format
     pub fn gather(&self) -> String {
         use prometheus::Encoder;
