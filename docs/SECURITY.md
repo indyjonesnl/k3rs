@@ -258,131 +258,18 @@ Pod violates restricted security standard:
 
 ## Secrets Encryption at Rest
 
-Secrets (and other resources) can be encrypted at rest in etcd using multiple encryption providers.
+**Status: not implemented.** `--encryption-provider-config` is a startup error
+(`crates/api-server/src/upstream_flags.rs`): the API server refuses to start
+rather than store Secrets unencrypted after being asked to encrypt them.
 
-### Encryption Providers
-
-#### 1. AES-GCM (Recommended)
-
-**Algorithm**: AES-256-GCM (Galois/Counter Mode)
-
-**Features**:
-- 256-bit encryption
-- Authenticated encryption (AEAD)
-- Unique nonce per encryption
-- Production-ready
-
-**Key generation**:
-```bash
-# Generate a 256-bit key
-openssl rand -base64 32
-```
-
-**Example configuration**:
-```yaml
-kind: EncryptionConfig
-apiVersion: v1
-resources:
-  - resources:
-    - secrets
-    providers:
-    - aescbc:
-        keys:
-        - name: key1
-          secret: <base64-encoded-key>
-```
-
-#### 2. Identity
-
-**Purpose**: No encryption (passthrough)
-
-**Use case**: Testing, migration
-
-**Example**:
-```yaml
-kind: EncryptionConfig
-apiVersion: v1
-resources:
-  - resources:
-    - secrets
-    providers:
-    - identity: {}
-```
-
-#### 3. KMS (Framework)
-
-**Status**: Framework implemented, AWS KMS stub available
-
-**Future capabilities**:
-- Integration with AWS KMS
-- Automatic key rotation
-- Envelope encryption
-- Audit trail of key usage
-
-### Encryption Configuration
-
-Create an encryption configuration file:
-
-```yaml
-# encryption-config.yaml
-kind: EncryptionConfig
-apiVersion: v1
-resources:
-  - resources:
-    - secrets
-    providers:
-    # Try key1 first
-    - aescbc:
-        keys:
-        - name: key1
-          secret: K7XSxhxZZ7Y5QZ0ckZjW8qY4b2X+J5GvP9N2bXxYqT8=
-    # Then try key2 (for rotation)
-    - aescbc:
-        keys:
-        - name: key2
-          secret: dGVzdGtleWRhdGF0ZXN0a2V5ZGF0YXRlc3RrZXlkYQ==
-    # Finally, try identity (for migration from unencrypted)
-    - identity: {}
-
-  - resources:
-    - configmaps
-    providers:
-    - identity: {}  # Don't encrypt ConfigMaps
-```
-
-### Key Rotation
-
-To rotate encryption keys:
-
-1. Add new key to providers list (at the top)
-2. Restart API server
-3. Read and write all secrets to re-encrypt with new key:
-   ```bash
-   kubectl get secrets --all-namespaces -o json | \
-     kubectl replace -f -
-   ```
-4. Remove old key from configuration
-
-### Using Encryption in Code
-
-```rust
-use kubernetes_rs_common::encryption::*;
-
-// Load encryption config
-let config_yaml = std::fs::read_to_string("encryption-config.yaml")?;
-let config: EncryptionConfig = serde_yaml::from_str(&config_yaml)?;
-
-// Create transformer
-let transformer = EncryptionTransformer::from_config(config)?;
-
-// Encrypt a secret
-let plaintext = b"my-secret-data";
-let ciphertext = transformer.encrypt_for_resource("secrets", plaintext)?;
-
-// Decrypt a secret
-let decrypted = transformer.decrypt_for_resource("secrets", &ciphertext)?;
-assert_eq!(plaintext, decrypted.as_slice());
-```
+Upstream's mechanism is `EncryptionConfiguration`
+(`k8s.io/apiserver/pkg/server/options/encryptionconfig/config.go`) driving the
+value transformers in `k8s.io/apiserver/pkg/storage/value/encrypt/`
+(`aes`, `envelope` (KMS v2), `identity`, `secretbox`). In this tree only the
+AES-GCM and identity transformers are ported
+(`crates/common/src/storage_value/`); nothing wires them into the storage
+layer yet, and the CBC, secretbox, envelope/KMS and config-loading halves are
+not ported.
 
 ## Audit Logging
 
@@ -549,7 +436,6 @@ Add security flags to the API server:
   --tls \
   --tls-self-signed \
   --enable-admission-plugins "NamespaceLifecycle,PodSecurityStandards" \
-  --encryption-provider-config /etc/kubernetes/encryption-config.yaml \
   --audit-log-path /var/log/kubernetes/audit.log \
   --audit-policy-file /etc/kubernetes/audit-policy.yaml
 ```
@@ -609,34 +495,7 @@ spec:
       privileged: true  # VIOLATION!
 ```
 
-### Example 2: Encrypting Secrets
-
-```yaml
-# encryption-config.yaml
-kind: EncryptionConfig
-apiVersion: v1
-resources:
-  - resources:
-    - secrets
-    providers:
-    - aescbc:
-        keys:
-        - name: key1
-          secret: K7XSxhxZZ7Y5QZ0ckZjW8qY4b2X+J5GvP9N2bXxYqT8=
-
----
-
-# Create a secret (will be encrypted in etcd)
-apiVersion: v1
-kind: Secret
-metadata:
-  name: my-secret
-type: Opaque
-data:
-  password: cGFzc3dvcmQ=  # base64("password")
-```
-
-### Example 3: Audit Logging for Compliance
+### Example 2: Audit Logging for Compliance
 
 ```rust
 // Initialize audit logger
@@ -697,7 +556,7 @@ Before going to production:
 - [ ] Enable RBAC authorization
 - [ ] Enable admission controllers (at minimum: NamespaceLifecycle, PodSecurityStandards)
 - [ ] Configure Pod Security Standards (baseline or restricted)
-- [ ] Enable secrets encryption at rest (AES-GCM)
+- [ ] Secrets encryption at rest (not implemented yet; see "Secrets Encryption at Rest")
 - [ ] Enable audit logging (at least Metadata level)
 - [ ] Rotate encryption keys regularly
 - [ ] Review and update RBAC policies

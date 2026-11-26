@@ -25,7 +25,6 @@ mod deletion;
 mod diff;
 mod diff_schema;
 mod dump;
-mod encryption;
 mod equality;
 mod error;
 mod event_correlator;
