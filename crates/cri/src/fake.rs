@@ -128,18 +128,6 @@ impl FakeCri {
         self.state.lock().unwrap().reopen_log_error = Some(message.to_string());
     }
 
-    /// Seed a pod sandbox with the given labels.
-    pub fn add_sandbox(&self, id: &str, labels: &[(&str, &str)]) {
-        self.state.lock().unwrap().sandboxes.push(v1::PodSandbox {
-            id: id.to_string(),
-            labels: labels
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-            ..Default::default()
-        });
-    }
-
     /// Seed an image the runtime already holds (`FakeImageService.Images`).
     pub fn add_image(&self, name: &str) {
         self.state.lock().unwrap().images.insert(
