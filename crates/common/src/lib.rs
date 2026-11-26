@@ -32,7 +32,6 @@ pub mod deletion;
 pub mod diff;
 pub mod diff_schema;
 pub mod dump;
-pub mod encryption;
 pub mod ephemeral;
 pub mod equality;
 pub mod error;
