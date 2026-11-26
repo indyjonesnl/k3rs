@@ -9,7 +9,6 @@ use crate::advanced::{
 use crate::framework::*;
 use async_trait::async_trait;
 use kubernetes_rs_common::resources::{Node, Pod};
-use std::collections::HashMap;
 
 /// K8s treats an empty string and an unset field as equivalent for toleration
 /// `value`/`effect` and taint `value`, but `check_taints_tolerations` in
@@ -455,56 +454,5 @@ impl ScorePlugin for TopologySpreadConstraintsScoringPlugin {
             check_topology_spread_constraints(node, pod, &handle.all_pods, &handle.all_nodes);
         // Return negative score (penalty)
         Ok(-(penalty as i64))
-    }
-}
-
-// ============================================================================
-// Plugin Factory
-// ============================================================================
-
-/// Get default plugin registry with all built-in plugins
-pub fn get_default_plugins() -> PluginRegistry {
-    let mut registry = PluginRegistry::new();
-
-    // Register filter plugins
-    registry.register_filter_plugin(std::sync::Arc::new(NodeUnschedulablePlugin));
-    registry.register_filter_plugin(std::sync::Arc::new(TaintTolerationPlugin));
-    registry.register_filter_plugin(std::sync::Arc::new(NodeSelectorPlugin));
-    registry.register_filter_plugin(std::sync::Arc::new(NodeAffinityPlugin));
-    registry.register_filter_plugin(std::sync::Arc::new(PodAffinityPlugin));
-    registry.register_filter_plugin(std::sync::Arc::new(PodAntiAffinityPlugin));
-    registry.register_filter_plugin(std::sync::Arc::new(TopologySpreadConstraintsPlugin));
-    registry.register_filter_plugin(std::sync::Arc::new(HostPortPlugin));
-
-    // Register score plugins
-    registry.register_score_plugin(std::sync::Arc::new(NodeResourcesFitPlugin));
-    registry.register_score_plugin(std::sync::Arc::new(NodeAffinityScoringPlugin));
-    registry.register_score_plugin(std::sync::Arc::new(PodAffinityScoringPlugin));
-    registry.register_score_plugin(std::sync::Arc::new(PodAntiAffinityScoringPlugin));
-    registry.register_score_plugin(std::sync::Arc::new(TopologySpreadConstraintsScoringPlugin));
-
-    registry
-}
-
-/// Plugin configuration for customizing plugin weights
-#[derive(Debug, Clone)]
-pub struct PluginWeights {
-    pub weights: HashMap<String, i64>,
-}
-
-impl PluginWeights {
-    pub fn default_weights() -> Self {
-        let mut weights = HashMap::new();
-        weights.insert("NodeResourcesFit".to_string(), 25);
-        weights.insert("NodeAffinityScoring".to_string(), 20);
-        weights.insert("PodAffinityScoring".to_string(), 18);
-        weights.insert("PodAntiAffinityScoring".to_string(), 12);
-        weights.insert("TopologySpreadConstraintsScoring".to_string(), 10);
-
-        Self { weights }
-    }
-
-    pub fn get_weight(&self, plugin_name: &str) -> i64 {
-        self.weights.get(plugin_name).copied().unwrap_or(1)
     }
 }
