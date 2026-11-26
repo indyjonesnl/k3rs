@@ -178,10 +178,6 @@ impl<T> Heap<T> {
         self.items.contains_key(&(self.key_fn)(obj))
     }
 
-    pub fn has_key(&self, key: &str) -> bool {
-        self.items.contains_key(key)
-    }
-
     /// `List` (`heap.go:211-217`).
     pub fn list(&self) -> Vec<&T> {
         self.items.values().map(|i| &i.obj).collect()

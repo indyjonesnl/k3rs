@@ -50,13 +50,6 @@ impl PluginResult {
         }
     }
 
-    pub fn success_with_message(message: String) -> Self {
-        Self {
-            code: PluginResultCode::Success,
-            message: Some(message),
-        }
-    }
-
     pub fn unschedulable(message: String) -> Self {
         Self {
             code: PluginResultCode::Unschedulable,
