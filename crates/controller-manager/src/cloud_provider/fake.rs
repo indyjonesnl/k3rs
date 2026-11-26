@@ -163,11 +163,6 @@ impl Cloud {
         self.state.lock().unwrap().calls.clone()
     }
 
-    /// `ClearCalls`.
-    pub fn clear_calls(&self) {
-        self.state.lock().unwrap().calls.clear();
-    }
-
     /// `SetNodeAddresses`.
     pub fn set_node_addresses(&self, node_addresses: Vec<NodeAddress>) {
         self.seed();
