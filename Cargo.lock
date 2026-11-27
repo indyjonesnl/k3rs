@@ -2865,6 +2865,7 @@ dependencies = [
  "kubernetes-rs-storage",
  "kubernetes-rs-test-support",
  "mimalloc",
+ "prometheus",
  "serde",
  "serde_json",
  "serde_yaml",
