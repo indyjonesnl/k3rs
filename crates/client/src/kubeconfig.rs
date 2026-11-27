@@ -143,15 +143,6 @@ impl KubeConfig {
             .ok_or_else(|| anyhow::anyhow!("Current context '{}' not found", self.current_context))
     }
 
-    /// Get a specific context by name
-    pub fn get_context(&self, name: &str) -> Result<&Context> {
-        self.contexts
-            .iter()
-            .find(|c| c.name == name)
-            .map(|c| &c.context)
-            .ok_or_else(|| anyhow::anyhow!("Context '{}' not found", name))
-    }
-
     /// Get the cluster for a given context
     pub fn get_cluster(&self, context: &Context) -> Result<&Cluster> {
         self.clusters
