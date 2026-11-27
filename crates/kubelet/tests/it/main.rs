@@ -53,6 +53,7 @@ mod node_registration_preserves_spec;
 mod nodeshutdown;
 mod pc_unit;
 mod pluginmanager_unit;
+mod pod_overhead_test;
 mod pods_endpoint_test;
 mod root_unit;
 mod runtime_prestop_exit_test;
