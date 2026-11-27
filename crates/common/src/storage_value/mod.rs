@@ -6,6 +6,8 @@
 //! Sub-packages mirror upstream's `storage/value/encrypt/*`:
 //! - [`identity`] -> `encrypt/identity/identity.go`
 //! - [`aes`]      -> `encrypt/aes/aes.go` (the AES-GCM half)
+//! - [`aescbc`]    -> `encrypt/aes/aes.go` (`NewCBCTransformer`)
+//! - [`secretbox`] -> `encrypt/secretbox/secretbox.go`
 //!
 //! Deliberate differences from Go (Rust has no ambient `context.Context`):
 //! the `ctx` parameter of every method is dropped. In upstream it only carries
@@ -14,7 +16,9 @@
 //! tracked deferrals), so the error log here has no request attributes.
 
 pub mod aes;
+pub mod aescbc;
 pub mod identity;
+pub mod secretbox;
 
 use std::fmt;
 
