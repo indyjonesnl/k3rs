@@ -19,6 +19,7 @@ mod linebuffer_test;
 mod localdetector;
 mod metrics_encoding;
 mod node_net_cni_routes;
+mod nodeport_addresses_test;
 mod proxy_health_handlers;
 mod serve_metrics_handlers;
 mod service_change_tracker_test;
