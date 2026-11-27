@@ -46,6 +46,7 @@ pub mod persistentvolume;
 pub mod pod;
 pub mod pod_options;
 pub mod pod_resources;
+pub mod pod_spec_extra;
 pub mod pod_status;
 pub mod pod_subresource;
 pub mod podcertificaterequest;
