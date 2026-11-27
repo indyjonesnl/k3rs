@@ -3,8 +3,7 @@
 //! for storage at rest using AES-GCM.
 //!
 //! Not ported here (tracked as deferred in the PR):
-//! - `NewCBCTransformer` (same file): needs a CBC mode crate (`cbc`), which is
-//!   not in the dependency tree.
+//! - `NewCBCTransformer` (same file) lives in [`super::aescbc`].
 //! - `aes_extended_nonce.go` / `cache.go` (HKDF extended-nonce GCM): needs
 //!   `hkdf` as a direct dependency.
 //! - `value.RecordDataKeyGeneration` in `GenerateKey` (metrics).
@@ -41,6 +40,13 @@ type Aes256Gcm12 = AesGcm<Aes256, U12>;
 #[derive(Clone)]
 pub struct Block {
     key: Vec<u8>,
+}
+
+impl Block {
+    /// The raw AES key backing this block (used by the CBC transformer).
+    pub(super) fn key(&self) -> &[u8] {
+        &self.key
+    }
 }
 
 /// `aes.NewCipher`: the key must be 16, 24 or 32 bytes (AES-128/192/256).
@@ -107,7 +113,7 @@ struct Gcm {
 }
 
 /// `randomNonce`.
-fn random_nonce(b: &mut [u8]) -> Result<(), Error> {
+pub(super) fn random_nonce(b: &mut [u8]) -> Result<(), Error> {
     OsRng
         .try_fill_bytes(b)
         .map_err(|e| Error::new(e.to_string()))

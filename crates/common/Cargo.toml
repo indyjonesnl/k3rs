@@ -60,6 +60,9 @@ rsa = { version = "0.9", features = ["sha2"] }
 ed25519-dalek = { version = "2", features = ["pkcs8"] }
 # Validity window of generated self-signed serving certs (rcgen takes `time` types).
 time = "0.3"
+cbc = { version = "0.1", features = ["alloc"] }
+aes = "0.8"
+crypto_secretbox = "0.1"
 
 [lib]
 # Unit tests live in tests/it: a second compilation of the lib as a test
