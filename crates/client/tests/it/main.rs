@@ -11,6 +11,7 @@ mod config_test;
 mod events_test;
 mod get_not_found_test;
 mod list_envelope_test;
+mod pager_test;
 mod reflector_live_test;
 mod reflector_test;
 mod register_node_insecure_https_test;
