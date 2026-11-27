@@ -148,6 +148,12 @@ impl Controller for Fake {
     ) -> Result<Response<ControllerExpandVolumeResponse>, Status> {
         Err(Status::unimplemented("snapshot test"))
     }
+    async fn controller_modify_volume(
+        &self,
+        _r: Request<ControllerModifyVolumeRequest>,
+    ) -> Result<Response<ControllerModifyVolumeResponse>, Status> {
+        Err(Status::unimplemented("not exercised"))
+    }
 }
 
 struct Env {

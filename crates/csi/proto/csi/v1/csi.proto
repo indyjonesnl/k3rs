@@ -39,6 +39,7 @@ service Controller {
   rpc CreateSnapshot (CreateSnapshotRequest) returns (CreateSnapshotResponse) {}
   rpc DeleteSnapshot (DeleteSnapshotRequest) returns (DeleteSnapshotResponse) {}
   rpc ControllerExpandVolume (ControllerExpandVolumeRequest) returns (ControllerExpandVolumeResponse) {}
+  rpc ControllerModifyVolume (ControllerModifyVolumeRequest) returns (ControllerModifyVolumeResponse) {}
 }
 
 service GroupController {
@@ -433,6 +434,16 @@ message ControllerExpandVolumeResponse {
   int64 capacity_bytes = 1;
   bool node_expansion_required = 2;
 }
+
+// ControllerModifyVolume (csi.pb.go:2852 `ControllerModifyVolumeRequest`, :2920
+// `ControllerModifyVolumeResponse`): field numbers as vendored by Kubernetes 1.35.
+message ControllerModifyVolumeRequest {
+  string volume_id = 1;
+  map<string, string> secrets = 2;
+  map<string, string> mutable_parameters = 3;
+}
+
+message ControllerModifyVolumeResponse {}
 
 // GroupController service (csi.pb.go:5114-5700, `GroupControllerClient` at
 // :6901). CSI spec v1.9.0 -- the version Kubernetes 1.35 vendors -- names these

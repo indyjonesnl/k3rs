@@ -25,7 +25,7 @@ use proto::group_controller_service_capability::rpc::Type as GroupControllerRpc;
 use proto::identity_client::IdentityClient;
 use proto::plugin_capability::service::Type as PluginService;
 use proto::{
-    ControllerExpandVolumeRequest, ControllerExpandVolumeResponse,
+    ControllerExpandVolumeRequest, ControllerExpandVolumeResponse, ControllerModifyVolumeRequest,
     CreateVolumeGroupSnapshotRequest, DeleteVolumeGroupSnapshotRequest,
     GetVolumeGroupSnapshotRequest, GroupControllerGetCapabilitiesRequest, VolumeGroupSnapshot,
 };
@@ -524,6 +524,38 @@ impl CsiControllerClient {
             .await
     }
 
+    /// `ControllerModifyVolume` (CSI spec; csi.pb.go:2852), gated on the
+    /// controller service and `MODIFY_VOLUME`, as external-resizer's
+    /// `csi_resizer.go` `Modify` is (it only issues the call for a driver that
+    /// reports the capability, `supportsControllerModify`). `volume_id` and
+    /// `mutable_parameters` are REQUIRED by the spec; secrets are optional.
+    pub async fn controller_modify_volume(
+        &self,
+        req: ControllerModifyVolumeRequest,
+    ) -> Result<(), ControllerError> {
+        if req.volume_id.is_empty() {
+            return Err(ControllerError::InvalidArgument(
+                "ControllerModifyVolume: volume_id must be set".into(),
+            ));
+        }
+        if req.mutable_parameters.is_empty() {
+            return Err(ControllerError::InvalidArgument(
+                "ControllerModifyVolume: mutable_parameters must be set".into(),
+            ));
+        }
+        let caps = self.get_driver_capabilities().await?;
+        if !caps.plugin.contains(&PluginService::ControllerService)
+            || !caps.controller.contains(&ControllerRpc::ModifyVolume)
+        {
+            return Err(ControllerError::UnsupportedCapability(
+                "CSI driver does not support volume modification: controller MODIFY_VOLUME capability is not reported".into(),
+            ));
+        }
+        self.call(ControllerClient::new(self.channel()?).controller_modify_volume(req))
+            .await
+            .map(|_| ())
+    }
+
     /// `CreateVolumeGroupSnapshot` (external-snapshotter group snapshotter).
     pub async fn create_volume_group_snapshot(
         &self,
@@ -652,6 +684,7 @@ mod tests {
         delete_snapshot: Vec<DeleteSnapshotRequest>,
         list_volumes: Vec<ListVolumesRequest>,
         expand: Vec<ControllerExpandVolumeRequest>,
+        modify: Vec<ControllerModifyVolumeRequest>,
         create_group: Vec<CreateVolumeGroupSnapshotRequest>,
         delete_group: Vec<DeleteVolumeGroupSnapshotRequest>,
         get_group: Vec<GetVolumeGroupSnapshotRequest>,
@@ -825,6 +858,13 @@ mod tests {
                 capacity_bytes: req.capacity_range.map_or(0, |c| c.required_bytes),
                 node_expansion_required: true,
             }))
+        }
+        async fn controller_modify_volume(
+            &self,
+            r: Request<ControllerModifyVolumeRequest>,
+        ) -> Result<Response<ControllerModifyVolumeResponse>, Status> {
+            self.rec.lock().unwrap().modify.push(r.into_inner());
+            Ok(Response::new(ControllerModifyVolumeResponse {}))
         }
         async fn delete_snapshot(
             &self,
@@ -1243,6 +1283,48 @@ mod tests {
         let err = client2.controller_expand_volume(req).await.unwrap_err();
         assert!(matches!(err, ControllerError::UnsupportedCapability(_)));
         assert!(rec2.lock().unwrap().expand.is_empty());
+    }
+
+    #[tokio::test]
+    async fn controller_modify_volume_round_trips_and_is_capability_gated() {
+        let (_d, client, rec) = start(Fake::full());
+        let req = ControllerModifyVolumeRequest {
+            volume_id: "vol-1".into(),
+            secrets: [("k".to_string(), "v".to_string())].into(),
+            mutable_parameters: [("iops".to_string(), "5000".to_string())].into(),
+        };
+        client.controller_modify_volume(req.clone()).await.unwrap();
+        assert_eq!(rec.lock().unwrap().modify, vec![req.clone()]);
+
+        // volume_id and mutable_parameters are REQUIRED.
+        let no_id = ControllerModifyVolumeRequest {
+            volume_id: String::new(),
+            ..req.clone()
+        };
+        assert!(matches!(
+            client.controller_modify_volume(no_id).await.unwrap_err(),
+            ControllerError::InvalidArgument(_)
+        ));
+        let no_params = ControllerModifyVolumeRequest {
+            mutable_parameters: Default::default(),
+            ..req.clone()
+        };
+        assert!(matches!(
+            client
+                .controller_modify_volume(no_params)
+                .await
+                .unwrap_err(),
+            ControllerError::InvalidArgument(_)
+        ));
+        assert_eq!(rec.lock().unwrap().modify.len(), 1);
+
+        // Fails closed without MODIFY_VOLUME: nothing reaches the driver.
+        let mut f = Fake::full();
+        f.ctrl_caps = vec![ControllerRpc::CreateDeleteVolume];
+        let (_d2, client2, rec2) = start(f);
+        let err = client2.controller_modify_volume(req).await.unwrap_err();
+        assert!(matches!(err, ControllerError::UnsupportedCapability(_)));
+        assert!(rec2.lock().unwrap().modify.is_empty());
     }
 
     #[tokio::test]

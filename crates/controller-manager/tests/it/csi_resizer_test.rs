@@ -137,6 +137,12 @@ impl Controller for Fake {
             node_expansion_required: self.node_expansion_required,
         }))
     }
+    async fn controller_modify_volume(
+        &self,
+        _r: Request<ControllerModifyVolumeRequest>,
+    ) -> Result<Response<ControllerModifyVolumeResponse>, Status> {
+        Err(Status::unimplemented("not exercised"))
+    }
 }
 
 fn start(
