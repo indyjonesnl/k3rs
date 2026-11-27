@@ -62,6 +62,7 @@ mod validation_endpoints;
 mod validation_endpointslice;
 mod validation_endpointslice_update;
 mod validation_flowschema;
+mod validation_helpers_extra;
 mod validation_hpa;
 mod validation_ingress;
 mod validation_ingressclass;
