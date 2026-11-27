@@ -164,7 +164,7 @@ pub struct ExtenderArgs {
 }
 
 /// `extenderv1.ExtenderFilterResult` (types.go:87).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExtenderFilterResult {
     #[serde(rename = "Nodes", alias = "nodes", default)]
     pub nodes: Option<NodeList>,
@@ -353,6 +353,16 @@ impl HttpExtender {
         &self.extender_url
     }
 
+    /// The configured `weight` (returned by `Prioritize`, extender.go:355).
+    pub fn weight(&self) -> i64 {
+        self.weight
+    }
+
+    /// The configured `nodeCacheCapable`.
+    pub fn node_cache_capable(&self) -> bool {
+        self.node_cache_capable
+    }
+
     /// `IsIgnorable` (extender.go:133).
     pub fn is_ignorable(&self) -> bool {
         self.ignorable
@@ -381,7 +391,7 @@ impl HttpExtender {
     /// `send` (extender.go:377): POST `args` as JSON to
     /// `<urlPrefix trimmed of "/">/<action>` and decode the reply. A non-200
     /// status is an error.
-    pub(crate) async fn send<A: Serialize, R: DeserializeOwned>(
+    pub async fn send<A: Serialize, R: DeserializeOwned>(
         &self,
         action: &str,
         args: &A,
