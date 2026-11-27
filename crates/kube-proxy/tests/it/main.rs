@@ -12,6 +12,7 @@ mod conformance_network_dns;
 mod conformance_network_endpointslices_dns_headless;
 mod conformance_network_hostport_protocols;
 mod conformance_network_services_proxy;
+mod conntrack_cleanup;
 mod endpointslice_cache_test;
 mod hostport_test;
 mod metrics_encoding;
