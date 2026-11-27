@@ -1,3 +1,5 @@
+pub mod events;
+
 use anyhow::Result;
 use chrono::Utc;
 use kubernetes_rs_client::http::{ApiClient, GetError};
@@ -133,7 +135,7 @@ pub async fn execute(
                 .map_err(map_get_error)?;
             describe_namespace(&namespace);
         }
-        _ => anyhow::bail!("Unknown resource type: {}", resource_type),
+        _ => describe_generic_resource(client, resource_type, name, namespace).await?,
     }
 
     Ok(())
@@ -408,4 +410,26 @@ pub fn describe_namespace(namespace: &Namespace) {
         let age = format_duration(Utc::now().signed_duration_since(ts));
         println!("\nAge:          {}", age);
     }
+}
+
+/// `GenericDescriberFor` (describe.go:258): kinds without a dedicated
+/// describer are fetched as unstructured and printed generically, with the
+/// Events section (`--show-events` defaults to true).
+async fn describe_generic_resource(
+    client: &ApiClient,
+    resource_type: &str,
+    name: &str,
+    namespace: Option<&str>,
+) -> Result<()> {
+    let mapper = crate::discovery::RestMapper::from_server(client).await?;
+    let mapping = mapper.resolve(resource_type).ok_or_else(|| {
+        anyhow::anyhow!("the server doesn't have a resource type \"{resource_type}\"")
+    })?;
+    let obj = crate::ops::get_value(client, mapping, namespace, name).await?;
+    let evs = events::search_events(client, &obj, 500).await.ok();
+    print!(
+        "{}",
+        events::describe_generic(&obj, evs.as_deref(), chrono::Utc::now())
+    );
+    Ok(())
 }

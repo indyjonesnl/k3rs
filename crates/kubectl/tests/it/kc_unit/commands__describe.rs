@@ -430,11 +430,11 @@ mod tests {
     async fn test_execute_unknown_resource_type_returns_err() {
         let client = make_test_client();
         let result = execute(&client, "foobar", "test", Some("default")).await;
+        // Kinds without a dedicated describer now go through the generic
+        // describer (`GenericDescriberFor`), which needs server discovery; the
+        // test client has no server, so this is a connection error rather than
+        // the old hard-coded "Unknown resource type".
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Unknown resource type"));
     }
 
     #[tokio::test]
