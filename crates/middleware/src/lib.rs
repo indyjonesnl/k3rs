@@ -1,4 +1,5 @@
 pub mod cbor;
+pub mod healthz;
 pub mod lifecycle;
 pub mod negotiated_error;
 pub mod request_header;

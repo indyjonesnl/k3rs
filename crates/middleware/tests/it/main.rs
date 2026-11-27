@@ -9,6 +9,7 @@
 //! reintroduces a separate binary, which is what this layout avoids.
 mod auth_unauthorized_status;
 mod controllerrevision_request_decode;
+mod healthz_handler;
 mod legacy_token_observations;
 mod lifecycle_signals;
 mod mw_unit;
