@@ -14,6 +14,7 @@ mod controllers__csi_attacher;
 mod controllers__csi_capacity;
 mod controllers__csi_provisioner;
 mod controllers__csi_topology;
+mod controllers__csr_approver_recognizers;
 mod controllers__csr_cleaner;
 mod controllers__csr_signer_verify;
 mod controllers__daemonset;
