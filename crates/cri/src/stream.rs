@@ -59,28 +59,78 @@ pub fn rewrite_stream_url(stream_url: &str, host: &str, port: u16) -> anyhow::Re
 pub type CriStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-/// Host:port the api-server dials to reach containerd's CRI streaming server.
-///
-/// containerd advertises exec/attach URLs with its bind address (`0.0.0.0` /
-/// `[::]`), which is not routable from the api-server container, so the proxy
-/// rewrites the host to this reachable target. Defaults to the `containerd`
-/// compose service on the fixed stream port (`deploy/containerd/config.toml`);
-/// override with `CONTAINERD_STREAM_HOST` / `CONTAINERD_STREAM_PORT`.
-pub fn stream_target() -> (String, u16) {
-    let host = std::env::var("CONTAINERD_STREAM_HOST").unwrap_or_else(|_| "containerd".to_string());
+/// Explicit opt-in override of the CRI stream target, from
+/// `CONTAINERD_STREAM_HOST` / `CONTAINERD_STREAM_PORT`. `None` when neither is
+/// set: the URL the runtime returned is then dialled as returned.
+pub fn stream_target() -> Option<(Option<String>, Option<u16>)> {
+    let host = std::env::var("CONTAINERD_STREAM_HOST")
+        .ok()
+        .filter(|h| !h.is_empty());
     let port = std::env::var("CONTAINERD_STREAM_PORT")
         .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(10010);
-    (host, port)
+        .and_then(|p| p.parse().ok());
+    if host.is_none() && port.is_none() {
+        None
+    } else {
+        Some((host, port))
+    }
+}
+
+/// The URL to dial for a CRI streaming URL. Port of the kubelet's
+/// `proxyStream(w, r, url)` (`pkg/kubelet/server/server.go:936-940`), which
+/// proxies to exactly the URL the CRI returned
+/// (`kuberuntime_container.go` `GetExec`/`GetAttach`,
+/// `kuberuntime_sandbox.go` `GetPortForward`); containerd's defaults are
+/// `stream_server_address=127.0.0.1`, `stream_server_port=0`.
+///
+/// Only two things are substituted: an unspecified host (`0.0.0.0` / `[::]`,
+/// which is not dialable) becomes loopback, and `CONTAINERD_STREAM_HOST` /
+/// `CONTAINERD_STREAM_PORT` (opt-in, for a runtime in another network
+/// namespace; the port defaults to 10010 when only the host is given).
+pub fn resolve_stream_url(stream_url: &str) -> anyhow::Result<String> {
+    resolve_stream_url_with(stream_url, stream_target())
+}
+
+fn resolve_stream_url_with(
+    stream_url: &str,
+    target: Option<(Option<String>, Option<u16>)>,
+) -> anyhow::Result<String> {
+    let mut u = url::Url::parse(stream_url)
+        .map_err(|e| anyhow::anyhow!("parsing CRI stream URL {stream_url:?}: {e}"))?;
+    if let Some((host, port)) = target {
+        let port = port.or(host.is_some().then_some(10010));
+        if let Some(h) = &host {
+            u.set_host(Some(h))
+                .map_err(|e| anyhow::anyhow!("setting stream host {h:?}: {e}"))?;
+        }
+        if let Some(p) = port {
+            u.set_port(Some(p))
+                .map_err(|()| anyhow::anyhow!("setting stream port {p}"))?;
+        }
+        return Ok(u.into());
+    }
+    let unspecified = match u.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_unspecified(),
+        Some(url::Host::Ipv6(ip)) => ip.is_unspecified(),
+        _ => false,
+    };
+    if unspecified {
+        let lo = if matches!(u.host(), Some(url::Host::Ipv6(_))) {
+            "[::1]"
+        } else {
+            "127.0.0.1"
+        };
+        u.set_host(Some(lo))
+            .map_err(|e| anyhow::anyhow!("setting stream host {lo:?}: {e}"))?;
+    }
+    Ok(u.into())
 }
 
 /// Open a WebSocket to a runtime streaming URL (exec / attach / port-forward).
-/// Rewrites the advertised host to the reachable [`stream_target`], converts the
+/// Resolves the URL with [`resolve_stream_url`], converts the
 /// http(s) scheme to ws(s), and negotiates the channel-protocol subprotocol.
 async fn connect_stream(url: &str) -> anyhow::Result<CriStream> {
-    let (host, port) = stream_target();
-    let rewritten = rewrite_stream_url(url, &host, port)?;
+    let rewritten = resolve_stream_url(url)?;
     // tungstenite needs a ws:// scheme; the runtime hands back http(s)://.
     let ws_url = if let Some(rest) = rewritten.strip_prefix("http://") {
         format!("ws://{rest}")
@@ -506,6 +556,41 @@ mod tests {
                 Err(e) => assert_eq!(got.as_ref().err().map(String::as_str), Some(e), "{name}"),
             }
         }
+    }
+
+    #[test]
+    fn stream_url_dialled_as_returned() {
+        let u = "http://127.0.0.1:34567/exec/tok?command=ls&output=1";
+        assert_eq!(resolve_stream_url_with(u, None).unwrap(), u);
+        let u = "http://10.1.2.3:10010/attach/tok";
+        assert_eq!(resolve_stream_url_with(u, None).unwrap(), u);
+    }
+
+    #[test]
+    fn stream_url_unspecified_host_becomes_loopback() {
+        assert_eq!(
+            resolve_stream_url_with("http://0.0.0.0:10010/exec/abc?x=1", None).unwrap(),
+            "http://127.0.0.1:10010/exec/abc?x=1"
+        );
+        assert_eq!(
+            resolve_stream_url_with("http://[::]:10010/exec/abc", None).unwrap(),
+            "http://[::1]:10010/exec/abc"
+        );
+    }
+
+    #[test]
+    fn stream_url_env_override_is_opt_in() {
+        let t = |h: Option<&str>, p| Some((h.map(String::from), p));
+        let u = "http://127.0.0.1:34567/exec/tok";
+        assert_eq!(
+            resolve_stream_url_with(u, t(Some("localhost"), None)).unwrap(),
+            "http://localhost:10010/exec/tok"
+        );
+        assert_eq!(
+            resolve_stream_url_with(u, t(None, Some(9999))).unwrap(),
+            "http://127.0.0.1:9999/exec/tok"
+        );
+        assert!(resolve_stream_url_with("not a url", None).is_err());
     }
 
     #[test]

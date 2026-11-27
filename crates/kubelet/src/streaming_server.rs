@@ -8,7 +8,7 @@
 //!
 //! This module replicates the same flow: resolve the container id from the CRI
 //! `ListContainers` labels, call CRI `Exec`/`Attach` to get the runtime stream
-//! URL, `rewrite_stream_url` it to the node-local streaming server, then
+//! URL, resolve it (`resolve_stream_url`, dialled as returned) against the node-local streaming server, then
 //! `proxy_upgrade(url, req)`.
 
 use axum::{
@@ -326,11 +326,10 @@ async fn exec_proxy(
     };
 
     // Rewrite the stream URL to the node-local streaming server port.
-    let (host, port) = kubernetes_rs_cri::stream::stream_target();
-    let rewritten = match kubernetes_rs_cri::stream::rewrite_stream_url(&stream_url, &host, port) {
+    let rewritten = match kubernetes_rs_cri::stream::resolve_stream_url(&stream_url) {
         Ok(u) => u,
         Err(e) => {
-            warn!("exec_proxy: rewrite_stream_url failed: {e}");
+            warn!("exec_proxy: resolve_stream_url failed: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
         }
     };
@@ -410,11 +409,10 @@ async fn attach_proxy(
         }
     };
 
-    let (host, port) = kubernetes_rs_cri::stream::stream_target();
-    let rewritten = match kubernetes_rs_cri::stream::rewrite_stream_url(&stream_url, &host, port) {
+    let rewritten = match kubernetes_rs_cri::stream::resolve_stream_url(&stream_url) {
         Ok(u) => u,
         Err(e) => {
-            warn!("attach_proxy: rewrite_stream_url failed: {e}");
+            warn!("attach_proxy: resolve_stream_url failed: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
         }
     };
@@ -524,11 +522,10 @@ async fn portforward_proxy(
         }
     };
 
-    let (host, port) = kubernetes_rs_cri::stream::stream_target();
-    let rewritten = match kubernetes_rs_cri::stream::rewrite_stream_url(&stream_url, &host, port) {
+    let rewritten = match kubernetes_rs_cri::stream::resolve_stream_url(&stream_url) {
         Ok(u) => u,
         Err(e) => {
-            warn!("portforward_proxy: rewrite_stream_url failed: {e}");
+            warn!("portforward_proxy: resolve_stream_url failed: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
         }
     };
