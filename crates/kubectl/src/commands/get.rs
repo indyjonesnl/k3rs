@@ -415,6 +415,7 @@ pub async fn execute_enhanced(
                 sort_by,
                 true,
                 printed_any,
+                true,
             )
             .await?;
             printed_any = printed_any || printed;
@@ -437,6 +438,7 @@ pub async fn execute_enhanced(
                 sort_by,
                 false,
                 false,
+                resource_types.len() > 1,
             )
             .await?;
         }
@@ -487,8 +489,30 @@ async fn execute_with_mapping(
     sort_by: Option<&str>,
     is_all: bool,
     leading_separator: bool,
+    with_kind: bool,
 ) -> Result<bool> {
     use crate::ops::{get_value, list_value};
+    use crate::printers::table::{HumanReadablePrinter, PrintOptions, Table, TABLE_ACCEPT};
+
+    // `printers.PrintOptions` for the human-readable path. `with_kind` is
+    // get.go's `multipleGVKs` (kind/name prefix when several types print).
+    let human = matches!(
+        output.map(OutputFormat::from_str).transpose()?,
+        None | Some(OutputFormat::Table | OutputFormat::Wide)
+    );
+    let print_opts = PrintOptions {
+        no_headers,
+        with_namespace: all_namespaces,
+        with_kind,
+        wide: output == Some("wide"),
+        show_labels,
+        kind: Some(if mapping.group.is_empty() {
+            mapping.kind.clone()
+        } else {
+            format!("{}.{}", mapping.kind, mapping.group)
+        }),
+        column_labels: Vec::new(),
+    };
 
     let format = output
         .map(OutputFormat::from_str)
@@ -497,31 +521,79 @@ async fn execute_with_mapping(
 
     if let Some(n) = name {
         // Single-resource GET
-        let value = get_value(client, mapping, namespace, n)
-            .await
-            .map_err(|e| {
-                // Mirror kubectl's "Error from server (NotFound)" message when the
-                // underlying error string contains "not found".
-                let s = e.to_string();
-                if s.to_lowercase().contains("not found") {
-                    anyhow::anyhow!(
-                        "Error from server (NotFound): {} \"{}\" not found",
-                        mapping.kind.to_lowercase() + "s",
-                        n
-                    )
+        let single = async {
+            if human {
+                // transformRequests (get.go:424): ask for a Table.
+                let ns = if mapping.namespaced {
+                    Some(namespace.unwrap_or("default"))
                 } else {
-                    e
-                }
-            })?;
+                    None
+                };
+                let path = crate::ops::build_path(mapping, ns, Some(n));
+                client.get_raw_with_accept(&path, TABLE_ACCEPT).await
+            } else {
+                get_value(client, mapping, namespace, n).await
+            }
+        };
+        let value = single.await.map_err(|e| {
+            // Mirror kubectl's "Error from server (NotFound)" message when the
+            // underlying error string contains "not found".
+            let s = e.to_string();
+            if s.to_lowercase().contains("not found") {
+                anyhow::anyhow!(
+                    "Error from server (NotFound): {} \"{}\" not found",
+                    mapping.kind.to_lowercase() + "s",
+                    n
+                )
+            } else {
+                e
+            }
+        })?;
         // selectors are not forwarded to single-item by-name GETs (they don't
         // apply).
         if leading_separator {
             println!();
         }
-        format_output(&value, &format)?;
+        if human {
+            let mut printer = HumanReadablePrinter::new(print_opts);
+            match Table::from_value(&value) {
+                Some(t) => print!("{}", printer.print_table(t, "")?),
+                None => print!("{}", printer.print_object(&value, "")?),
+            }
+        } else {
+            format_output(&value, &format)?;
+        }
     } else {
         // Collection GET — all path logic (including the all-namespaces
         // cluster-wide override) lives in ops::list_value / ops::list_path.
+        // Table negotiation (get.go:424 transformRequests). Sorting needs the
+        // objects themselves, so `--sort-by` keeps the plain-list path below.
+        if human && sort_by.is_none() {
+            let resp =
+                crate::ops::list_table(client, mapping, namespace, all_namespaces, query).await?;
+            if let Some(table) = Table::from_value(&resp) {
+                if table.rows.is_empty() {
+                    if is_all {
+                        return Ok(false);
+                    }
+                    if all_namespaces {
+                        eprintln!("No resources found.");
+                    } else {
+                        eprintln!(
+                            "No resources found in {} namespace.",
+                            namespace.unwrap_or("default")
+                        );
+                    }
+                    return Ok(false);
+                }
+                if leading_separator {
+                    println!();
+                }
+                let mut printer = HumanReadablePrinter::new(print_opts);
+                print!("{}", printer.print_table(table, "")?);
+                return Ok(true);
+            }
+        }
         let mut items = list_value(client, mapping, namespace, all_namespaces, query).await?;
 
         if items.is_empty() {
@@ -629,6 +701,13 @@ async fn execute_with_mapping(
                     .filter_map(|v| serde_json::from_value(v.clone()).ok())
                     .collect();
                 print_pvcs(&typed, no_headers, show_labels);
+            }
+            (_, OutputFormat::Table | OutputFormat::Wide) => {
+                // The server ignored the Table Accept header: printObjectMeta.
+                let mut printer = HumanReadablePrinter::new(print_opts);
+                for item in &items {
+                    print!("{}", printer.print_object(item, "")?);
+                }
             }
             _ => {
                 // Generic Value output: works for all formats and any kind.

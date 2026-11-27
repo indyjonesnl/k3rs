@@ -8,8 +8,9 @@
 //! header is `GetOptions.transformRequests`
 //! (staging/src/k8s.io/kubectl/pkg/cmd/get/get.go:424-433).
 //!
-//! Not ported yet: the non-Table fallbacks (`printObjectMeta`, `printStatus`)
-//! and the `get` wiring; see backlog task kubectl-P1-06b.
+//! The non-Table fallbacks (`printObjectMeta`, `printStatus`,
+//! `translateTimestampSince`, and the `lastType` header/blank-line logic of
+//! `PrintObj`) are `HumanReadablePrinter::print_object`.
 
 use std::collections::BTreeMap;
 
@@ -308,6 +309,8 @@ pub struct HumanReadablePrinter {
     options: PrintOptions,
     last_columns: Vec<TableColumnDefinition>,
     printed_headers: bool,
+    /// `lastType`: the non-Table handler used last ("meta" or "status").
+    last_type: Option<&'static str>,
 }
 
 impl HumanReadablePrinter {
@@ -352,6 +355,69 @@ impl HumanReadablePrinter {
             );
         }
         Ok(tab_format(&print_table(&table, &local)))
+    }
+
+    /// The non-Table branch of `PrintObj`: a `Status` prints
+    /// STATUS/REASON/MESSAGE (`printStatus`), anything else NAME/AGE
+    /// (`printObjectMeta`, which recurses into list items). Headers are printed
+    /// when the handler changes, with a blank line between handlers.
+    pub fn print_object(&mut self, obj: &Value, event_type: &str) -> Result<String> {
+        let is_status = obj.get("kind").and_then(Value::as_str) == Some("Status");
+        let handler: &'static str = if is_status { "status" } else { "meta" };
+        let columns = if is_status {
+            vec!["Status", "Reason", "Message"]
+        } else {
+            vec!["Name", "Age"]
+        };
+        let mut rows = Vec::new();
+        if is_status {
+            let f =
+                |k: &str| Value::String(obj.get(k).and_then(Value::as_str).unwrap_or("").into());
+            rows.push(TableRow {
+                cells: vec![f("status"), f("reason"), f("message")],
+                object: Some(obj.clone()),
+            });
+        } else {
+            object_meta_rows(obj, &mut rows)?;
+        }
+        let include_headers = self.last_type != Some(handler) && !self.options.no_headers;
+        let mut out = String::new();
+        if self.last_type.is_some() && self.last_type != Some(handler) && !self.options.no_headers {
+            out.push('\n');
+        }
+        let mut table = Table {
+            column_definitions: columns
+                .into_iter()
+                .map(|n| TableColumnDefinition {
+                    name: n.into(),
+                    type_: "string".into(),
+                    format: if n == "Name" {
+                        "name".into()
+                    } else {
+                        String::new()
+                    },
+                    ..Default::default()
+                })
+                .collect(),
+            rows,
+        };
+        let mut local = self.options.clone();
+        local.no_headers = !include_headers;
+        decorate_table(&mut table, &local);
+        if !event_type.is_empty() {
+            prepend_column(
+                &mut table,
+                TableColumnDefinition {
+                    name: "Event".into(),
+                    type_: "string".into(),
+                    ..Default::default()
+                },
+                &format_event_type(event_type),
+            );
+        }
+        out.push_str(&print_table(&table, &local));
+        self.last_type = Some(handler);
+        Ok(tab_format(&out))
     }
 
     /// Print a server response that must be a Table.
@@ -408,4 +474,37 @@ pub fn tab_format(input: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+/// `printObjectMeta`: NAME and AGE (`translateTimestampSince`) per object,
+/// recursing into list items (`meta.EachListItem`).
+fn object_meta_rows(obj: &Value, rows: &mut Vec<TableRow>) -> Result<()> {
+    if let Some(items) = obj.get("items").and_then(Value::as_array) {
+        if obj
+            .get("kind")
+            .and_then(Value::as_str)
+            .is_some_and(|k| k.ends_with("List"))
+        {
+            for item in items {
+                object_meta_rows(item, rows)?;
+            }
+            return Ok(());
+        }
+    }
+    let Some(meta) = obj.get("metadata") else {
+        bail!("object does not implement the Object interfaces");
+    };
+    let name = meta.get("name").and_then(Value::as_str).unwrap_or("");
+    let created = meta
+        .get("creationTimestamp")
+        .and_then(Value::as_str)
+        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        .map(|t| t.with_timezone(&chrono::Utc));
+    let age =
+        crate::commands::describe::events::translate_timestamp_since(created, chrono::Utc::now());
+    rows.push(TableRow {
+        cells: vec![Value::String(name.into()), Value::String(age)],
+        object: Some(obj.clone()),
+    });
+    Ok(())
 }
