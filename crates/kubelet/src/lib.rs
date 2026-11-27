@@ -1,4 +1,5 @@
 pub mod atomic_writer;
+pub mod certificate;
 pub mod clustertrustbundle;
 pub mod cm_helpers;
 pub mod config;

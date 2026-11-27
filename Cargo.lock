@@ -2778,6 +2778,7 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "thiserror 1.0.69",
+ "time",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -2789,6 +2790,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]
