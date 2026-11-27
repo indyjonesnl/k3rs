@@ -205,16 +205,6 @@ impl PodBuilder {
         self
     }
 
-    /// Set an arbitrary `spec.<key>`.
-    #[must_use]
-    pub fn spec_field(mut self, key: &str, value: Value) -> Self {
-        self.v["spec"]
-            .as_object_mut()
-            .expect("spec object")
-            .insert(key.to_string(), value);
-        self
-    }
-
     /// Deep-merge a fragment into the document root.
     #[must_use]
     pub fn merge(mut self, fragment: Value) -> Self {
