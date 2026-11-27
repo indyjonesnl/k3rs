@@ -3,6 +3,7 @@ pub mod endpointslice_cache;
 pub mod iptables;
 pub mod linebuffer;
 pub mod node_net;
+pub mod nodeport_addresses;
 pub mod proxy;
 pub mod serve_metrics;
 pub mod service_health;
