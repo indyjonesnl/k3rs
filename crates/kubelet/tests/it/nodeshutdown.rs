@@ -629,15 +629,23 @@ fn test_manager() {
                 assert!(manager.admit(None).admit, "{}", tc.desc);
 
                 // Send fake shutdown event
+                // The channel is a rendezvous (capacity 0): `send` returns once
+                // the manager's watch thread has received the event. Upstream
+                // wraps this in `select { case ch <- v: case <-time.After(1s) }`;
+                // a wall-clock deadline races the thread's start-up under CI
+                // load, so block instead (a lost event hangs, and the nextest
+                // slow-timeout terminates it).
                 shutdown_tx
-                    .send_timeout_compat(true)
+                    .send(true)
                     .unwrap_or_else(|_| panic!("{}: shutdown event not received", tc.desc));
 
                 // Wait for all the pods to be killed
                 let mut killed = HashMap::new();
                 for _ in 0..tc.active_pods.len() {
+                    // Blocking: kills run on spawned threads, so a 1s wall-clock
+                    // bound is a scheduling race under load, not a check.
                     let (n, g) = kill_rx
-                        .recv_timeout(secs(1))
+                        .recv()
                         .unwrap_or_else(|_| panic!("{}: pod not killed", tc.desc));
                     killed.insert(n, g);
                 }
@@ -686,28 +694,6 @@ fn test_manager() {
         }
     }
     set_system_dbus(prev);
-}
-
-/// `select { case ch <- v: case <-time.After(1s): t.Fatal() }`.
-trait SendTimeout {
-    fn send_timeout_compat(&self, v: bool) -> Result<(), ()>;
-}
-impl SendTimeout for mpsc::SyncSender<bool> {
-    fn send_timeout_compat(&self, v: bool) -> Result<(), ()> {
-        let deadline = std::time::Instant::now() + secs(1);
-        loop {
-            match self.try_send(v) {
-                Ok(()) => return Ok(()),
-                Err(mpsc::TrySendError::Full(_)) => {
-                    if std::time::Instant::now() >= deadline {
-                        return Err(());
-                    }
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-                Err(_) => return Err(()),
-            }
-        }
-    }
 }
 
 #[test]
