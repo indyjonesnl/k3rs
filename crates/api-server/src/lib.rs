@@ -188,15 +188,6 @@ pub fn prepare_tls_for_config(
     }))
 }
 
-/// Derive the cluster CA certificate PEM from an `ApiServerConfig` without
-/// starting the server.
-///
-/// Prefer [`prepare_tls_for_config`] when the same generated TLS material will
-/// be used to start the API server.
-pub fn ca_cert_pem_for_config(config: &ApiServerConfig) -> anyhow::Result<Option<String>> {
-    Ok(prepare_tls_for_config(config)?.and_then(|prepared| prepared.ca_cert_pem))
-}
-
 /// Configuration for the API server component.
 pub struct ApiServerConfig {
     pub bind_address: String,

@@ -31,21 +31,6 @@ pub fn apply_field_selector<T: Serialize>(
     Ok(())
 }
 
-/// Reject a malformed `labelSelector` the way `ListResource` does: its
-/// `metainternalversion.ParameterCodec` decode (`labels.Parse`) fails and the
-/// handler answers `errors.NewBadRequest(err.Error())`
-/// (`apiserver/pkg/endpoints/handlers/get.go`). For lists that never filter by
-/// the selector themselves (custom/external metrics).
-pub fn validate_label_selector_param(
-    params: &HashMap<String, String>,
-) -> Result<(), kubernetes_rs_common::Error> {
-    if let Some(s) = params.get("labelSelector") {
-        LabelSelector::parse(s)
-            .map_err(|e| kubernetes_rs_common::Error::BadRequest(e.to_string()))?;
-    }
-    Ok(())
-}
-
 /// Apply label selector filtering to a list of resources.
 ///
 /// Uses direct struct field access for label matching when possible,
@@ -72,31 +57,6 @@ pub fn apply_label_selector<T: Serialize>(
     }
 
     Ok(())
-}
-
-/// Apply label selector filtering using direct label access (no serialization).
-/// Use this when you have pre-extracted labels for each resource.
-pub fn apply_label_selector_direct(
-    labels_list: &mut Vec<(usize, &Option<HashMap<String, String>>)>,
-    label_selector_str: &str,
-) -> Result<Vec<usize>, kubernetes_rs_common::Error> {
-    let selector = LabelSelector::parse(label_selector_str)
-        .map_err(|e| kubernetes_rs_common::Error::BadRequest(e.to_string()))?;
-
-    let mut keep = Vec::new();
-    for (idx, labels) in labels_list {
-        let matches = if selector.is_empty() {
-            true
-        } else if let Some(labels) = labels {
-            selector.matches(labels)
-        } else {
-            selector.matches(&HashMap::new())
-        };
-        if matches {
-            keep.push(*idx);
-        }
-    }
-    Ok(keep)
 }
 
 /// Apply both field and label selector filtering to a list of resources.
