@@ -1,3 +1,4 @@
+pub mod allocation;
 pub mod atomic_writer;
 pub mod certificate;
 pub mod clustertrustbundle;
