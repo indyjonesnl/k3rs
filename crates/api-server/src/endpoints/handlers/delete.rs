@@ -95,6 +95,8 @@ pub async fn delete_resource<T: Object>(
     params: &HashMap<String, String>,
     body: &[u8],
 ) -> Result<Response> {
+    // delete.go:88, :265 `limitedReadBody`.
+    super::rest::check_body_limit(body, super::rest::MAX_REQUEST_BODY_BYTES)?;
     let options = decode_delete_options(params, body)?;
     log_delete_options(scope, &options, body);
     let ctx =
@@ -156,6 +158,8 @@ pub async fn delete_collection<T: Object>(
         ));
     }
 
+    // delete.go:88, :265 `limitedReadBody`.
+    super::rest::check_body_limit(body, super::rest::MAX_REQUEST_BODY_BYTES)?;
     let options = decode_delete_options(params, body)?;
     log_delete_options(scope, &options, body);
     let ctx =
