@@ -1,3 +1,4 @@
+pub mod endpointslice_cache;
 pub mod iptables;
 pub mod node_net;
 pub mod proxy;
