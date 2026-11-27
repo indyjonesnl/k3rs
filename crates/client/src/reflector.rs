@@ -18,7 +18,8 @@ use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 
-use crate::http::{ApiClient, KubernetesList};
+use crate::http::{ApiClient, GetError, KubernetesList};
+use crate::pager::{ListOptions, ListPage, ListPager};
 use crate::watch::{watch_stream, WatchEvent};
 
 /// One watch event paired with the resourceVersion observed on its object
@@ -242,18 +243,68 @@ impl ApiListWatch {
     }
 }
 
+/// `limit` / `continue` query parameters for one page request.
+fn page_path(path: &str, opts: &ListOptions) -> String {
+    let mut params = Vec::new();
+    if opts.limit > 0 {
+        params.push(format!("limit={}", opts.limit));
+    }
+    if !opts.continue_token.is_empty() {
+        params.push(format!("continue={}", encode_query(&opts.continue_token)));
+    }
+    if params.is_empty() {
+        return path.to_string();
+    }
+    let sep = if path.contains('?') { '&' } else { '?' };
+    format!("{path}{sep}{}", params.join("&"))
+}
+
+fn encode_query(v: &str) -> String {
+    v.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 #[async_trait::async_trait]
 impl<T: DeserializeOwned + Send + Sync + 'static> ListWatch<T> for ApiListWatch {
     async fn list(&self) -> Result<(Vec<T>, String)> {
-        let list: KubernetesList<T> = self
-            .client
-            .get(&self.path)
+        // reflector.go list(): `pager.New(...)` over the list-watcher, so the
+        // initial list is fetched in `limit`/`continue` chunks (default page
+        // size 500, Expired continuation falls back to a full list).
+        let pager = ListPager::new(|opts: ListOptions| async move {
+            let list: KubernetesList<T> = self
+                .client
+                .get(&page_path(&self.path, &opts))
+                .await
+                .map_err(|e| match e {
+                    // keep the typed Status so the pager sees `Expired`
+                    GetError::NotFound(s) => anyhow::Error::from(s),
+                    GetError::Other(e) => e,
+                })?;
+            let meta = list.metadata;
+            Ok(ListPage {
+                items: list.items,
+                resource_version: meta
+                    .as_ref()
+                    .and_then(|m| m.resource_version.clone())
+                    .unwrap_or_default(),
+                continue_token: meta.and_then(|m| m.continue_token).unwrap_or_default(),
+            })
+        });
+        let (list, _paginated) = pager
+            .list(ListOptions::default())
             .await
-            .map_err(|e| anyhow::anyhow!("list {} failed: {e}", self.path))?;
-        let rv = list
-            .metadata
-            .and_then(|m| m.resource_version)
-            .unwrap_or_else(|| "0".to_string());
+            .with_context(|| format!("list {} failed", self.path))?;
+        let rv = if list.resource_version.is_empty() {
+            "0".to_string()
+        } else {
+            list.resource_version
+        };
         Ok((list.items, rv))
     }
 
@@ -301,5 +352,34 @@ impl<T: DeserializeOwned + Send + Sync + 'static> ListWatch<T> for ApiListWatch 
             Some(Ok((out, obj_rv)))
         });
         Ok(Box::pin(mapped))
+    }
+}
+
+#[cfg(test)]
+mod pager_wiring_tests {
+    use super::*;
+
+    #[test]
+    fn pager_page_path_appends_limit_and_continue() {
+        let o = ListOptions {
+            limit: 500,
+            continue_token: "a b/c".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            page_path("/api/v1/pods", &o),
+            "/api/v1/pods?limit=500&continue=a%20b%2Fc"
+        );
+        assert_eq!(
+            page_path(
+                "/api/v1/pods?labelSelector=a%3Db",
+                &ListOptions {
+                    limit: 1,
+                    ..Default::default()
+                }
+            ),
+            "/api/v1/pods?labelSelector=a%3Db&limit=1"
+        );
+        assert_eq!(page_path("/x", &ListOptions::default()), "/x");
     }
 }
