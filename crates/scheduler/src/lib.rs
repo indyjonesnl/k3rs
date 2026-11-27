@@ -6,6 +6,7 @@ pub mod cache;
 pub mod data_plane;
 pub mod default_preemption;
 pub mod diagnosis;
+pub mod extender;
 pub mod framework;
 pub mod framework_runtime;
 pub mod fwk;
