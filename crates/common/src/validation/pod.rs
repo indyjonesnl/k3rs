@@ -577,6 +577,16 @@ fn validate_pod_spec_for(
     // `pkg/apis/core/validation/validation.go:5563` and `:5565`).
     if let Some(ref sc) = spec.security_context {
         let sc_path = fld_path.child("securityContext");
+        // `validatePodSpecSecurityContext` (validation.go:5531-5551): id
+        // ranges and shareProcessNamespace vs hostPID, before sysctls.
+        errs.extend(
+            crate::validation::pod_security_context_values::validate_pod_spec_security_context_ids(
+                Some(sc),
+                spec.share_process_namespace,
+                spec.host_pid.unwrap_or(false),
+                &sc_path,
+            ),
+        );
         errs.extend(validate_sysctls(
             sc,
             spec.host_network.unwrap_or(false),
@@ -584,6 +594,15 @@ fn validate_pod_spec_for(
             opts,
             &sc_path.child("sysctls"),
         ));
+        // `:5559` validateFSGroupChangePolicy.
+        if let Some(ref policy) = sc.fs_group_change_policy {
+            errs.extend(
+                crate::validation::pod_security_context_values::validate_fs_group_change_policy(
+                    policy,
+                    &sc_path.child("fsGroupChangePolicy"),
+                ),
+            );
+        }
         if let Some(ref sp) = sc.seccomp_profile {
             errs.extend(validate_seccomp_profile(
                 sp,
@@ -601,6 +620,15 @@ fn validate_pod_spec_for(
                 ap,
                 &sc_path.child("appArmorProfile"),
             ));
+        }
+        // `:5569` validateSupplementalGroupsPolicy.
+        if let Some(ref policy) = sc.supplemental_groups_policy {
+            errs.extend(
+                crate::validation::pod_security_context_values::validate_supplemental_groups_policy(
+                    policy,
+                    &sc_path.child("supplementalGroupsPolicy"),
+                ),
+            );
         }
         // `validatePodSpecSecurityContext` (validation.go:5573).
         if let Some(ref policy) = sc.se_linux_change_policy {

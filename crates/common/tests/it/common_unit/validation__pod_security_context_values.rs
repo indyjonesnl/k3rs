@@ -181,3 +181,50 @@ fn security_context_values_pod_level() {
     assert!(validate_pod_spec_security_context_values(Some(&ok), Some(true), false, &p).is_empty());
     assert!(validate_pod_spec_security_context_values(Some(&ok), Some(false), true, &p).is_empty());
 }
+
+/// The pod-level checks are reached through `validate_pod_spec`
+/// (`validatePodSpec` -> `validatePodSpecSecurityContext`), in upstream order.
+#[test]
+fn security_context_values_wired_into_validate_pod_spec() {
+    use kubernetes_rs_common::resources::pod::PodSpec;
+    use kubernetes_rs_common::validation::pod::validate_pod_spec;
+
+    let spec: PodSpec = serde_json::from_value(serde_json::json!({
+        "containers": [{"name": "c", "image": "i", "imagePullPolicy": "Always",
+                         "terminationMessagePolicy": "File"}],
+        "restartPolicy": "Always",
+        "dnsPolicy": "ClusterFirst",
+        "hostPID": true,
+        "shareProcessNamespace": true,
+        "securityContext": {
+            "fsGroup": -1,
+            "supplementalGroups": [-5],
+            "fsGroupChangePolicy": "Sometimes",
+            "supplementalGroupsPolicy": "Never"
+        }
+    }))
+    .unwrap();
+    let errs = validate_pod_spec(&spec, &Path::new("spec"), false, false);
+    let fields: Vec<String> = errs.iter().map(|e| e.field.clone()).collect();
+    let pos = |f: &str| {
+        fields
+            .iter()
+            .position(|x| x == f)
+            .unwrap_or_else(|| panic!("{f} in {fields:?}"))
+    };
+    assert!(
+        pos("spec.securityContext.fsGroup") < pos("spec.securityContext.supplementalGroups[0]")
+    );
+    assert!(
+        pos("spec.securityContext.supplementalGroups[0]")
+            < pos("spec.securityContext.shareProcessNamespace")
+    );
+    assert!(
+        pos("spec.securityContext.shareProcessNamespace")
+            < pos("spec.securityContext.fsGroupChangePolicy")
+    );
+    assert!(
+        pos("spec.securityContext.fsGroupChangePolicy")
+            < pos("spec.securityContext.supplementalGroupsPolicy")
+    );
+}
