@@ -2581,6 +2581,7 @@ dependencies = [
  "mimalloc",
  "pem",
  "prometheus",
+ "prost-types",
  "rand 0.9.4",
  "rcgen",
  "reqwest",
