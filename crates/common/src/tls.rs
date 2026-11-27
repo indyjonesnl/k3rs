@@ -285,53 +285,6 @@ impl TlsClientConfig {
             client_key: None,
         })
     }
-
-    /// Create client config with mTLS (client certificate authentication)
-    pub fn new_with_client_cert(
-        ca_cert_path: &str,
-        client_cert_path: &str,
-        client_key_path: &str,
-    ) -> Result<Self> {
-        let ca_pem = std::fs::read(ca_cert_path).context("Failed to read CA certificate")?;
-        let ca_cert = rustls_pemfile::certs(&mut ca_pem.as_slice())
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .context("Failed to parse CA certificate")?;
-
-        let client_cert_pem =
-            std::fs::read(client_cert_path).context("Failed to read client certificate")?;
-        let client_cert = rustls_pemfile::certs(&mut client_cert_pem.as_slice())
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .context("Failed to parse client certificate")?;
-
-        let client_key_pem = std::fs::read(client_key_path).context("Failed to read client key")?;
-        let client_key = rustls_pemfile::private_key(&mut client_key_pem.as_slice())
-            .context("Failed to read client private key")?
-            .ok_or_else(|| anyhow::anyhow!("Failed to parse client private key"))?;
-
-        Ok(TlsClientConfig {
-            ca_cert,
-            client_cert: Some(client_cert),
-            client_key: Some(client_key),
-        })
-    }
-
-    /// Create rustls client config
-    pub fn into_client_config(self) -> Result<Arc<rustls::ClientConfig>> {
-        let mut root_cert_store = rustls::RootCertStore::empty();
-        root_cert_store.add_parsable_certificates(self.ca_cert);
-
-        let config = rustls::ClientConfig::builder().with_root_certificates(root_cert_store);
-
-        let config = if let (Some(cert), Some(key)) = (self.client_cert, self.client_key) {
-            config
-                .with_client_auth_cert(cert, key)
-                .context("Failed to create client config with client auth")?
-        } else {
-            config.with_no_client_auth()
-        };
-
-        Ok(Arc::new(config))
-    }
 }
 
 /// Check that a PEM certificate chain and a PEM private key form a key pair —

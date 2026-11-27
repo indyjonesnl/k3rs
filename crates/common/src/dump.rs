@@ -243,42 +243,6 @@ pub fn decode_request_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> crate
         .map_err(|e| crate::Error::BadRequest(transform_decode_error::<T>(&e.to_string(), body)))
 }
 
-/// The structural check a typed decode would have performed, for a handler that
-/// keeps its body as an untyped `serde_json::Value`.
-///
-/// Upstream types every resource, so `{"metadata": "not-an-object"}` never
-/// reaches a handler — the decoder rejects it with `transformDecodeError` →
-/// 400/BadRequest. A handler that decodes into `Value` has no such step, so a
-/// malformed body sails past and surfaces later as a confusing validation error
-/// about a missing name (#1915; the untyped handlers themselves are #1911).
-///
-/// Checks only what every Kubernetes object declares as an object: `metadata`,
-/// `spec` and `status`. `kind` and `apiVersion` are strings and are checked
-/// where they are read.
-pub fn require_object_shape(value: &serde_json::Value, kind: &str) -> crate::Result<()> {
-    for field in ["metadata", "spec", "status"] {
-        match value.get(field) {
-            None | Some(serde_json::Value::Null) => {}
-            Some(v) if v.is_object() => {}
-            Some(v) => {
-                let got = match v {
-                    serde_json::Value::String(_) => "string",
-                    serde_json::Value::Number(_) => "number",
-                    serde_json::Value::Bool(_) => "bool",
-                    serde_json::Value::Array(_) => "array",
-                    _ => "value",
-                };
-                return Err(crate::Error::BadRequest(format!(
-                    "{kind} in version \"v1\" cannot be handled as a {kind}: \
-                     json: cannot unmarshal {got} into Go struct field {kind}.{field} \
-                     of type v1.{field}"
-                )));
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Port of upstream `transformDecodeError`
 /// (staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go:245-256).
 ///

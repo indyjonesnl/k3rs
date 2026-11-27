@@ -25,11 +25,6 @@ impl Endpoints {
             subsets,
         }
     }
-
-    /// Create empty endpoints (no ready pods yet)
-    pub fn new_empty(name: impl Into<String>) -> Self {
-        Self::new(name, vec![])
-    }
 }
 
 /// EndpointSubset is a group of addresses with a common set of ports.

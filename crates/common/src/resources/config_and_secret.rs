@@ -215,11 +215,6 @@ impl Secret {
         self
     }
 
-    pub fn with_string_data(mut self, string_data: HashMap<String, String>) -> Self {
-        self.string_data = Some(string_data);
-        self
-    }
-
     pub fn with_immutable(mut self, immutable: bool) -> Self {
         self.immutable = Some(immutable);
         self
