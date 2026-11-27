@@ -7,9 +7,9 @@
 //! (:9384), `ValidateSecurityContext` (:8358) and `ValidateProcMountType`
 //! (:8728).
 //!
-//! Not ported here (separate helpers upstream, see backlog task
-//! common-P1-04b): sysctls, seccompProfile, windowsOptions, appArmorProfile,
-//! seLinuxChangePolicy. Nothing calls these functions yet.
+//! The pod-level checks are called from `validate_pod_spec_for` (pod.rs) in
+//! upstream's order; sysctls, seccomp, windowsOptions, appArmor and
+//! seLinuxChangePolicy live next to it in pod.rs.
 
 use crate::resources::pod::{PodSecurityContext, SecurityContext};
 use crate::validation::field::{Error, ErrorList, Path};
@@ -59,8 +59,43 @@ pub fn validate_proc_mount_type(fld_path: &Path, proc_mount: &str) -> Option<Err
 /// The value-level checks of `validatePodSpecSecurityContext`
 /// (validation.go:5527-5576). `share_process_namespace` and `host_pid` live
 /// on the internal PodSecurityContext upstream; here they come from the
-/// PodSpec.
+/// PodSpec. Callers that interleave the other sub-validators in upstream's
+/// order use [`validate_pod_spec_security_context_ids`] and the individual
+/// policy validators instead.
 pub fn validate_pod_spec_security_context_values(
+    security_context: Option<&PodSecurityContext>,
+    share_process_namespace: Option<bool>,
+    host_pid: bool,
+    fld_path: &Path,
+) -> ErrorList {
+    let mut errs = validate_pod_spec_security_context_ids(
+        security_context,
+        share_process_namespace,
+        host_pid,
+        fld_path,
+    );
+    let Some(sc) = security_context else {
+        return errs;
+    };
+    if let Some(p) = &sc.fs_group_change_policy {
+        errs.extend(validate_fs_group_change_policy(
+            p,
+            &fld_path.child("fsGroupChangePolicy"),
+        ));
+    }
+    if let Some(p) = &sc.supplemental_groups_policy {
+        errs.extend(validate_supplemental_groups_policy(
+            p,
+            &fld_path.child("supplementalGroupsPolicy"),
+        ));
+    }
+    errs
+}
+
+/// The first group of `validatePodSpecSecurityContext` (validation.go:5531-5551):
+/// fsGroup, runAsUser, runAsGroup, supplementalGroups ranges and the
+/// shareProcessNamespace/hostPID conflict.
+pub fn validate_pod_spec_security_context_ids(
     security_context: Option<&PodSecurityContext>,
     share_process_namespace: Option<bool>,
     host_pid: bool,
@@ -99,18 +134,6 @@ pub fn validate_pod_spec_security_context_values(
             &fld_path.child("shareProcessNamespace"),
             true,
             "ShareProcessNamespace and HostPID cannot both be enabled",
-        ));
-    }
-    if let Some(p) = &sc.fs_group_change_policy {
-        errs.extend(validate_fs_group_change_policy(
-            p,
-            &fld_path.child("fsGroupChangePolicy"),
-        ));
-    }
-    if let Some(p) = &sc.supplemental_groups_policy {
-        errs.extend(validate_supplemental_groups_policy(
-            p,
-            &fld_path.child("supplementalGroupsPolicy"),
         ));
     }
     errs
