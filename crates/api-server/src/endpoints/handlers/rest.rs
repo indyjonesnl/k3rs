@@ -18,6 +18,59 @@ use crate::registry::rest::{Object, RequestContext, RestStorage};
 use crate::ssa::{ApplyError, ApplyOptions, ApplyOutcome};
 use crate::state::ApiServerState;
 
+/// `MaxRequestBodyBytes` default: 3 MiB, "the same as etcd's maximum request
+/// size" (staging/src/k8s.io/apiserver/pkg/server/config.go:253, :466).
+pub const MAX_REQUEST_BODY_BYTES: i64 = 3 * 1024 * 1024;
+
+/// `errors.NewRequestEntityTooLargeError` (apimachinery/pkg/api/errors/
+/// errors.go): 413, reason `RequestEntityTooLarge`, message
+/// `Request entity too large: <message>`.
+pub fn request_entity_too_large_error(message: &str) -> Error {
+    Error::Status(Box::new(kubernetes_rs_common::types::Status::failure(
+        format!("Request entity too large: {message}"),
+        "RequestEntityTooLarge",
+        413,
+    )))
+}
+
+/// The size check of `limitedReadBody` (rest.go:372-390) for a body that is
+/// already buffered: a body of more than `limit` bytes is refused with
+/// `limit is <limit>`; a `limit <= 0` reads without bound. Fails closed.
+pub fn check_body_limit(body: &[u8], limit: i64) -> Result<()> {
+    if limit > 0 && body.len() as u64 > limit as u64 {
+        return Err(request_entity_too_large_error(&format!("limit is {limit}")));
+    }
+    Ok(())
+}
+
+/// Port of `limitedReadBody` (rest.go:372-390): read at most `limit + 1`
+/// bytes of the request body and refuse it with 413 when it holds more than
+/// `limit`. The stream is not read past `limit + 1` bytes, so an oversized
+/// body is never buffered whole. `limit <= 0` reads the whole body.
+pub async fn limited_read_body(body: axum::body::Body, limit: i64) -> Result<bytes::Bytes> {
+    use futures::StreamExt;
+    if limit <= 0 {
+        return axum::body::to_bytes(body, usize::MAX)
+            .await
+            .map_err(|e| Error::BadRequest(e.to_string()));
+    }
+    let cap = limit as usize + 1;
+    let mut stream = body.into_data_stream();
+    let mut data = Vec::new();
+    while data.len() < cap {
+        match stream.next().await {
+            Some(Ok(chunk)) => {
+                let take = chunk.len().min(cap - data.len());
+                data.extend_from_slice(&chunk[..take]);
+            }
+            Some(Err(e)) => return Err(Error::BadRequest(e.to_string())),
+            None => break,
+        }
+    }
+    check_body_limit(&data, limit)?;
+    Ok(bytes::Bytes::from(data))
+}
+
 /// A resource's server-side apply: merge an apply configuration into the
 /// live object (or into nothing, on create). Upstream's is the one
 /// schema-driven `FieldManager.Apply`; ours is per resource until the

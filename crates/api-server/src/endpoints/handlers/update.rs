@@ -48,6 +48,8 @@ pub async fn update_resource<T: Object>(
     params: &HashMap<String, String>,
     body: &[u8],
 ) -> Result<Response> {
+    // rest.go:372 `limitedReadBody` via create.go/update.go/delete.go.
+    super::rest::check_body_limit(body, super::rest::MAX_REQUEST_BODY_BYTES)?;
     let options = checked_update_options(params)?;
     let dry_run = is_dry_run(options.dry_run.as_deref());
 

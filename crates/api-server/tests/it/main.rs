@@ -217,6 +217,7 @@ mod kubelet_serving_ca_test;
 mod lease_handler_test;
 mod lease_store_test;
 mod legacy_sa_token_test;
+mod limited_read_body_test;
 mod limitrange_handler_test;
 mod limitrange_pdb_update_validation_test;
 mod list_empty_items_router_test;
