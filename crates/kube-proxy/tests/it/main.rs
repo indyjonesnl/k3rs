@@ -15,6 +15,7 @@ mod conformance_network_services_proxy;
 mod conntrack_cleanup;
 mod endpointslice_cache_test;
 mod hostport_test;
+mod linebuffer_test;
 mod metrics_encoding;
 mod node_net_cni_routes;
 mod proxy_health_handlers;
