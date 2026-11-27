@@ -206,6 +206,12 @@ impl Controller for Fake {
     ) -> Result<Response<ControllerExpandVolumeResponse>, Status> {
         Err(Status::unimplemented("not part of slice 1"))
     }
+    async fn controller_modify_volume(
+        &self,
+        _r: Request<ControllerModifyVolumeRequest>,
+    ) -> Result<Response<ControllerModifyVolumeResponse>, Status> {
+        Err(Status::unimplemented("not exercised"))
+    }
 }
 
 fn start(fake: Fake) -> (tempfile::TempDir, CsiControllerClient, Arc<Mutex<Recorded>>) {
