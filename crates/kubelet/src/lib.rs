@@ -55,6 +55,7 @@ pub mod sync_locks;
 pub mod sync_loop_monitor;
 pub mod sysctl;
 pub mod token_manager;
+pub mod userns;
 pub mod volume_manager;
 pub mod volume_ownership;
 pub mod volume_plugins;
