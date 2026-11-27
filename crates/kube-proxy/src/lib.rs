@@ -159,13 +159,19 @@ async fn run_proxy<S: Storage + Send + Sync + 'static>(
     // SyncLoop reports its initial update before it begins (proxier.go:533-535).
     health.updated("IPv4");
     // iptables/proxier.go:267 NewServiceHealthServer(nodeName, recorder,
-    // nodePortAddresses, healthzServer); no recorder or --nodeport-addresses
-    // yet, so listen on 0.0.0.0 (the MatchAll default).
+    // nodePortAddresses, healthzServer); no recorder yet.
+    let health_node_ips = service_health::node_ips_for_health(
+        &nodeport_addresses::NodePortAddresses::new(
+            nodeport_addresses::IpFamily::IPv4,
+            &config.nodeport_addresses,
+        ),
+        &nodeport_addresses::ProcNetworkInterfacer,
+    );
     kube_proxy.lock().await.set_service_health_server(Arc::new(
         service_health::new_std_service_health_server(
             &config.node_name,
             None,
-            vec![std::net::IpAddr::from([0, 0, 0, 0])],
+            health_node_ips,
             Arc::new(health.clone()),
         ),
     ));

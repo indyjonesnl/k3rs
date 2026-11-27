@@ -8,10 +8,9 @@
 //! 200 otherwise.
 //!
 //! Deviations, each because the Rust stack has no equivalent of the Go one:
-//! - `newServiceHealthServer` takes the already-resolved `node_ips`;
-//!   `proxyutil.NodePortAddresses` (`--nodeport-addresses`) is not ported yet,
-//!   so the caller passes `[0.0.0.0]`, upstream's default when
-//!   `nodePortAddresses.MatchAll()`.
+//! - `newServiceHealthServer` takes the already-resolved `node_ips`; the
+//!   caller computes them with [`node_ips_for_health`], which ports the
+//!   `nodePortAddresses` branch of service_health.go:62-74.
 //! - `events.EventRecorder` is the small [`EventRecorder`] trait below.
 //! - `http.Server` is an axum server on tokio; `Serve` runs on a spawned task
 //!   (the goroutine upstream) and `Close` interrupts it.
@@ -31,7 +30,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tokio::sync::Notify;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// `types.NamespacedName`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -249,6 +248,27 @@ pub fn new_service_health_server(
             services: RwLock::new(HashMap::new()),
         }),
     }
+}
+
+/// The listen addresses `newServiceHealthServer` derives from
+/// `nodePortAddresses` (service_health.go:62-74): `[0.0.0.0]` (go treats
+/// `0.0.0.0`, `::` and `` alike) unless `--nodeport-addresses` narrows it, in
+/// which case the matched node IPs; on a lookup error all addresses are used.
+pub fn node_ips_for_health(
+    npa: &crate::nodeport_addresses::NodePortAddresses,
+    nw: &dyn crate::nodeport_addresses::NetworkInterfacer,
+) -> Vec<IpAddr> {
+    let mut node_ips = vec![IpAddr::from([0, 0, 0, 0])];
+    if !npa.match_all() {
+        match npa.get_node_ips(nw) {
+            Ok(ips) => node_ips = ips,
+            Err(err) => warn!(
+                nodePortAddresses = %npa,
+                "Failed to get node ip address matching node port addresses, health check port will listen to all node addresses: {err}"
+            ),
+        }
+    }
+    node_ips
 }
 
 /// `NewServiceHealthServer` (service_health.go:87-90). `node_ips` is
@@ -759,5 +779,34 @@ mod tests {
             .unwrap()
             .contains("127.0.0.1:9376"));
         test_handler(&hcs, &nsn, 503, 0).await;
+    }
+
+    struct Fixed(Result<Vec<IpAddr>, String>);
+    impl crate::nodeport_addresses::NetworkInterfacer for Fixed {
+        fn interface_addrs(&self) -> Result<Vec<IpAddr>, String> {
+            self.0.clone()
+        }
+    }
+
+    /// service_health.go:62-74: all addresses when MatchAll, else the matched
+    /// node IPs, and all addresses again if the lookup fails.
+    #[test]
+    fn service_health_node_ips_follow_nodeport_addresses() {
+        use crate::nodeport_addresses::{IpFamily as F, NodePortAddresses as N};
+        let nw = Fixed(Ok(vec![
+            "10.1.1.1".parse().unwrap(),
+            "192.168.0.1".parse().unwrap(),
+        ]));
+        let zero: IpAddr = [0, 0, 0, 0].into();
+        assert_eq!(node_ips_for_health(&N::new(F::IPv4, &[]), &nw), vec![zero]);
+        assert_eq!(
+            node_ips_for_health(&N::new(F::IPv4, &["10.0.0.0/8".to_string()]), &nw),
+            vec!["10.1.1.1".parse::<IpAddr>().unwrap()]
+        );
+        let bad = Fixed(Err("boom".into()));
+        assert_eq!(
+            node_ips_for_health(&N::new(F::IPv4, &["10.0.0.0/8".to_string()]), &bad),
+            vec![zero]
+        );
     }
 }
