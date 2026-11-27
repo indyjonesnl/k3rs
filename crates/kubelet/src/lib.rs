@@ -22,6 +22,7 @@ pub mod image_manager;
 pub mod kubelet;
 pub mod labels;
 pub mod lifecycle;
+pub mod lifecycle_predicate;
 pub mod node_ip;
 pub mod node_log_query;
 pub mod node_status;
