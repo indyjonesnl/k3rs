@@ -19,4 +19,5 @@ mod metrics_encoding;
 mod node_net_cni_routes;
 mod proxy_health_handlers;
 mod serve_metrics_handlers;
+mod service_change_tracker_test;
 mod svc_maps;

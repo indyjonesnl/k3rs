@@ -5,6 +5,7 @@ pub mod node_net;
 pub mod proxy;
 pub mod serve_metrics;
 pub mod service_health;
+pub mod service_map;
 pub mod svc_maps;
 
 use futures::StreamExt;
