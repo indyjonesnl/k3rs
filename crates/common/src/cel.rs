@@ -3,6 +3,7 @@
 // This module provides CEL expression evaluation for ValidatingAdmissionPolicy
 
 use crate::cel_struct::{self, CompiledExpression};
+use crate::resources::crd::{JSONSchemaProps, JSONSchemaPropsOrArray, JSONSchemaPropsOrBool};
 use anyhow::{anyhow, Result};
 use cel::{
     objects::{Key, Map, OptionalValue},
@@ -397,6 +398,35 @@ impl CELContext {
         Ok(())
     }
 
+    /// Like [`Self::add_json_variable`] but converts `value` with its
+    /// structural schema ([`json_to_cel_value_with_schema`]).
+    pub fn add_json_variable_with_schema(
+        &mut self,
+        name: &str,
+        value: &serde_json::Value,
+        schema: &JSONSchemaProps,
+    ) -> Result<()> {
+        let cel_value = json_to_cel_value_with_schema(value, schema)?;
+        self.variables.insert(name.to_string(), cel_value);
+        Ok(())
+    }
+
+    /// Like [`Self::add_optional_json_variable`] with schema-aware conversion.
+    pub fn add_optional_json_variable_with_schema(
+        &mut self,
+        name: &str,
+        value: Option<&serde_json::Value>,
+        schema: &JSONSchemaProps,
+    ) -> Result<()> {
+        let opt = match value {
+            Some(v) => OptionalValue::of(json_to_cel_value_with_schema(v, schema)?),
+            None => OptionalValue::none(),
+        };
+        self.variables
+            .insert(name.to_string(), Value::Opaque(Arc::new(opt)));
+        Ok(())
+    }
+
     /// Add a JSON value as a variable (converts to CEL Value)
     pub fn add_json_variable(&mut self, name: &str, value: &serde_json::Value) -> Result<()> {
         let cel_value = json_to_cel_value(value)?;
@@ -440,5 +470,153 @@ pub fn json_to_cel_value(value: &serde_json::Value) -> Result<Value> {
             }
             Ok(Value::Map(Map { map: Arc::new(map) }))
         }
+    }
+}
+
+/// Schema-aware conversion of an unstructured value to a CEL value. Port of
+/// `UnstructuredToVal`
+/// (`staging/src/k8s.io/apiserver/pkg/cel/common/valuesunstructured.go:38-210`):
+/// `x-kubernetes-int-or-string` is a string or an int; `string` with format
+/// `duration` / `date` / `date-time` / `byte` becomes a CEL duration /
+/// timestamp / timestamp / bytes; `number` is a double (whole numbers
+/// included); objects and arrays are converted member by member with their
+/// property / `additionalProperties` / `items` schema. Type mismatches are
+/// errors, with upstream's messages.
+///
+/// Deliberate differences, each leniency rather than new behaviour:
+/// - `null` converts to CEL null regardless of `nullable` (upstream errors
+///   for `nullable=false`; nulls are pruned before validation here).
+/// - Members with no schema (unknown keys, schemaless nodes, nodes marked
+///   `x-kubernetes-preserve-unknown-fields`) convert schema-blind, where
+///   upstream wraps them in an opaque `unknownPreserved` value.
+/// - `x-kubernetes-list-type` map/set list equality semantics are not
+///   modelled; lists are plain CEL lists.
+/// - `duration` accepts what Go's `time.ParseDuration` accepts; strfmt's
+///   extra units (`d`, `w`, long names) are not supported yet.
+pub fn json_to_cel_value_with_schema(
+    value: &serde_json::Value,
+    schema: &JSONSchemaProps,
+) -> Result<Value> {
+    use serde_json::Value as J;
+    if value.is_null() {
+        return Ok(Value::Null);
+    }
+    if schema.x_kubernetes_int_or_string == Some(true) {
+        return match value {
+            J::String(s) => Ok(Value::String(Arc::new(s.clone()))),
+            J::Number(n) if n.as_i64().is_some() => Ok(Value::Int(n.as_i64().unwrap())),
+            _ => Err(anyhow!(
+                "invalid data, expected XIntOrString value to be either a string or integer"
+            )),
+        };
+    }
+    let type_name = |v: &J| match v {
+        J::Null => "<nil>",
+        J::Bool(_) => "bool",
+        J::Number(n) if n.is_f64() => "float64",
+        J::Number(_) => "int64",
+        J::String(_) => "string",
+        J::Array(_) => "[]interface {}",
+        J::Object(_) => "map[string]interface {}",
+    };
+    match schema.type_.as_deref().unwrap_or("") {
+        "object" => {
+            let obj = value.as_object().ok_or_else(|| {
+                anyhow!("invalid data, expected a map for the provided schema with type=object")
+            })?;
+            let addl = match schema.additional_properties.as_deref() {
+                Some(JSONSchemaPropsOrBool::Schema(s)) => Some(s),
+                _ => None,
+            };
+            let mut map = HashMap::new();
+            for (k, v) in obj {
+                let child = schema.properties.as_ref().and_then(|p| p.get(k)).or(
+                    if schema.properties.is_none() {
+                        addl
+                    } else {
+                        None
+                    },
+                );
+                let cv = match child {
+                    Some(cs) => json_to_cel_value_with_schema(v, cs)?,
+                    None => json_to_cel_value(v)?,
+                };
+                map.insert(Key::String(Arc::new(k.clone())), cv);
+            }
+            Ok(Value::Map(Map { map: Arc::new(map) }))
+        }
+        "array" => {
+            let arr = value.as_array().ok_or_else(|| {
+                anyhow!("invalid data, expected an array for the provided schema with type=array")
+            })?;
+            let items = match schema.items.as_deref() {
+                Some(JSONSchemaPropsOrArray::Schema(s)) => s,
+                _ => {
+                    return Err(anyhow!(
+                        "invalid array type, expected Items with a non-empty Schema"
+                    ))
+                }
+            };
+            let vals: Result<Vec<Value>> = arr
+                .iter()
+                .map(|v| json_to_cel_value_with_schema(v, items))
+                .collect();
+            Ok(Value::List(Arc::new(vals?)))
+        }
+        "string" => {
+            let s = value.as_str().ok_or_else(|| {
+                anyhow!("invalid data, expected string, got {}", type_name(value))
+            })?;
+            match schema.format.as_deref().unwrap_or("") {
+                "duration" => {
+                    let nanos = crate::go_duration::parse_go_duration(s)
+                        .map_err(|e| anyhow!("Invalid duration {s}: {e}"))?;
+                    Ok(Value::Duration(chrono::Duration::nanoseconds(nanos)))
+                }
+                "date" => {
+                    let d = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                        .map_err(|e| anyhow!("Invalid date formatted string {s}: {e}"))?;
+                    let dt = d.and_hms_opt(0, 0, 0).expect("midnight is valid").and_utc();
+                    Ok(Value::Timestamp(dt.fixed_offset()))
+                }
+                "date-time" => {
+                    let dt = chrono::DateTime::parse_from_rfc3339(s)
+                        .map_err(|e| anyhow!("Invalid date-time formatted string {s}: {e}"))?;
+                    Ok(Value::Timestamp(dt))
+                }
+                "byte" => {
+                    use base64::Engine as _;
+                    let b = base64::engine::general_purpose::STANDARD
+                        .decode(s)
+                        .map_err(|e| anyhow!("Invalid byte formatted string {s}: {e}"))?;
+                    Ok(Value::Bytes(Arc::new(b)))
+                }
+                _ => Ok(Value::String(Arc::new(s.to_string()))),
+            }
+        }
+        "number" => match value {
+            J::Number(n) => Ok(Value::Float(n.as_f64().unwrap_or(f64::NAN))),
+            _ => Err(anyhow!(
+                "invalid data, expected float, got {}",
+                type_name(value)
+            )),
+        },
+        "integer" => match value {
+            J::Number(n) if n.is_i64() => Ok(Value::Int(n.as_i64().unwrap())),
+            J::Number(n) if n.is_u64() => Ok(Value::UInt(n.as_u64().unwrap())),
+            _ => Err(anyhow!(
+                "invalid data, expected int, got {}",
+                type_name(value)
+            )),
+        },
+        "boolean" => match value {
+            J::Bool(b) => Ok(Value::Bool(*b)),
+            _ => Err(anyhow!(
+                "invalid data, expected bool, got {}",
+                type_name(value)
+            )),
+        },
+        // No type: x-kubernetes-preserve-unknown-fields or an untyped node.
+        _ => json_to_cel_value(value),
     }
 }

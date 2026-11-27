@@ -18,6 +18,7 @@ mod cel_openapi_resolver;
 mod cel_output_types;
 mod cel_policy_types;
 mod cel_schema_types;
+mod cel_schema_values;
 mod cel_struct_literals_test;
 mod common_unit;
 mod crd_jsonschemaprops_roundtrip_test;
