@@ -10,6 +10,7 @@
 mod apply_tests;
 mod auth_tests;
 mod command_tests;
+mod config_flags_tests;
 mod describe_tests;
 mod drain_tests;
 mod exec_attach_portforward_tests;
