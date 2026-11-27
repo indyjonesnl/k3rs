@@ -91,6 +91,7 @@ mod validation_pvc_update;
 mod validation_rbac;
 mod validation_replicaset;
 mod validation_replicationcontroller;
+mod validation_resource_divisor;
 mod validation_resourcequota;
 mod validation_resourcequota_update;
 mod validation_runtimeclass;
