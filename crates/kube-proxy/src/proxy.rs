@@ -36,7 +36,27 @@ impl<S: Storage> KubeProxy<S> {
         nodeport_range: String,
         node_name: String,
     ) -> Result<Self> {
-        let iptables = IptablesManager::new(cluster_cidr, nodeport_range);
+        Self::new_with_nodeport_addresses(
+            storage,
+            cluster_cidr,
+            nodeport_range,
+            node_name,
+            &[],
+            true,
+        )
+    }
+
+    /// [`Self::new`] with `--nodeport-addresses` / `--iptables-localhost-nodeports`.
+    pub fn new_with_nodeport_addresses(
+        storage: Arc<S>,
+        cluster_cidr: String,
+        nodeport_range: String,
+        node_name: String,
+        nodeport_addresses: &[String],
+        localhost_nodeports: bool,
+    ) -> Result<Self> {
+        let iptables = IptablesManager::new(cluster_cidr, nodeport_range)
+            .with_nodeport_addresses(nodeport_addresses, localhost_nodeports);
         iptables.initialize()?;
 
         Ok(Self {

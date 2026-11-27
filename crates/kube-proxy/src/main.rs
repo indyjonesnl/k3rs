@@ -106,6 +106,16 @@ struct Args {
     #[arg(long, default_value = "0.0.0.0:10256")]
     healthz_bind_address: String,
 
+    /// CIDRs of node addresses NodePort services listen on (options.go
+    /// `--nodeport-addresses`); empty means all local addresses.
+    #[arg(long, value_delimiter = ',')]
+    nodeport_addresses: Vec<String>,
+
+    /// Create the route_localnet-based rules that make NodePorts reachable on
+    /// 127.0.0.0/8 (`--iptables-localhost-nodeports`, options.go; default true).
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    iptables_localhost_nodeports: bool,
+
     /// Exit after a diagnostic listener bind failure (options.go:120).
     #[arg(long)]
     bind_address_hard_fail: bool,
@@ -164,6 +174,8 @@ async fn main() -> Result<()> {
         metrics_bind_address: kubernetes_rs_kube_proxy::serve_metrics::default_metrics_bind_address(
             &args.metrics_bind_address,
         ),
+        nodeport_addresses: args.nodeport_addresses.clone(),
+        localhost_nodeports: args.iptables_localhost_nodeports,
     };
 
     let diagnostics = kubernetes_rs_kube_proxy::serve_metrics::DiagnosticsOptions {

@@ -42,6 +42,11 @@ pub struct KubeProxyConfig {
     /// server listens; empty disables it. Defaults per
     /// [`serve_metrics::default_metrics_bind_address`].
     pub metrics_bind_address: String,
+    /// `--nodeport-addresses` (KubeProxyConfiguration.NodePortAddresses): CIDRs
+    /// of both families; empty means all local addresses.
+    pub nodeport_addresses: Vec<String>,
+    /// `--iptables-localhost-nodeports` (`iptables.localhostNodePorts`, default true).
+    pub localhost_nodeports: bool,
 }
 
 impl Default for KubeProxyConfig {
@@ -53,6 +58,8 @@ impl Default for KubeProxyConfig {
             nodeport_range: iptables::DEFAULT_NODEPORT_RANGE.to_string(),
             node_net: None,
             metrics_bind_address: serve_metrics::default_metrics_bind_address(""),
+            nodeport_addresses: Vec::new(),
+            localhost_nodeports: true,
         }
     }
 }
@@ -121,12 +128,16 @@ async fn run_proxy<S: Storage + Send + Sync + 'static>(
         }
     }
 
-    let kube_proxy = Arc::new(tokio::sync::Mutex::new(KubeProxy::new(
-        Arc::clone(&storage),
-        config.cluster_cidr.clone(),
-        config.nodeport_range.clone(),
-        config.node_name.clone(),
-    )?));
+    let kube_proxy = Arc::new(tokio::sync::Mutex::new(
+        KubeProxy::new_with_nodeport_addresses(
+            Arc::clone(&storage),
+            config.cluster_cidr.clone(),
+            config.nodeport_range.clone(),
+            config.node_name.clone(),
+            &config.nodeport_addresses,
+            config.localhost_nodeports,
+        )?,
+    ));
 
     // newProxyServer's configz registration is fatal on duplicate names and
     // stores the effective component config (server.go:189-193). Serialize the
