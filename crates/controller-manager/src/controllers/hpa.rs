@@ -554,6 +554,9 @@ impl<S: Storage + 'static> HorizontalPodAutoscalerController<S> {
         let selector = self
             .target_selector(namespace, &hpa.spec.scale_target_ref)
             .await;
+        // horizontal.go tolerancesForHpa (--horizontal-pod-autoscaler-tolerance
+        // default 0.1, overridden by spec.behavior.{scaleUp,scaleDown}.tolerance).
+        let tolerances = calc::tolerances_for_hpa(hpa.spec.behavior.as_ref(), calc::TOLERANCE);
         match metric.metric_type.as_str() {
             "Resource" => {
                 let r = metric
@@ -574,7 +577,8 @@ impl<S: Storage + 'static> HorizontalPodAutoscalerController<S> {
                 } else {
                     info
                 };
-                let (replicas, avg) = calc::get_resource_replicas(&info, current_replicas, target)?;
+                let (replicas, avg) =
+                    calc::get_resource_replicas(&info, current_replicas, target, tolerances)?;
                 let status = MetricStatus {
                     metric_type: "Resource".into(),
                     resource: Some(ResourceMetricStatus {
@@ -601,7 +605,8 @@ impl<S: Storage + 'static> HorizontalPodAutoscalerController<S> {
                     .metrics_client
                     .get_container_resource_metric(&cr.name, &cr.container, namespace, &selector)
                     .await?;
-                let (replicas, avg) = calc::get_resource_replicas(&info, current_replicas, target)?;
+                let (replicas, avg) =
+                    calc::get_resource_replicas(&info, current_replicas, target, tolerances)?;
                 let status = MetricStatus {
                     metric_type: "ContainerResource".into(),
                     resource: None,
@@ -643,7 +648,8 @@ impl<S: Storage + 'static> HorizontalPodAutoscalerController<S> {
                     .await
                     // replica_calculator.go:185 `GetMetricReplicas`.
                     .map_err(|e| anyhow::anyhow!("unable to get metric {}: {e}", p.metric.name))?;
-                let (replicas, avg) = calc::get_metric_replicas(&info, current_replicas, target)?;
+                let (replicas, avg) =
+                    calc::get_metric_replicas(&info, current_replicas, target, tolerances)?;
                 let status = MetricStatus {
                     metric_type: "Pods".into(),
                     resource: None,
@@ -697,7 +703,7 @@ impl<S: Storage + 'static> HorizontalPodAutoscalerController<S> {
                         )
                     })?;
                 let (replicas, v) =
-                    calc::get_object_metric_replicas(value, current_replicas, target)?;
+                    calc::get_object_metric_replicas(value, current_replicas, target, tolerances)?;
                 // Report the field matching the target type: AverageValue
                 // targets report currentAverageValue = value / replicas; Value
                 // targets report the raw value. (k8s ObjectMetricStatus.)
@@ -757,7 +763,12 @@ impl<S: Storage + 'static> HorizontalPodAutoscalerController<S> {
                             go_label_selector_string(e.metric.selector.as_ref())
                         )
                     })?;
-                let (replicas, sum) = calc::get_external_metric_replicas(&values, target)?;
+                let (replicas, sum) = calc::get_external_metric_replicas(
+                    &values,
+                    current_replicas,
+                    target,
+                    tolerances,
+                )?;
                 // k8s reports currentAverageValue = sum / currentReplicas for an
                 // AverageValue target (the scaling math already used the per-pod
                 // target); the raw sum would mislabel the status field.
