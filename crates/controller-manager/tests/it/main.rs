@@ -44,6 +44,7 @@ mod endpointslice_mirroring_retry_test;
 mod endpointslice_trigger_time_test;
 mod garbage_collector_idempotency_test;
 mod garbage_collector_test;
+mod gc_graph_test;
 mod gc_monitors_test;
 mod hpa_controller_test;
 mod ingress_controller_extended_test;
