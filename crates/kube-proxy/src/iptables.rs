@@ -364,6 +364,14 @@ pub struct IptablesManager {
     /// Chain names we create
     services_chain: String,
     nodeports_chain: String,
+    /// `--nodeport-addresses` for this manager's family
+    /// (`proxier.nodePortAddresses`, iptables/proxier.go:201).
+    nodeport_addresses: crate::nodeport_addresses::NodePortAddresses,
+    /// `--iptables-localhost-nodeports` (proxier.go:195); see
+    /// [`Self::localhost_nodeports`] for the effective value.
+    localhost_nodeports: bool,
+    /// Host interface addresses (`proxier.networkInterfacer`).
+    network: std::sync::Arc<dyn crate::nodeport_addresses::NetworkInterfacer + Send + Sync>,
     /// Chain for pod hostPort DNAT (KUBE-HOSTPORTS).
     /// Populated by `build_hostport_rules` from the pod list each sync.
     hostports_chain: String,
@@ -428,10 +436,70 @@ impl IptablesManager {
         ]
     }
 
+    /// Apply `--nodeport-addresses` and `--iptables-localhost-nodeports`
+    /// (`NewProxier`, iptables/proxier.go:234-238): the CIDRs are filtered to
+    /// this manager's family, and localhost NodePorts are forced off when
+    /// they cannot contain an IPv4 loopback address.
+    pub fn with_nodeport_addresses(mut self, cidrs: &[String], localhost_nodeports: bool) -> Self {
+        let family = if self.ip_family == IpFamily::V6 {
+            crate::nodeport_addresses::IpFamily::IPv6
+        } else {
+            crate::nodeport_addresses::IpFamily::IPv4
+        };
+        self.nodeport_addresses = crate::nodeport_addresses::NodePortAddresses::new(family, cidrs);
+        self.localhost_nodeports = localhost_nodeports;
+        self
+    }
+
+    /// Replace the host interface lookup (tests).
+    pub fn with_network_interfacer(
+        mut self,
+        nw: std::sync::Arc<dyn crate::nodeport_addresses::NetworkInterfacer + Send + Sync>,
+    ) -> Self {
+        self.network = nw;
+        self
+    }
+
+    /// Effective `localhostNodePorts` (proxier.go:236-238).
+    pub fn localhost_nodeports(&self) -> bool {
+        crate::nodeport_addresses::effective_localhost_nodeports(
+            &self.nodeport_addresses,
+            self.localhost_nodeports,
+        )
+    }
+
+    /// Destination matches of the NodePorts tail-call, see
+    /// [`crate::nodeport_addresses::nodeport_destinations`].
+    pub fn nodeport_jump_destinations(&self) -> Vec<Vec<String>> {
+        let family = if self.ip_family == IpFamily::V6 {
+            crate::nodeport_addresses::IpFamily::IPv6
+        } else {
+            crate::nodeport_addresses::IpFamily::IPv4
+        };
+        let mut errors = Vec::new();
+        let rules = crate::nodeport_addresses::nodeport_destinations(
+            &self.nodeport_addresses,
+            family,
+            self.localhost_nodeports(),
+            self.network.as_ref(),
+            &mut errors,
+        );
+        for e in errors {
+            warn!("{e}");
+        }
+        rules
+    }
+
     pub fn for_testing(recent_available: bool) -> Self {
         Self {
             services_chain: "KUBERNETES_RS-SERVICES".to_string(),
             nodeports_chain: "KUBERNETES_RS-NODEPORTS".to_string(),
+            nodeport_addresses: crate::nodeport_addresses::NodePortAddresses::new(
+                crate::nodeport_addresses::IpFamily::IPv4,
+                &[],
+            ),
+            localhost_nodeports: true,
+            network: std::sync::Arc::new(crate::nodeport_addresses::ProcNetworkInterfacer),
             hostports_chain: "KUBE-HOSTPORTS".to_string(),
             ip_family: IpFamily::V4,
             iptables_cmd: "/usr/sbin/iptables".to_string(),
@@ -499,6 +567,16 @@ impl IptablesManager {
         Self {
             services_chain: "KUBERNETES_RS-SERVICES".to_string(),
             nodeports_chain: "KUBERNETES_RS-NODEPORTS".to_string(),
+            nodeport_addresses: crate::nodeport_addresses::NodePortAddresses::new(
+                if ip_family == IpFamily::V6 {
+                    crate::nodeport_addresses::IpFamily::IPv6
+                } else {
+                    crate::nodeport_addresses::IpFamily::IPv4
+                },
+                &[],
+            ),
+            localhost_nodeports: true,
+            network: std::sync::Arc::new(crate::nodeport_addresses::ProcNetworkInterfacer),
             hostports_chain: "KUBE-HOSTPORTS".to_string(),
             ip_family,
             iptables_cmd,
@@ -533,6 +611,13 @@ impl IptablesManager {
         // localhost NodePorts and localhost hostPorts reachable.
         // K8s ref: pkg/proxy/iptables/proxier.go:240 — EnsureSysctl(sysctlRouteLocalnet, 1)
         for sysctl in Self::required_sysctls() {
+            // route_localnet is only set for localhost NodePorts
+            // (proxier.go:236-244); with --nodeport-addresses filtering out
+            // loopback, or --iptables-localhost-nodeports=false, it stays off.
+            if sysctl.ends_with("/route_localnet") && !self.localhost_nodeports() {
+                debug!("route_localnet not required: localhost NodePorts disabled");
+                continue;
+            }
             if std::path::Path::new(sysctl).exists() {
                 if let Err(e) = std::fs::write(sysctl, "1") {
                     warn!(
@@ -575,20 +660,21 @@ impl IptablesManager {
             "kubernetes service portals",
         )?;
 
-        // Add jump rules for NodePort services (both PREROUTING and OUTPUT)
-        self.ensure_jump_rule(
-            "nat",
-            "PREROUTING",
-            &self.nodeports_chain,
-            "kubernetes service node ports",
-        )?;
-
-        self.ensure_jump_rule(
-            "nat",
-            "OUTPUT",
-            &self.nodeports_chain,
-            "kubernetes service node ports",
-        )?;
+        // Tail-call into the NodePorts chain for traffic addressed to a node
+        // address (proxier.go:1389-1427): `--dst-type LOCAL` when
+        // --nodeport-addresses matches all, else one `-d <ip>` rule per node IP.
+        for from in ["PREROUTING", "OUTPUT"] {
+            self.remove_all_jump_rules("nat", from, &self.nodeports_chain);
+            for dst in self.nodeport_jump_destinations() {
+                self.ensure_jump_rule_with_match(
+                    "nat",
+                    from,
+                    &self.nodeports_chain,
+                    "kubernetes service node ports",
+                    &dst,
+                )?;
+            }
+        }
 
         // KUBE-HOSTPORTS: DNAT rules for pod hostPorts.
         // Upstream K8s installs a per-host KUBE-HOSTPORTS chain hit from both
@@ -1800,8 +1886,8 @@ impl IptablesManager {
         // Remove jump rules
         self.remove_jump_rule("nat", "PREROUTING", &self.services_chain)?;
         self.remove_jump_rule("nat", "OUTPUT", &self.services_chain)?;
-        self.remove_jump_rule("nat", "PREROUTING", &self.nodeports_chain)?;
-        self.remove_jump_rule("nat", "OUTPUT", &self.nodeports_chain)?;
+        self.remove_all_jump_rules("nat", "PREROUTING", &self.nodeports_chain);
+        self.remove_all_jump_rules("nat", "OUTPUT", &self.nodeports_chain);
         // KUBE-FORWARD lives in the filter table — initialize() jumps to it
         // from FORWARD and OUTPUT (see ensure_jump_rule call sites). Without
         // these two removals a force-killed kube-proxy leaves the jumps on
@@ -1936,6 +2022,64 @@ impl IptablesManager {
 
         info!("Kube-proxy iptables cleanup complete");
         Ok(())
+    }
+
+    /// `ensure_jump_rule` with extra match arguments (a destination match).
+    fn ensure_jump_rule_with_match(
+        &self,
+        table: &str,
+        from_chain: &str,
+        to_chain: &str,
+        comment: &str,
+        matches: &[String],
+    ) -> Result<()> {
+        let mut spec: Vec<String> = matches.to_vec();
+        spec.extend(
+            ["-j", to_chain, "-m", "comment", "--comment", comment]
+                .iter()
+                .map(|x| x.to_string()),
+        );
+        let check = Command::new(&self.iptables_cmd)
+            .args(["-t", table, "-C", from_chain])
+            .args(&spec)
+            .output();
+        if matches!(check, Ok(ref o) if o.status.success()) {
+            return Ok(());
+        }
+        let out = Command::new(&self.iptables_cmd)
+            .args(["-t", table, "-I", from_chain, "1"])
+            .args(&spec)
+            .output()
+            .context("failed to run iptables -I")?;
+        if !out.status.success() {
+            anyhow::bail!(
+                "failed to add jump rule {from_chain} -> {to_chain}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        Ok(())
+    }
+
+    /// Delete every `-j to_chain` rule in `from_chain`, whatever its match
+    /// arguments (`iptables -S` then `-D` by the printed spec).
+    fn remove_all_jump_rules(&self, table: &str, from_chain: &str, to_chain: &str) {
+        let Ok(out) = Command::new(&self.iptables_cmd)
+            .args(["-t", table, "-S", from_chain])
+            .output()
+        else {
+            return;
+        };
+        let needle = format!("-j {to_chain}");
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            if !line.starts_with("-A ") || !line.contains(&needle) {
+                continue;
+            }
+            let spec = crate::node_net::split_rule(&line.replacen("-A ", "-D ", 1));
+            let _ = Command::new(&self.iptables_cmd)
+                .args(["-t", table])
+                .args(&spec)
+                .output();
+        }
     }
 
     fn remove_jump_rule(&self, table: &str, from_chain: &str, to_chain: &str) -> Result<()> {

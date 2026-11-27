@@ -732,6 +732,8 @@ async fn async_main() -> Result<()> {
             // MetricsBindAddress default (defaults.go:52-56).
             metrics_bind_address:
                 kubernetes_rs_kube_proxy::serve_metrics::default_metrics_bind_address(""),
+            nodeport_addresses: Vec::new(),
+            localhost_nodeports: true,
         };
         tokio::spawn(async move {
             if let Err(e) = kubernetes_rs_kube_proxy::run(proxy_storage, proxy_config).await {

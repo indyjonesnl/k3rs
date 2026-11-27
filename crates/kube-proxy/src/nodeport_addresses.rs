@@ -200,3 +200,115 @@ impl fmt::Display for NodePortAddresses {
         write!(f, "[{}]", self.cidr_strings.join(" "))
     }
 }
+
+/// `NetworkInterfacer` over procfs (no extra dependency): IPv4 local
+/// addresses from `/proc/net/fib_trie` ("/32 host LOCAL" entries) and IPv6
+/// addresses from `/proc/net/if_inet6`. The kernel's local-address view is
+/// what `net.InterfaceAddrs()` reports for the host.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ProcNetworkInterfacer;
+
+impl NetworkInterfacer for ProcNetworkInterfacer {
+    fn interface_addrs(&self) -> Result<Vec<IpAddr>, String> {
+        let mut out = Vec::new();
+        let trie = std::fs::read_to_string("/proc/net/fib_trie").map_err(|e| e.to_string())?;
+        out.extend(parse_fib_trie_local(&trie));
+        // IPv6 may be disabled: a missing file is not an error.
+        if let Ok(v6) = std::fs::read_to_string("/proc/net/if_inet6") {
+            out.extend(parse_if_inet6(&v6));
+        }
+        Ok(out)
+    }
+}
+
+/// Local IPv4 addresses of a `/proc/net/fib_trie` dump: a `|-- a.b.c.d` line
+/// followed by `/32 host LOCAL`.
+pub fn parse_fib_trie_local(text: &str) -> Vec<IpAddr> {
+    let mut out = Vec::new();
+    let mut last: Option<Ipv4Addr> = None;
+    for line in text.lines() {
+        let l = line.trim();
+        if let Some(rest) = l.strip_prefix("|--") {
+            last = rest.trim().parse().ok();
+        } else if l.starts_with("/32 host LOCAL") {
+            if let Some(a) = last {
+                let ip = IpAddr::V4(a);
+                if !out.contains(&ip) {
+                    out.push(ip);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Addresses of a `/proc/net/if_inet6` dump (first column: 32 hex digits).
+pub fn parse_if_inet6(text: &str) -> Vec<IpAddr> {
+    text.lines()
+        .filter_map(|l| {
+            let hex = l.split_whitespace().next()?;
+            u128::from_str_radix(hex, 16)
+                .ok()
+                .filter(|_| hex.len() == 32)
+                .map(|v| IpAddr::V6(Ipv6Addr::from(v)))
+        })
+        .collect()
+}
+
+/// `localhostNodePorts` after `NewNodePortAddresses` is consulted
+/// (iptables/proxier.go:236-238): it is forced off when the CIDRs cannot
+/// contain an IPv4 loopback address.
+pub fn effective_localhost_nodeports(npa: &NodePortAddresses, localhost_nodeports: bool) -> bool {
+    localhost_nodeports && npa.contains_ipv4_loopback()
+}
+
+/// The destination matches of the tail-call into the NodePorts chain
+/// (iptables/proxier.go:1389-1427), one rule per entry. With a match-all
+/// CIDR it is a single `--dst-type LOCAL` rule that blocks localhost when
+/// localhost NodePorts are unsupported; otherwise one `-d <ip>` rule per
+/// matched node IP, skipping loopback addresses that cannot work. `errors`
+/// receives what upstream logs.
+pub fn nodeport_destinations(
+    npa: &NodePortAddresses,
+    family: IpFamily,
+    localhost_nodeports: bool,
+    nw: &dyn NetworkInterfacer,
+    errors: &mut Vec<String>,
+) -> Vec<Vec<String>> {
+    let is_ipv6 = family == IpFamily::IPv6;
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    if npa.match_all() {
+        let mut d = s(&["-m", "addrtype", "--dst-type", "LOCAL"]);
+        // Block localhost nodePorts if they are not supported. (For IPv6 they
+        // never work, and for IPv4 they only work with route_localnet.)
+        if is_ipv6 {
+            d.extend(s(&["!", "-d", "::1/128"]));
+        } else if !localhost_nodeports {
+            d.extend(s(&["!", "-d", "127.0.0.0/8"]));
+        }
+        return vec![d];
+    }
+    let ips = match npa.get_node_ips(nw) {
+        Ok(ips) => ips,
+        Err(e) => {
+            errors.push(format!(
+                "Failed to get node ip address matching nodeport cidrs, services with nodeport may not work as intended: {e}"
+            ));
+            Vec::new()
+        }
+    };
+    let mut rules = Vec::new();
+    for ip in ips {
+        if ip.is_loopback() {
+            if is_ipv6 {
+                errors.push(format!("--nodeport-addresses includes localhost but localhost NodePorts are not supported on IPv6: {ip}"));
+                continue;
+            } else if !localhost_nodeports {
+                errors.push(format!("--nodeport-addresses includes localhost but --iptables-localhost-nodeports=false was passed: {ip}"));
+                continue;
+            }
+        }
+        rules.push(vec!["-d".to_string(), ip.to_string()]);
+    }
+    rules
+}

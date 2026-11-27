@@ -189,3 +189,124 @@ fn nodeport_addresses_display_and_sloppy_parse() {
     let nw = Fake(ips(&["10.1.2.3"]));
     assert_eq!(npa.get_node_ips(&nw).unwrap(), ips(&["10.1.2.3"]));
 }
+
+mod iptables_wiring {
+    use super::*;
+    use kubernetes_rs_kube_proxy::iptables::IptablesManager;
+    use kubernetes_rs_kube_proxy::nodeport_addresses::{
+        effective_localhost_nodeports, nodeport_destinations, parse_fib_trie_local, parse_if_inet6,
+    };
+    use std::sync::Arc;
+
+    fn dst(
+        cidrs: &[&str],
+        family: IpFamily,
+        localhost: bool,
+        addrs: &[&str],
+    ) -> (Vec<Vec<String>>, Vec<String>) {
+        let npa = NodePortAddresses::new(family, &strs(cidrs));
+        let mut errs = vec![];
+        let r = nodeport_destinations(&npa, family, localhost, &Fake(ips(addrs)), &mut errs);
+        (r, errs)
+    }
+
+    fn v(x: &[&str]) -> Vec<String> {
+        x.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// proxier.go:1389-1402: match-all tail-calls on `--dst-type LOCAL`,
+    /// excluding localhost when it is unsupported.
+    #[test]
+    fn nodeport_addresses_match_all_destinations() {
+        let (r, _) = dst(&[], IpFamily::IPv4, true, &[]);
+        assert_eq!(r, vec![v(&["-m", "addrtype", "--dst-type", "LOCAL"])]);
+        let (r, _) = dst(&[], IpFamily::IPv4, false, &[]);
+        assert_eq!(
+            r,
+            vec![v(&[
+                "-m",
+                "addrtype",
+                "--dst-type",
+                "LOCAL",
+                "!",
+                "-d",
+                "127.0.0.0/8"
+            ])]
+        );
+        let (r, _) = dst(&[], IpFamily::IPv6, true, &[]);
+        assert_eq!(
+            r,
+            vec![v(&[
+                "-m",
+                "addrtype",
+                "--dst-type",
+                "LOCAL",
+                "!",
+                "-d",
+                "::1/128"
+            ])]
+        );
+    }
+
+    /// proxier.go:1403-1427: one `-d ip` rule per node IP, loopback skipped
+    /// (with an error) when localhost NodePorts are unsupported.
+    #[test]
+    fn nodeport_addresses_per_ip_destinations() {
+        let (r, e) = dst(
+            &["10.0.0.0/8", "127.0.0.0/8"],
+            IpFamily::IPv4,
+            true,
+            &["10.1.1.1", "127.0.0.1", "192.168.0.5"],
+        );
+        let mut got: Vec<_> = r.iter().map(|x| x[1].clone()).collect();
+        got.sort();
+        assert_eq!(got, vec!["10.1.1.1", "127.0.0.1"]);
+        assert!(e.is_empty());
+
+        let (r, e) = dst(
+            &["10.0.0.0/8", "127.0.0.0/8"],
+            IpFamily::IPv4,
+            false,
+            &["10.1.1.1", "127.0.0.1"],
+        );
+        assert_eq!(r, vec![v(&["-d", "10.1.1.1"])]);
+        assert_eq!(e.len(), 1);
+        assert!(e[0].contains("--iptables-localhost-nodeports=false"));
+
+        let (r, e) = dst(
+            &["::1/128", "2001:db8::/64"],
+            IpFamily::IPv6,
+            true,
+            &["::1", "2001:db8::1"],
+        );
+        assert_eq!(r, vec![v(&["-d", "2001:db8::1"])]);
+        assert!(e[0].contains("not supported on IPv6"));
+    }
+
+    /// proxier.go:236-238: localhostNodePorts is forced off without a
+    /// loopback CIDR.
+    #[test]
+    fn nodeport_addresses_localhost_nodeports_gating() {
+        let all = NodePortAddresses::new(IpFamily::IPv4, &[]);
+        assert!(effective_localhost_nodeports(&all, true));
+        assert!(!effective_localhost_nodeports(&all, false));
+        let narrow = NodePortAddresses::new(IpFamily::IPv4, &strs(&["10.0.0.0/8"]));
+        assert!(!effective_localhost_nodeports(&narrow, true));
+
+        let m = IptablesManager::for_testing(false)
+            .with_nodeport_addresses(&strs(&["10.0.0.0/8"]), true)
+            .with_network_interfacer(Arc::new(Fake(ips(&["10.1.2.3", "127.0.0.1"]))));
+        assert!(!m.localhost_nodeports());
+        assert_eq!(m.nodeport_jump_destinations(), vec![v(&["-d", "10.1.2.3"])]);
+        let m = IptablesManager::for_testing(false);
+        assert!(m.localhost_nodeports());
+    }
+
+    #[test]
+    fn nodeport_addresses_proc_parsers() {
+        let trie = "Main:\n  +-- 0.0.0.0/0 3 0 5\n     |-- 0.0.0.0\n        /0 universe UNICAST\n     +-- 10.0.0.0/8 2 0 2\n        |-- 10.1.2.3\n           /32 host LOCAL\n        |-- 10.255.255.255\n           /32 link BROADCAST\n     +-- 127.0.0.0/8 2 0 2\n        |-- 127.0.0.1\n           /32 host LOCAL\n";
+        assert_eq!(parse_fib_trie_local(trie), ips(&["10.1.2.3", "127.0.0.1"]));
+        let v6 = "00000000000000000000000000000001 01 80 10 80       lo\n20010db8000000000000000000000001 02 40 00 00     eth0\n";
+        assert_eq!(parse_if_inet6(v6), ips(&["::1", "2001:db8::1"]));
+    }
+}

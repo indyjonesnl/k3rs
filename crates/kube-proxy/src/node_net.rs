@@ -288,7 +288,7 @@ pub fn postrouting_hook_args() -> Vec<String> {
 }
 
 /// Split a rule body into argv, keeping a `"quoted comment"` as one argument.
-fn split_rule(rule: &str) -> Vec<String> {
+pub(crate) fn split_rule(rule: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut in_quotes = false;
