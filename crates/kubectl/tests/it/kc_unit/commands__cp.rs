@@ -304,4 +304,177 @@ mod tests {
         let result = extract_tar_to_local(dest.path().to_str().unwrap(), b"not a tar");
         assert!(result.is_err());
     }
+
+    // ---- ported from cp_test.go (release-1.35) ----
+
+    /// A tar header with a raw (unvalidated) name, like Go's tar.Header.
+    fn raw_entry(
+        tb: &mut Vec<u8>,
+        name: &str,
+        ty: tar::EntryType,
+        body: &[u8],
+        link: Option<&str>,
+    ) {
+        let mut h = tar::Header::new_gnu();
+        {
+            let g = h.as_gnu_mut().unwrap();
+            g.name[..name.len()].copy_from_slice(name.as_bytes());
+            if let Some(l) = link {
+                g.linkname[..l.len()].copy_from_slice(l.as_bytes());
+            }
+        }
+        h.set_entry_type(ty);
+        h.set_mode(0o666);
+        h.set_size(body.len() as u64);
+        h.set_cksum();
+        tb.extend_from_slice(h.as_bytes());
+        tb.extend_from_slice(body);
+        let pad = (512 - body.len() % 512) % 512;
+        tb.extend(std::iter::repeat_n(0u8, pad));
+    }
+
+    fn finish(mut tb: Vec<u8>) -> Vec<u8> {
+        tb.extend(std::iter::repeat_n(0u8, 1024));
+        tb
+    }
+
+    fn walk_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        for e in fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk_files(&p, out);
+            } else {
+                out.push(p);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cp_strip_path_shortcuts() {
+        // TestStripPathShortcuts: input is cleaned first (StripShortcuts).
+        for (input, want) in [
+            ("../foo/bar", "foo/bar"),
+            ("..\\foo\\bar", "foo/bar"),
+            ("../../foo/bar", "foo/bar"),
+            ("/tmp/one/two/../../foo/bar", "tmp/foo/bar"),
+            ("../../", ""),
+            ("../..", ""),
+            ("/tmp/one/two/../../foo/..bar", "tmp/foo/..bar"),
+            ("../...foo", "...foo"),
+            ("...foo", "...foo"),
+            ("/", ""),
+        ] {
+            let norm = input.replace('\\', "/");
+            let norm = if norm.len() > 1 && norm.ends_with('/') {
+                norm[..norm.len() - 1].to_string()
+            } else {
+                norm
+            };
+            assert_eq!(strip_path_shortcuts(&go_clean(&norm)), want, "{input}");
+        }
+    }
+
+    #[test]
+    fn test_cp_is_dest_relative() {
+        // TestIsDestRelative
+        for (base, dest, rel) in [
+            ("/dir", "/dir/../link", false),
+            ("/dir", "/dir/../../link", false),
+            ("/dir", "/link", false),
+            ("/dir", "/dir/link", true),
+            ("/dir", "/dir/int/../link", true),
+            ("dir", "dir/link", true),
+            ("dir", "dir/int/../link", true),
+            ("dir", "dir/../../link", false),
+        ] {
+            assert_eq!(is_relative(base, dest), rel, "{base} {dest}");
+        }
+    }
+
+    #[test]
+    fn test_cp_bad_tar_dotdot_stays_inside() {
+        // TestBadTar: prefix "/prefix", member escapes lexically but stays in dest.
+        let dir = tempfile::tempdir().unwrap();
+        let mut tb = Vec::new();
+        raw_entry(
+            &mut tb,
+            "/prefix/foo/bar/../../home/bburns/names.txt",
+            tar::EntryType::Regular,
+            b"Down and back",
+            None,
+        );
+        let mut errout = Vec::new();
+        untar_all("/prefix", dir.path(), finish(tb).as_slice(), &mut errout).unwrap();
+        let got = fs::read_to_string(dir.path().join("home/bburns/names.txt")).unwrap();
+        assert_eq!(got, "Down and back");
+    }
+
+    #[test]
+    fn test_cp_untar_all_escape_guard_and_symlinks() {
+        // TestUntar (subset): nothing may land outside dest, symlinks skipped.
+        let top = tempfile::tempdir().unwrap();
+        let base = top.path().join("base");
+        let mut tb = Vec::new();
+        let reg = tar::EntryType::Regular;
+        for n in [
+            "relative",
+            "../unrelative",
+            "..\\unrelative-windows",
+            "nested/nest-rel",
+            "nested/../../nest-unrelative",
+            "nested\\..\\..\\nest-unrelative",
+            "nested/again/back-link/../../../back-link-file",
+        ] {
+            raw_entry(&mut tb, n, reg, n.as_bytes(), None);
+        }
+        raw_entry(&mut tb, "link", tar::EntryType::Symlink, b"", Some("../x"));
+        raw_entry(
+            &mut tb,
+            "nested/back-link",
+            tar::EntryType::Symlink,
+            b"",
+            Some("../"),
+        );
+        raw_entry(&mut tb, "direct/dir/", tar::EntryType::Directory, b"", None);
+
+        let mut errout = Vec::new();
+        untar_all("", &base, finish(tb).as_slice(), &mut errout).unwrap();
+
+        let mut files = Vec::new();
+        walk_files(top.path(), &mut files);
+        files.sort();
+        let want: Vec<_> = ["back-link-file", "nested/nest-rel", "relative"]
+            .iter()
+            .map(|f| base.join(f))
+            .collect();
+        assert_eq!(files, want);
+        assert!(base.join("direct/dir").is_dir());
+        let warnings = String::from_utf8(errout).unwrap();
+        assert!(warnings.contains("is outside target destination, skipping"));
+        assert!(warnings.contains("warning: skipping symlink"));
+    }
+
+    #[test]
+    fn test_cp_untar_all_single_file_and_wrong_prefix() {
+        // TestUntar_SingleFile
+        let top = tempfile::tempdir().unwrap();
+        let dest = top.path().join("target");
+        let mut tb = Vec::new();
+        raw_entry(
+            &mut tb,
+            "source",
+            tar::EntryType::Regular,
+            b"file contents",
+            None,
+        );
+        let tb = finish(tb);
+        untar_all("source", &dest, tb.as_slice(), &mut Vec::new()).unwrap();
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "file contents");
+
+        // TestTarUntarWrongPrefix / fail closed: member without the prefix.
+        let other = top.path().join("other");
+        let err = untar_all("/different", &other, tb.as_slice(), &mut Vec::new()).unwrap_err();
+        assert_eq!(err.to_string(), "tar contents corrupted");
+        assert!(!other.exists());
+    }
 }

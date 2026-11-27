@@ -119,21 +119,29 @@ pub async fn copy_from_pod(
     local_path: &str,
     container: Option<&str>,
 ) -> Result<()> {
-    // Build exec command to create tar in pod
+    // `copyFromPod` (cp.go:354): the command is `tar cf - <path>`, and the
+    // prefix every member name must start with is the cleaned, slash-stripped
+    // path with leading `../` removed.
     let tar_cmd = vec![
         "tar".to_string(),
-        "-cf".to_string(),
+        "cf".to_string(),
         "-".to_string(),
-        "-C".to_string(),
-        "/".to_string(),
-        pod_path.trim_start_matches('/').to_string(),
+        pod_path.to_string(),
     ];
+    let prefix = strip_path_shortcuts(&go_clean(&strip_leading_slash(&strip_trailing_slash(
+        &pod_path.replace('\\', "/"),
+    ))));
 
     // Execute tar creation and capture output
     let tar_data = exec_capture_output(client, namespace, pod_name, container, &tar_cmd).await?;
 
     // Extract tar to local filesystem
-    extract_tar_to_local(local_path, &tar_data)?;
+    untar_all(
+        &prefix,
+        Path::new(local_path),
+        tar_data.as_slice(),
+        &mut std::io::stderr(),
+    )?;
 
     println!("Copied {}:{} to {}", pod_name, pod_path, local_path);
     Ok(())
@@ -161,9 +169,169 @@ pub fn create_tar_from_dir(path: &str) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+/// Extract a tar stream whose member names carry no remote prefix.
 pub fn extract_tar_to_local(dest_path: &str, tar_data: &[u8]) -> Result<()> {
-    let mut archive = tar::Archive::new(tar_data);
-    archive.unpack(dest_path)?;
+    untar_all("", Path::new(dest_path), tar_data, &mut std::io::stderr())
+}
+
+fn strip_trailing_slash(file: &str) -> String {
+    // filespec.go stripTrailingSlash
+    if file != "/" && file.ends_with('/') {
+        return file[..file.len() - 1].to_string();
+    }
+    file.to_string()
+}
+
+fn strip_leading_slash(file: &str) -> String {
+    // filespec.go stripLeadingSlash: tar strips the leading '/' and '\\'
+    file.trim_start_matches(['/', '\\']).to_string()
+}
+
+/// Lexical `path.Clean` / `filepath.Clean` (Unix).
+pub fn go_clean(p: &str) -> String {
+    if p.is_empty() {
+        return ".".to_string();
+    }
+    let rooted = p.starts_with('/');
+    let mut out: Vec<&str> = Vec::new();
+    for part in p.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if matches!(out.last(), Some(&l) if l != "..") {
+                    out.pop();
+                } else if !rooted {
+                    out.push("..");
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    let joined = out.join("/");
+    match (rooted, joined.is_empty()) {
+        (true, _) => format!("/{joined}"),
+        (false, true) => ".".to_string(),
+        (false, false) => joined,
+    }
+}
+
+/// `filepath.Join` for two elements (empty elements are ignored, result cleaned).
+fn go_join(a: &str, b: &str) -> String {
+    match (a.is_empty(), b.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => go_clean(b),
+        (false, true) => go_clean(a),
+        (false, false) => go_clean(&format!("{a}/{b}")),
+    }
+}
+
+/// `stripPathShortcuts` (filespec.go:144): drops leading `../` (and `..\\`)
+/// components and one leading slash.
+pub fn strip_path_shortcuts(p: &str) -> String {
+    let mut new_path = p;
+    while let Some(t) = new_path.strip_prefix("../") {
+        new_path = t;
+    }
+    while let Some(t) = new_path.strip_prefix("..\\") {
+        new_path = t;
+    }
+    if new_path == "." || new_path == ".." {
+        new_path = "";
+    }
+    if new_path.starts_with('/') || new_path.starts_with('\\') {
+        return new_path[1..].to_string();
+    }
+    new_path.to_string()
+}
+
+/// `filepath.Rel` (Unix); `None` when no relative path exists.
+fn go_rel(base: &str, target: &str) -> Option<String> {
+    let (base, target) = (go_clean(base), go_clean(target));
+    if base.starts_with('/') != target.starts_with('/') {
+        return None;
+    }
+    let comps = |s: &str| -> Vec<String> {
+        s.split('/')
+            .filter(|c| !c.is_empty() && *c != ".")
+            .map(str::to_string)
+            .collect()
+    };
+    let (b, t) = (comps(&base), comps(&target));
+    let common = b.iter().zip(&t).take_while(|(x, y)| x == y).count();
+    if b[common..].iter().any(|c| c == "..") {
+        return None;
+    }
+    let mut parts: Vec<String> = vec!["..".to_string(); b.len() - common];
+    parts.extend(t[common..].iter().cloned());
+    Some(if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    })
+}
+
+/// `isRelative` (filespec.go:75): is `target` within `base`?
+pub fn is_relative(base: &str, target: &str) -> bool {
+    let norm = |s: &str| strip_trailing_slash(s).replace('\\', "/");
+    match go_rel(&norm(base), &norm(target)) {
+        Some(rel) => rel == "." || rel == strip_path_shortcuts(&rel),
+        None => false,
+    }
+}
+
+/// Port of `CopyOptions.untarAll` (cp.go:506). Security: every member must
+/// start with `prefix` ("tar contents corrupted" otherwise), members that
+/// resolve outside `dest` are skipped with a warning, and symlinks are never
+/// created.
+pub fn untar_all<R: std::io::Read, W: std::io::Write>(
+    prefix: &str,
+    dest: &Path,
+    reader: R,
+    err_out: &mut W,
+) -> Result<()> {
+    let dest_s = dest.to_string_lossy().to_string();
+    let mut archive = tar::Archive::new(reader);
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let name = String::from_utf8_lossy(&entry.path_bytes()).to_string();
+        if !name.starts_with(prefix) {
+            anyhow::bail!("tar contents corrupted");
+        }
+        // newRemotePath(header.Name[len(prefix):]): strip trailing slash, `\` -> `/`
+        let rest = strip_trailing_slash(&name[prefix.len()..]).replace('\\', "/");
+        let dest_file = strip_trailing_slash(&go_join(&dest_s, &rest));
+
+        if !is_relative(&dest_s, &dest_file) {
+            let _ = writeln!(
+                err_out,
+                "warning: file {dest_file:?} is outside target destination, skipping"
+            );
+            continue;
+        }
+
+        let dest_path = Path::new(&dest_file);
+        if let Some(dir) = dest_path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let ty = entry.header().entry_type();
+        if ty.is_dir() || name.ends_with('/') {
+            fs::create_dir_all(dest_path)?;
+            continue;
+        }
+        if ty.is_symlink() {
+            let target = entry
+                .link_name_bytes()
+                .map(|b| String::from_utf8_lossy(&b).to_string())
+                .unwrap_or_default();
+            let _ = writeln!(
+                err_out,
+                "warning: skipping symlink: {dest_file:?} -> {target:?}"
+            );
+            continue;
+        }
+        let mut out = fs::File::create(dest_path)?;
+        std::io::copy(&mut entry, &mut out)?;
+    }
     Ok(())
 }
 
