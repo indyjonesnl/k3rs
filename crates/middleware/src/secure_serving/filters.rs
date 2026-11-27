@@ -201,6 +201,7 @@ pub async fn authentication_middleware(
         .get::<PeerCertificates>()
         .map(|p| p.0.as_ref().clone())
         .unwrap_or_default();
+    let authn_start = std::time::Instant::now();
     let result = authn
         .authenticate_request(&mut AuthRequest {
             headers: &mut parts.headers,
@@ -208,6 +209,19 @@ pub async fn authentication_middleware(
             peer_certs: &peer_certs,
         })
         .await;
+    // `recordAuthenticationMetrics` (authentication.go:56-72).
+    crate::authentication_metrics::record_authentication_metrics(
+        result.as_ref().ok().and_then(|r| r.as_ref()).map(|r| {
+            crate::authentication_metrics::AuthResponse {
+                username: &r.user.username,
+                audiences: &[],
+            }
+        }),
+        matches!(result, Ok(Some(_))),
+        result.is_err(),
+        &[],
+        authn_start.elapsed(),
+    );
     let resp = match result {
         Ok(Some(r)) => r,
         other => {

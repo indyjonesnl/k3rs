@@ -107,6 +107,7 @@ impl ApiServerState {
         ));
 
         kubernetes_rs_common::authz_filter_metrics::register_metrics();
+        kubernetes_rs_middleware::authentication_metrics::register_metrics();
 
         let custom_metrics_mapper =
             crate::handlers::custom_metrics::new_served_rest_mapper(storage.clone());

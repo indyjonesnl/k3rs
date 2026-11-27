@@ -1092,6 +1092,18 @@ pub async fn auth_middleware(
     // spent in `AuthenticateRequest`, recorded on success and failure alike
     // (the guard also fires on the early 401 returns).
     let authentication_latency = AuthenticationLatencyGuard(std::time::Instant::now());
+    let authn_start = authentication_latency.0;
+    // `recordAuthenticationMetrics` (filters/authentication.go:56-72 defers it
+    // around `AuthenticateRequest`): one outcome per request.
+    let record_failure = |errored: bool| {
+        authentication_metrics::record_authentication_metrics(
+            None,
+            false,
+            errored,
+            &[],
+            authn_start.elapsed(),
+        );
+    };
     let user = if let Some(user) = front_proxy_user {
         // group.NewAuthenticatedGroupAdder wraps the whole union (config.go:240).
         debug!("Authenticated user (front proxy): {}", user.username);
@@ -1121,6 +1133,7 @@ pub async fn auth_middleware(
             .await
             {
                 warn!("Rejecting service account token: {}", reason);
+                record_failure(true);
                 return Err(unauthorized(&request));
             }
             let user_info = UserInfo::from_service_account_claims(&claims);
@@ -1142,16 +1155,28 @@ pub async fn auth_middleware(
         // Invalid token
         else {
             warn!("Invalid token");
+            record_failure(false);
             return Err(unauthorized(&request));
         }
     } else if let Some(err) = authn_error {
         warn!("Rejecting request: {}", err);
+        record_failure(true);
         return Err(unauthorized(&request));
     } else {
         // Anonymous user
         debug!("Anonymous request");
         UserInfo::anonymous()
     };
+    authentication_metrics::record_authentication_metrics(
+        Some(authentication_metrics::AuthResponse {
+            username: &user.username,
+            audiences: &[],
+        }),
+        true,
+        false,
+        &[],
+        authn_start.elapsed(),
+    );
     drop(authentication_latency);
 
     // `WithAuthentication` deletes the standard front-proxy headers, and any
