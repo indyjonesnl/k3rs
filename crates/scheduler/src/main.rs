@@ -380,6 +380,9 @@ async fn main() -> Result<()> {
     let storage = Arc::new(StorageBackend::new(storage_config).await?);
 
     // Initialize metrics
+    // `metrics.Register()` (pkg/scheduler/metrics/metrics.go): the upstream
+    // collectors in the process-wide registry `/metrics` serves.
+    let _ = kubernetes_rs_scheduler::metrics::metrics();
     let metrics = Arc::new(MetricsRegistry::new().with_scheduler_metrics()?);
     let metrics_clone = metrics.clone();
     serve_secure(&args, move || metrics_clone.gather(), flags).await?;
@@ -514,6 +517,9 @@ async fn run_api_mode(
     use kubernetes_rs_client::kubeconfig::KubeConfig;
 
     // Metrics server (same as storage mode).
+    // `metrics.Register()` (pkg/scheduler/metrics/metrics.go): the upstream
+    // collectors in the process-wide registry `/metrics` serves.
+    let _ = kubernetes_rs_scheduler::metrics::metrics();
     let metrics = Arc::new(MetricsRegistry::new().with_scheduler_metrics()?);
     let metrics_clone = metrics.clone();
     serve_secure(&args, move || metrics_clone.gather(), flags).await?;
