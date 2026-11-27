@@ -110,15 +110,6 @@ pub async fn run(
     run_with_source(DnsSource::Storage(storage), zone, config).await
 }
 
-/// Run the watcher loop against the api-server until cancelled.
-pub async fn run_api(
-    client: Arc<ApiClient>,
-    zone: SharedZone,
-    config: WatcherConfig,
-) -> Result<()> {
-    run_with_source(DnsSource::Api(client), zone, config).await
-}
-
 /// Shared debounce/rebuild loop for both data sources.
 pub async fn run_with_source(
     source: DnsSource,
