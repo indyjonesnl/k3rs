@@ -12,7 +12,6 @@
 //! [`CertificateSigningRequest`]: kubernetes_rs_common::resources::CertificateSigningRequest
 
 use anyhow::{anyhow, Context, Result};
-use chrono::Datelike;
 use kubernetes_rs_common::resources::KeyUsage;
 use rcgen::{
     Certificate, CertificateParams, CertificateSigningRequestParams, ExtendedKeyUsagePurpose, IsCa,
@@ -22,6 +21,67 @@ use rcgen::{
 /// Default issued-certificate lifetime when a CSR does not request one, matching
 /// upstream's 1-year default (`pkg/controller/certificates/signer`).
 const DEFAULT_DURATION_SECS: i64 = 365 * 24 * 60 * 60;
+
+/// Backdate applied to NotBefore. Upstream `signer.sign`
+/// (`pkg/controller/certificates/signer/signer.go`): `Backdate: 5 * time.Minute`.
+const BACKDATE_SECS: i64 = 5 * 60;
+/// Certificates shorter than this do not backdate NotAfter. Upstream
+/// `signer.sign`: `Short: 8 * time.Hour`.
+pub const SHORT_SECS: i64 = 8 * 60 * 60;
+/// Lower bound on a requested lifetime. Upstream `signer.duration`:
+/// `const min = 10 * time.Minute`.
+const MIN_DURATION_SECS: i64 = 10 * 60;
+
+/// Port of upstream `signer.duration` (signer.go:219): the requested
+/// `expirationSeconds` is honoured when between 10 minutes and `cert_ttl`
+/// (`--cluster-signing-duration`), clamped otherwise; `None` yields `cert_ttl`.
+pub fn signing_duration(expiration_seconds: Option<i32>, cert_ttl: i64) -> i64 {
+    match expiration_seconds {
+        None => cert_ttl,
+        Some(s) => {
+            let requested = i64::from(s);
+            if requested > cert_ttl {
+                cert_ttl
+            } else if requested < MIN_DURATION_SECS {
+                MIN_DURATION_SECS
+            } else {
+                requested
+            }
+        }
+    }
+}
+
+/// Port of `PermissiveSigningPolicy.apply` validity logic
+/// (`pkg/controller/certificates/authority/policies.go:68-96`). Returns
+/// `(not_before, not_after)` as unix seconds. NotAfter is truncated to the
+/// signer's NotAfter, and signing fails closed when the signer has expired.
+pub fn signing_policy_window(now: i64, ttl: i64, signer_not_after: i64) -> Result<(i64, i64)> {
+    let not_before = now - BACKDATE_SECS;
+    let mut not_after = if ttl < SHORT_SECS {
+        // short lived: do not backdate the end time
+        now + ttl
+    } else {
+        now + ttl - BACKDATE_SECS
+    };
+    if not_after >= signer_not_after {
+        not_after = signer_not_after;
+    }
+    if not_before >= signer_not_after {
+        return Err(anyhow!(
+            "the signer has expired: NotAfter={signer_not_after}"
+        ));
+    }
+    if now >= signer_not_after {
+        return Err(anyhow!(
+            "refusing to sign a certificate that expired in the past: NotAfter={signer_not_after}"
+        ));
+    }
+    Ok((not_before, not_after))
+}
+
+pub fn unix_to_dt(secs: i64) -> Result<time::OffsetDateTime> {
+    time::OffsetDateTime::from_unix_timestamp(secs).map_err(|e| anyhow!("invalid timestamp: {e}"))
+}
 
 /// A cluster certificate authority capable of signing approved CSRs.
 ///
@@ -34,6 +94,8 @@ pub struct CertificateAuthority {
     /// the real CA key — i.e. they chain to the on-disk CA certificate.
     issuer: Certificate,
     ca_key: KeyPair,
+    /// The CA certificate's NotAfter; issued certs are truncated to it.
+    ca_not_after: time::OffsetDateTime,
 }
 
 impl CertificateAuthority {
@@ -42,10 +104,15 @@ impl CertificateAuthority {
         let ca_key = KeyPair::from_pem(ca_key_pem).context("parsing CA private key PEM")?;
         let params = CertificateParams::from_ca_cert_pem(ca_cert_pem)
             .context("parsing CA certificate PEM")?;
+        let ca_not_after = params.not_after;
         let issuer = params
             .self_signed(&ca_key)
             .context("reconstructing CA issuer certificate")?;
-        Ok(Self { issuer, ca_key })
+        Ok(Self {
+            issuer,
+            ca_key,
+            ca_not_after,
+        })
     }
 
     /// Sign an approved CSR, returning the issued leaf certificate as PEM.
@@ -75,26 +142,16 @@ impl CertificateAuthority {
         // A signed leaf is never itself a CA.
         csr.params.is_ca = IsCa::ExplicitNoCa;
 
-        // Validity window. `rcgen::date_time_ymd` gives day granularity (keeping
-        // us off a direct `time` dependency); back-date `not_before` one day for
-        // clock skew and round the lifetime up to at least one day so short
-        // `expirationSeconds` requests still produce a currently-valid cert.
-        let now = chrono::Utc::now();
-        let secs = expiration_seconds
-            .map(|s| i64::from(s).max(600))
-            .unwrap_or(DEFAULT_DURATION_SECS);
-        let not_before = now - chrono::Duration::days(1);
-        let not_after = now + chrono::Duration::days((secs / 86_400).max(1));
-        csr.params.not_before = rcgen::date_time_ymd(
-            not_before.year(),
-            not_before.month() as u8,
-            not_before.day() as u8,
-        );
-        csr.params.not_after = rcgen::date_time_ymd(
-            not_after.year(),
-            not_after.month() as u8,
-            not_after.day() as u8,
-        );
+        // Validity per upstream PermissiveSigningPolicy (see
+        // `signing_policy_window`); TTL per `signing_duration`.
+        let ttl = signing_duration(expiration_seconds, DEFAULT_DURATION_SECS);
+        let (nb, na) = signing_policy_window(
+            chrono::Utc::now().timestamp(),
+            ttl,
+            self.ca_not_after.unix_timestamp(),
+        )?;
+        csr.params.not_before = unix_to_dt(nb)?;
+        csr.params.not_after = unix_to_dt(na)?;
 
         let cert = csr
             .signed_by(&self.issuer, &self.ca_key)

@@ -51,6 +51,8 @@ hmac = "0.12"
 rand = "0.9"
 jsonwebtoken.workspace = true
 rcgen.workspace = true
+# rcgen validity fields are time::OffsetDateTime (sub-day signing policy).
+time = "0.3"
 pem.workspace = true
 base64.workspace = true
 async-trait = { workspace = true }
