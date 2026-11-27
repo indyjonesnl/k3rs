@@ -1,0 +1,60 @@
+{
+  "workspace_root": "/w",
+  "packages": [
+    {
+      "name": "core",
+      "manifest_path": "/w/crates/core/Cargo.toml",
+      "dependencies": []
+    },
+    {
+      "name": "mid",
+      "manifest_path": "/w/crates/mid/Cargo.toml",
+      "dependencies": [
+        {
+          "name": "core"
+        },
+        {
+          "name": "serde"
+        }
+      ]
+    },
+    {
+      "name": "leaf",
+      "manifest_path": "/w/crates/leaf/Cargo.toml",
+      "dependencies": [
+        {
+          "name": "mid"
+        }
+      ]
+    },
+    {
+      "name": "devonly",
+      "manifest_path": "/w/crates/devonly/Cargo.toml",
+      "dependencies": [
+        {
+          "name": "leaf",
+          "kind": "dev"
+        }
+      ]
+    },
+    {
+      "name": "island",
+      "manifest_path": "/w/crates/island/Cargo.toml",
+      "dependencies": []
+    },
+    {
+      "name": "kubernetes-rs-api-server",
+      "manifest_path": "/w/crates/api-server/Cargo.toml",
+      "dependencies": [
+        {
+          "name": "core"
+        }
+      ]
+    },
+    {
+      "name": "prefix",
+      "manifest_path": "/w/crates/island-ext/Cargo.toml",
+      "dependencies": []
+    }
+  ]
+}

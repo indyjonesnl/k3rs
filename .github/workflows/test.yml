@@ -8,6 +8,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Full-workspace safety nets: pull requests are scoped to the affected
+  # crates (scripts/ci/select-affected.sh, docs/CI.md); main and this nightly
+  # run always compile and test everything, so a scoped miss surfaces here.
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -68,18 +74,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect Rust-relevant changes
+      - name: Detect Rust-relevant changes and scope
         id: rust
+        # Full workspace for push / schedule / dispatch / `ci:full` label /
+        # workspace-global files; otherwise only the changed crates plus their
+        # reverse dependencies (scripts/ci/select-affected.sh, docs/CI.md).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          if git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD" \
-              | grep -qE '(\.rs|\.proto)$|(^|/)Cargo\.(toml|lock)$|(^|/)build\.rs$|^rhino($|/)|(^|/)rust-toolchain|^\.github/workflows/(test|fmt)\.yml$'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
+          scope=$(mktemp)
+          bash scripts/ci/detect-scope.sh "$scope"
+          cat "$scope" >> "$GITHUB_OUTPUT"
+          if grep -qx 'mode=none' "$scope"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No Rust-relevant changes — skipping clippy (the required check reports green)."
+            echo "::notice::No Rust affected, skipping (the required check reports green)."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Cache cargo registry + target
@@ -112,7 +125,15 @@ jobs:
         # compiles every target before lint, so any compile error in a bin
         # fails this step.
         if: steps.rust.outputs.changed == 'true'
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: |
+          if [ "${{ steps.rust.outputs.mode }}" = scoped ]; then
+            scope="${{ steps.rust.outputs.packages }}"
+          else
+            scope="--workspace"
+          fi
+          echo "cargo clippy $scope"
+          # shellcheck disable=SC2086  # $scope is deliberately word-split
+          cargo clippy $scope --all-targets --locked -- -D warnings
 
   nextest:
     name: cargo nextest
@@ -124,18 +145,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect Rust-relevant changes
+      - name: Detect Rust-relevant changes and scope
         id: rust
+        # Full workspace for push / schedule / dispatch / `ci:full` label /
+        # workspace-global files; otherwise only the changed crates plus their
+        # reverse dependencies (scripts/ci/select-affected.sh, docs/CI.md).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          if git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD" \
-              | grep -qE '(\.rs|\.proto)$|(^|/)Cargo\.(toml|lock)$|(^|/)build\.rs$|^rhino($|/)|(^|/)rust-toolchain|^\.github/workflows/(test|fmt)\.yml$'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
+          scope=$(mktemp)
+          bash scripts/ci/detect-scope.sh "$scope"
+          cat "$scope" >> "$GITHUB_OUTPUT"
+          if grep -qx 'mode=none' "$scope"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No Rust-relevant changes — skipping nextest (the required check reports green)."
+            echo "::notice::No Rust affected, skipping (the required check reports green)."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Cache cargo registry + target
@@ -158,7 +186,19 @@ jobs:
         # (nextest limitation); none of the workspace depends on doctest
         # coverage; add a separate `cargo test --doc` step if that changes.
         if: steps.rust.outputs.changed == 'true'
-        run: cargo nextest run --workspace --features kubernetes-rs-api-server/sqlite --locked --no-fail-fast --status-level fail
+        run: |
+          if [ "${{ steps.rust.outputs.mode }}" = scoped ]; then
+            scope="${{ steps.rust.outputs.packages }}"
+            # cargo rejects `--features pkg/feat` for a package outside -p.
+            features=
+            [ "${{ steps.rust.outputs.sqlite }}" = true ] && features="--features kubernetes-rs-api-server/sqlite"
+          else
+            scope="--workspace"
+            features="--features kubernetes-rs-api-server/sqlite"
+          fi
+          echo "cargo nextest run $scope $features"
+          # shellcheck disable=SC2086  # scope/features are deliberately word-split
+          cargo nextest run $scope $features --locked --no-fail-fast --status-level fail
 
       - name: Wire-format coverage report (warnings only)
         # Passing nextest tests hide their output, so the gaps (protobuf
@@ -169,7 +209,9 @@ jobs:
         # already compiled (same --workspace + feature set => no rebuild).
         # NEVER fails the job on a gap: the script exits 0 unless the harness
         # itself breaks (discovery unreachable, proto unparseable).
-        if: steps.rust.outputs.changed == 'true'
+        # Needs the workspace-wide binary; skipped for scoped PRs (its inputs
+        # force a full run anyway, and main/nightly run it).
+        if: steps.rust.outputs.changed == 'true' && steps.rust.outputs.mode == 'full'
         run: bash scripts/wire-format-coverage.sh
 
       - name: sccache stats
@@ -190,4 +232,8 @@ jobs:
         run: |
           echo "clippy:  ${{ needs.clippy.result }}"
           echo "nextest: ${{ needs.nextest.result }}"
+          # `success` only: a failed, cancelled or *skipped* job is red. A PR
+          # that affects no Rust still reports `success` because the jobs run
+          # and skip their build steps (scripts/ci/detect-scope.sh), so
+          # "skipped because not affected" never shows up as a skipped job.
           [ "${{ needs.clippy.result }}" = "success" ] && [ "${{ needs.nextest.result }}" = "success" ]
