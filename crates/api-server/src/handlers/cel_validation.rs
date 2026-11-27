@@ -1144,15 +1144,33 @@ fn walk_and_eval(
                 continue;
             }
 
+            // Schema-aware conversion (`UnstructuredToVal`): date-time,
+            // duration, byte and int-or-string values get their CEL types.
+            // A value that does not convert is an evaluation error for the
+            // rule, as an error `ref.Val` is upstream.
             let mut ctx = CELContext::new();
-            ctx.add_json_variable("self", node)
-                .map_err(|e| Error::Internal(e.to_string()))?;
-            if optional_old_self {
-                ctx.add_optional_json_variable("oldSelf", old_node)
-                    .map_err(|e| Error::Internal(e.to_string()))?;
-            } else if let Some(o) = old_node {
-                ctx.add_json_variable("oldSelf", o)
-                    .map_err(|e| Error::Internal(e.to_string()))?;
+            let bound = ctx
+                .add_json_variable_with_schema("self", node, schema)
+                .and_then(|_| {
+                    if optional_old_self {
+                        ctx.add_optional_json_variable_with_schema("oldSelf", old_node, schema)
+                    } else if let Some(o) = old_node {
+                        ctx.add_json_variable_with_schema("oldSelf", o, schema)
+                    } else {
+                        Ok(())
+                    }
+                });
+            if bound.is_err() {
+                failures.push(CrRuleFailure {
+                    path: path.clone(),
+                    message: format!(
+                        "failed to evaluate x-kubernetes-validations rule {:?}",
+                        rule_str
+                    ),
+                    is_transition,
+                    map_key_positions: map_keys.clone(),
+                });
+                continue;
             }
 
             match evaluate_rule_with_budget(evaluator, rule_str, &message, &ctx, remaining_budget) {
