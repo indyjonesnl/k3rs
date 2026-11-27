@@ -320,8 +320,9 @@ mod tests {
     #[test]
     fn test_evaluate_jsonpath_no_braces() {
         let val = serde_json::json!({"metadata": {"name": "test"}});
+        // A template without braces is literal text (jsonpath.go evalText).
         let result = evaluate_jsonpath(&val, ".metadata.name").unwrap();
-        assert_eq!(result, "test");
+        assert_eq!(result, ".metadata.name");
     }
 
     #[test]
@@ -717,10 +718,25 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_jsonpath_filter_returns_empty() {
+    fn test_evaluate_jsonpath_filter_selects_match() {
         let val = serde_json::json!({"items": [{"type": "Ready"}]});
         let result = evaluate_jsonpath(&val, "{.items[?(@.type==\"Ready\")]}").unwrap();
-        assert_eq!(result, "");
+        assert_eq!(result, "{\"type\":\"Ready\"}");
+    }
+
+    #[test]
+    fn jsonpath_range_union_and_as_json() {
+        let val = serde_json::json!({"items": [{"n": "a"}, {"n": "b"}]});
+        let r = evaluate_jsonpath(&val, "{range .items[*]}{.n}{\"\\n\"}{end}").unwrap();
+        assert_eq!(r, "a\nb\n");
+        let r = evaluate_jsonpath(&val, "{.items[0,1].n}").unwrap();
+        assert_eq!(r, "a b");
+        let r = evaluate_jsonpath_with(&val, "{.items[*].n}", true).unwrap();
+        assert_eq!(r, "[\n    \"a\",\n    \"b\"\n]\n");
+        assert_eq!(
+            OutputFormat::from_str("jsonpath-as-json={.a}").unwrap(),
+            OutputFormat::JsonPathAsJson("{.a}".to_string())
+        );
     }
 
     #[test]

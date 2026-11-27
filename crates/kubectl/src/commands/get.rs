@@ -16,6 +16,8 @@ pub enum OutputFormat {
     Wide,
     Name,
     JsonPath(String),
+    /// `-o jsonpath-as-json=<template>` (`EnableJSONOutput`).
+    JsonPathAsJson(String),
 }
 
 impl OutputFormat {
@@ -27,6 +29,9 @@ impl OutputFormat {
             "wide" => Ok(Self::Wide),
             "name" => Ok(Self::Name),
             _ if s.starts_with("jsonpath=") => Ok(Self::JsonPath(s[9..].to_string())),
+            _ if s.starts_with("jsonpath-as-json=") => {
+                Ok(Self::JsonPathAsJson(s["jsonpath-as-json=".len()..].to_string()))
+            }
             _ if s.starts_with("jsonpath-file=") => {
                 let path = &s[14..];
                 let expr = std::fs::read_to_string(path)
@@ -54,6 +59,11 @@ pub fn format_output<T: Serialize>(resource: &T, format: &OutputFormat) -> Resul
             let result = evaluate_jsonpath(&value, expr)?;
             print!("{}", result);
         }
+        OutputFormat::JsonPathAsJson(expr) => {
+            let value = serde_json::to_value(resource)?;
+            let result = evaluate_jsonpath_with(&value, expr, true)?;
+            print!("{}", result);
+        }
         OutputFormat::Name => {
             // Print kind/name format
             let value = serde_json::to_value(resource)?;
@@ -75,18 +85,29 @@ pub fn format_output<T: Serialize>(resource: &T, format: &OutputFormat) -> Resul
     Ok(())
 }
 
-/// Evaluate a jsonpath expression against a JSON value.
-/// Supports basic dotted paths, array indexing, and filter expressions.
+/// Evaluate a kubectl jsonpath template against a JSON value with the full
+/// client-go executor (`printers::jsonpath::JsonPath`).
+///
+/// Mirrors `JSONPathPrinter.PrintObj` (cli-runtime/pkg/printers/jsonpath.go)
+/// with `AllowMissingKeys(true)`, kubectl's `--allow-missing-template-keys`
+/// default (genericclioptions/jsonpath_flags.go).
 pub fn evaluate_jsonpath(value: &serde_json::Value, expr: &str) -> Result<String> {
-    // Strip leading { and trailing } if present (kubectl jsonpath format)
-    let expr = expr.trim();
-    let expr = expr.strip_prefix('{').unwrap_or(expr);
-    let expr = expr.strip_suffix('}').unwrap_or(expr);
+    evaluate_jsonpath_with(value, expr, false)
+}
 
-    // Handle multiple expressions joined by whitespace (e.g., {.foo}{"\n"}{.bar})
-    // For simplicity, evaluate the full expr as a single path
-    let result = resolve_path(value, expr)?;
-    Ok(result)
+/// As [`evaluate_jsonpath`]; `as_json` is `-o jsonpath-as-json`
+/// (`EnableJSONOutput`).
+pub fn evaluate_jsonpath_with(
+    value: &serde_json::Value,
+    expr: &str,
+    as_json: bool,
+) -> Result<String> {
+    let mut jp = crate::printers::jsonpath::JsonPath::new("kubectl")
+        .allow_missing_keys(true)
+        .enable_json_output(as_json);
+    jp.parse(expr)
+        .map_err(|e| anyhow::anyhow!("error parsing jsonpath {}, {}", expr, e))?;
+    jp.execute(value).map_err(|e| anyhow::anyhow!("{}", e))
 }
 
 pub fn resolve_path(value: &serde_json::Value, path: &str) -> Result<String> {
