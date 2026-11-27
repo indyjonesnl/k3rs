@@ -136,3 +136,54 @@ async fn invalid_token_status_honours_accept_yaml() {
     assert_eq!(v["reason"], "Unauthorized");
     assert_eq!(v["code"], 401);
 }
+
+/// `authentication_attempts{result=<r>}` and `authenticated_user_requests{username=<u>}`.
+fn counter(family: &str, label: &str, value: &str) -> f64 {
+    prometheus::gather()
+        .iter()
+        .filter(|f| f.name() == family)
+        .flat_map(|f| f.get_metric().iter())
+        .filter(|m| {
+            m.get_label()
+                .iter()
+                .any(|l| l.name() == label && l.value() == value)
+        })
+        .map(|m| m.get_counter().value())
+        .sum()
+}
+
+/// `recordAuthenticationMetrics` (endpoints/filters/metrics.go:124-143) is
+/// called by the filter: an anonymous request is a `success` attributed to the
+/// compressed username `other`; an unrecognised token a `failure`; a rejected
+/// service account token an `error`.
+#[tokio::test]
+async fn authentication_metrics_are_recorded_by_the_filter() {
+    let tm = Arc::new(TokenManager::new(b"secret"));
+    let attempts = |r: &str| counter("authentication_attempts", "result", r);
+    let (s0, f0, e0) = (attempts("success"), attempts("failure"), attempts("error"));
+    let u0 = counter("authenticated_user_requests", "username", "other");
+
+    let (s, _, _) = send(app(tm.clone()), get_req(None, None)).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(attempts("success"), s0 + 1.0);
+    assert_eq!(
+        counter("authenticated_user_requests", "username", "other"),
+        u0 + 1.0
+    );
+
+    let (s, _, _) = send(app(tm.clone()), get_req(Some("not-a-jwt"), None)).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    assert_eq!(attempts("failure"), f0 + 1.0);
+
+    let token = tm
+        .generate_token(ServiceAccountClaims::new(
+            "gone".into(),
+            "default".into(),
+            "uid-1".into(),
+            1,
+        ))
+        .unwrap();
+    let (s, _, _) = send(app(tm), get_req(Some(&token), None)).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    assert_eq!(attempts("error"), e0 + 1.0);
+}
