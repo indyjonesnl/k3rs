@@ -32,6 +32,31 @@ pub struct AssumedPod {
     pub pod: Pod,
     pub node_name: String,
     pub cycle_state: CycleState,
+    /// `start` of `ScheduleOne` (schedule_one.go:102), for the
+    /// `scheduler_scheduling_attempt_duration_seconds` observations. The
+    /// worker overwrites it with the real start of the cycle.
+    pub start: std::time::Instant,
+}
+
+/// `fwk.ProfileName()` of the framework a pod is scheduled with: its
+/// `spec.schedulerName` (the `Profiles[pod.Spec.SchedulerName]` lookup,
+/// schedule_one.go:391), defaulted.
+fn profile_name(pod: &Pod) -> String {
+    pod.spec
+        .as_ref()
+        .and_then(|s| s.scheduler_name.clone())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| DEFAULT_SCHEDULER_NAME.to_string())
+}
+
+/// `getAttemptsLabel` (schedule_one.go:1022): attempts capped to avoid a
+/// high-cardinality label.
+fn attempts_label(attempts: usize) -> String {
+    if attempts >= 15 {
+        "15+".to_string()
+    } else {
+        attempts.to_string()
+    }
 }
 
 impl std::fmt::Debug for AssumedPod {
@@ -1005,6 +1030,8 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
     /// re-evaluates it on events those plugins registered.
     async fn worker(&self, queue: Arc<PriorityQueue>) {
         while let Some(mut p_info) = queue.pop().await {
+            // `start := time.Now()` (schedule_one.go:102).
+            let start = std::time::Instant::now();
             let ns = p_info.pod.metadata.namespace.clone().unwrap_or_default();
             let key = format!("pods/{}/{}", ns, p_info.pod.metadata.name);
             match self.try_schedule_pod(&queue, &key).await {
@@ -1015,7 +1042,12 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                     queue.delete_nominated_pod_if_exists(&p_info.pod);
                     queue.done(&p_info.pod.metadata.uid)
                 }
-                Ok(ScheduleOutcome::Assumed(assumed)) => {
+                Ok(ScheduleOutcome::Assumed(mut assumed)) => {
+                    // `SchedulingAlgorithmLatency.Observe` (schedule_one.go:194).
+                    let m = crate::metrics::metrics();
+                    m.scheduling_algorithm_latency
+                        .observe(crate::metrics::since_in_seconds(start));
+                    assumed.start = start;
                     // `Done` is called by the binding cycle itself
                     // (schedule_one.go:324), not here.
                     match self.weak_self.get().and_then(std::sync::Weak::upgrade) {
@@ -1034,12 +1066,23 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                     // into the PodInfo (schedule_one.go:1064-1065).
                     p_info.unschedulable_plugins = plugins;
                     p_info.pending_plugins = pending;
+                    // schedule_one.go:154 (deferred observe) and :1052
+                    // (`PodUnschedulable`, the status is rejected).
+                    let m = crate::metrics::metrics();
+                    let secs = crate::metrics::since_in_seconds(start);
+                    m.scheduling_algorithm_latency.observe(secs);
+                    m.pod_unschedulable(&profile_name(&p_info.pod), secs);
                     self.handle_scheduling_failure(&queue, p_info).await;
                 }
                 Err(e) => {
                     debug!("Failed to schedule pod {}: {}", key, e);
                     // Not a FitError: no plugins → an error backoff.
                     p_info.unschedulable_plugins.clear();
+                    // schedule_one.go:154 and :1054 (`PodScheduleError`).
+                    let m = crate::metrics::metrics();
+                    let secs = crate::metrics::since_in_seconds(start);
+                    m.scheduling_algorithm_latency.observe(secs);
+                    m.pod_schedule_error(&profile_name(&p_info.pod), secs);
                     self.handle_scheduling_failure(&queue, p_info).await;
                 }
             }
@@ -1769,6 +1812,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             pod,
             node_name: node_name.to_string(),
             cycle_state,
+            start: std::time::Instant::now(),
         })))
     }
 
@@ -1932,7 +1976,14 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         let guard = self.bindings.start();
         tokio::spawn(async move {
             let _guard = guard;
+            // `Goroutines{binding}` Inc/Dec around the binding goroutine
+            // (schedule_one.go:127-128).
+            let binding = crate::metrics::metrics()
+                .goroutines
+                .with_label_values(&[crate::metrics::BINDING]);
+            binding.inc();
             this.run_binding_task(&queue, p_info, assumed).await;
+            binding.dec();
         });
     }
 
@@ -1945,6 +1996,18 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         // `Done` is called by the cycle itself once WaitOnPermit is past
         // (bindingCycle, schedule_one.go:316-324).
         let Err(failure) = self.binding_cycle(&assumed, Some(queue)).await else {
+            // After a successful bind (schedule_one.go:338-342).
+            let m = crate::metrics::metrics();
+            m.pod_scheduled(
+                &profile_name(&assumed.pod),
+                crate::metrics::since_in_seconds(assumed.start),
+            );
+            m.pod_scheduling_attempts.observe(p_info.attempts as f64);
+            if let Some(t) = p_info.initial_attempt_timestamp {
+                m.pod_scheduling_sli_duration
+                    .with_label_values(&[&attempts_label(p_info.attempts)])
+                    .observe(t.elapsed().map(|d| d.as_secs_f64()).unwrap_or(0.0));
+            }
             return;
         };
         self.handle_binding_cycle_error(queue, p_info, &assumed, failure)
@@ -1965,6 +2028,15 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             assumed.node_name,
             failure.error
         );
+        // `handleSchedulingFailure` (schedule_one.go:1050-1055): a rejected
+        // status is `Unschedulable`, anything else a scheduler error.
+        let secs = crate::metrics::since_in_seconds(assumed.start);
+        let m = crate::metrics::metrics();
+        if failure.rejected {
+            m.pod_unschedulable(&profile_name(&assumed.pod), secs);
+        } else {
+            m.pod_schedule_error(&profile_name(&assumed.pod), secs);
+        }
         let forgotten = self.abort_assumed(assumed).await;
         let assumed_pod = Self::with_node(&assumed.pod, &assumed.node_name);
         let uid = assumed.pod.metadata.uid.clone();

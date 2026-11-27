@@ -2377,6 +2377,70 @@ mod tests {
         assert_eq!(scheduler.cache.assumed_count(), 1);
     }
 
+    /// `bindingCycle` success metrics (schedule_one.go:127-128, 338-341): the
+    /// binding task counts `scheduled` with the attempt duration, observes
+    /// `pod_scheduling_attempts` and returns the `goroutines{binding}` gauge
+    /// to where it was.
+    #[tokio::test]
+    async fn scheduler_metrics_binding_success_is_recorded() {
+        let m = kubernetes_rs_scheduler::metrics::metrics();
+        let scheduled = || {
+            m.schedule_attempts
+                .with_label_values(&["scheduled", "default-scheduler"])
+                .get()
+        };
+        let before = scheduled();
+        let attempts_before = m.pod_scheduling_attempts.get_sample_count();
+
+        let storage = Arc::new(MemoryStorage::new());
+        storage
+            .create("/registry/nodes/node-1", &make_node("node-1"))
+            .await
+            .unwrap();
+        storage
+            .create(
+                "/registry/pods/default/pod-1",
+                &pod_requesting("pod-1", "1"),
+            )
+            .await
+            .unwrap();
+        let scheduler = running(Scheduler::new_with_name(
+            storage.clone(),
+            1,
+            "default-scheduler".to_string(),
+        ));
+        let queue = test_queue();
+        let pod: Pod = storage.get("/registry/pods/default/pod-1").await.unwrap();
+        let p = next(&queue, pod).await;
+        let ScheduleOutcome::Assumed(assumed) = scheduler
+            .try_schedule_pod(&queue, "pods/default/pod-1")
+            .await
+            .unwrap()
+        else {
+            panic!("expected Assumed");
+        };
+        scheduler.spawn_binding_cycle(&queue, p, *assumed);
+        scheduler.bindings.wait_idle().await;
+
+        assert_eq!(scheduled(), before + 1.0);
+        assert_eq!(
+            m.pod_scheduling_attempts.get_sample_count(),
+            attempts_before + 1
+        );
+        assert_eq!(
+            m.goroutines
+                .with_label_values(&[kubernetes_rs_scheduler::metrics::BINDING])
+                .get(),
+            0.0
+        );
+        assert!(
+            m.scheduling_latency
+                .with_label_values(&["scheduled", "default-scheduler"])
+                .get_sample_count()
+                >= 1
+        );
+    }
+
     /// `handleBindingCycleError` (schedule_one.go:349-382): a failed PreBind
     /// unreserves, forgets the assumed pod and requeues the pod with backoff.
     #[tokio::test]
