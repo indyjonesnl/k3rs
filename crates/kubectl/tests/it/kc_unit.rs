@@ -14,6 +14,7 @@ mod commands__completion;
 mod commands__config;
 mod commands__cp;
 mod commands__create;
+mod commands__create_common;
 mod commands__debug;
 mod commands__delete;
 mod commands__describe;
