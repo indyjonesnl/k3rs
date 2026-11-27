@@ -12,6 +12,7 @@ pub mod fwk;
 pub mod in_tree;
 pub mod inter_pod_affinity_filter;
 pub mod inter_pod_affinity_score;
+pub mod metrics;
 pub mod node_volume_limits;
 pub mod plugins;
 pub mod pod_topology_spread_filter;

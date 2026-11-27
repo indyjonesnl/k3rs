@@ -23,6 +23,7 @@ mod profile_plugin_sets;
 mod queue_plugins;
 mod rbac_allowlist_test;
 mod sched_unit;
+mod scheduler_metrics;
 mod scheduler_preemption_test;
 mod scheduler_test;
 mod score_plugins;
