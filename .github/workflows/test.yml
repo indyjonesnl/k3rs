@@ -226,7 +226,10 @@ jobs:
     name: cargo clippy + nextest
     needs: [clippy, nextest]
     if: always()
-    runs-on: [self-hosted, kubernetes-rs]
+    # GitHub-hosted on purpose: this job only reads `needs.*.result` (no checkout,
+    # no toolchain). On the self-hosted pool it queued behind every build job, so
+    # fully green PRs sat "pending" for hours waiting for a runner slot.
+    runs-on: ubuntu-latest
     steps:
       - name: Require clippy and nextest
         run: |
