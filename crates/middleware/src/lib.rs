@@ -1,3 +1,4 @@
+pub mod authentication_metrics;
 pub mod cbor;
 pub mod healthz;
 pub mod lifecycle;
