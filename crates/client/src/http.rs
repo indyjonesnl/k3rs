@@ -27,6 +27,27 @@ pub struct KubernetesList<T> {
     pub items: Vec<T>,
 }
 
+/// `maxRetries: 10` (rest/request.go:166).
+const MAX_RETRIES: u32 = 10;
+
+/// `net.IsConnectionReset || net.IsProbableEOF || net.IsHTTP2ConnectionLost`
+/// (apimachinery util/net/http.go:79-103), matched on the error text because
+/// reqwest does not expose the Go error identities.
+fn is_connection_error(e: &crate::with_retry::AttemptError) -> bool {
+    let text = e.inner.as_deref().unwrap_or(&e.message).to_lowercase();
+    [
+        "connection reset by peer",
+        "unexpected eof",
+        "unexpected end of file",
+        "connection closed before message completed",
+        "http2: server sent goaway and closed the connection",
+        "use of closed network connection",
+        "broken pipe",
+    ]
+    .iter()
+    .any(|m| text.contains(m))
+}
+
 pub struct ApiClient {
     base_url: String,
     /// Client for normal CRUD requests. Has a total-request timeout so a
@@ -415,6 +436,81 @@ impl ApiClient {
         }
     }
 
+    /// `Request.request` retry loop (rest/request.go:1064-1121): send, and
+    /// retry on 429 / 5xx carrying a `Retry-After` and, for GET, on a
+    /// connection reset / probable EOF, up to `MAX_RETRIES` times (maxRetries
+    /// :166). Each retry sleeps the `Retry-After` and is throttled by the
+    /// client's rate limiter again (`withRetry.Before`, with_retry.go:195-236;
+    /// the per-URL backoff manager is not applied here). The final error
+    /// carries the previous attempt's error (`WrapPreviousError`).
+    async fn send_retrying(&self, request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+        use crate::with_retry::{AttemptError, RetryResponse, WithRetry, Wrapped};
+        use std::error::Error as _;
+
+        // Only requests with a replayable body can be retried (bytes/JSON
+        // bodies always are; a streaming body would make try_clone fail).
+        let method = request
+            .try_clone()
+            .and_then(|r| r.build().ok())
+            .map(|r| r.method().clone());
+        let mut retry = WithRetry::new(MAX_RETRIES);
+        let mut current = request;
+        loop {
+            let next = current.try_clone();
+            let result = current.send().await;
+            let (resp, err) = match &result {
+                Ok(r) => (
+                    Some(RetryResponse::from_headers(
+                        r.status().as_u16(),
+                        r.headers(),
+                    )),
+                    None,
+                ),
+                Err(e) => {
+                    let mut inner = e.to_string();
+                    let mut src = e.source();
+                    while let Some(s) = src {
+                        inner = s.to_string();
+                        src = s.source();
+                    }
+                    (
+                        None,
+                        Some(AttemptError {
+                            message: e.to_string(),
+                            inner: Some(inner),
+                        }),
+                    )
+                }
+            };
+            let is_get = method.as_ref() == Some(&reqwest::Method::GET);
+            // isErrRetryableFunc (request.go:1064-1076)
+            let retryable = |e: &AttemptError| is_get && is_connection_error(e);
+            let again = next.is_some()
+                && retry.is_next_retry(false, resp.as_ref(), err.as_ref(), Some(&retryable));
+            if !again {
+                return match result {
+                    Ok(r) => Ok(r),
+                    Err(e) => {
+                        let cur = anyhow::Error::from(e);
+                        match retry.wrap_previous_error(Some(cur)) {
+                            Some(Wrapped::Wrapped(w)) => Err(anyhow::anyhow!("{w}")),
+                            Some(Wrapped::Same(c)) => Err(c),
+                            None => unreachable!("current error is set"),
+                        }
+                    }
+                };
+            }
+            if let Some(ra) = &retry.retry_after {
+                tokio::time::sleep(ra.wait).await;
+            }
+            self.limiter.acquire().await;
+            current = match next {
+                Some(n) => n,
+                None => unreachable!("checked above"),
+            };
+        }
+    }
+
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, GetError> {
         let url = format!("{}{}", self.base_url, path);
         self.limiter.acquire().await;
@@ -423,8 +519,8 @@ impl ApiClient {
 
         request = self.with_auth(request);
 
-        let response = request
-            .send()
+        let response = self
+            .send_retrying(request)
             .await
             .map_err(|e| GetError::Other(anyhow::anyhow!("Failed to send GET request: {}", e)))?;
 
@@ -473,8 +569,8 @@ impl ApiClient {
 
         request = self.with_auth(request);
 
-        let response = request
-            .send()
+        let response = self
+            .send_retrying(request)
             .await
             .map_err(|e| GetError::Other(anyhow::anyhow!("Failed to send GET request: {}", e)))?;
 
@@ -513,7 +609,11 @@ impl ApiClient {
 
         request = self.with_auth(request);
 
-        let response = match request.send().await.context("Failed to send POST request") {
+        let response = match self
+            .send_retrying(request)
+            .await
+            .context("Failed to send POST request")
+        {
             Ok(r) => r,
             Err(e) => return (0, Err(e)),
         };
@@ -547,7 +647,10 @@ impl ApiClient {
 
         request = self.with_auth(request);
 
-        let response = request.send().await.context("Failed to send PUT request")?;
+        let response = self
+            .send_retrying(request)
+            .await
+            .context("Failed to send PUT request")?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -593,8 +696,8 @@ impl ApiClient {
             request = request.header("Content-Type", "application/json").json(b);
         }
 
-        let response = request
-            .send()
+        let response = self
+            .send_retrying(request)
             .await
             .context("Failed to send DELETE request")?;
 
@@ -623,7 +726,10 @@ impl ApiClient {
 
         request = self.with_auth(request);
 
-        let response = request.send().await.context("Failed to send GET request")?;
+        let response = self
+            .send_retrying(request)
+            .await
+            .context("Failed to send GET request")?;
 
         Ok(response.status().is_success())
     }
@@ -645,8 +751,8 @@ impl ApiClient {
 
         request = self.with_auth(request);
 
-        let response = request
-            .send()
+        let response = self
+            .send_retrying(request)
             .await
             .context("Failed to send PATCH request")?;
 
@@ -674,7 +780,10 @@ impl ApiClient {
 
         request = self.with_auth(request);
 
-        let response = request.send().await.context("Failed to send GET request")?;
+        let response = self
+            .send_retrying(request)
+            .await
+            .context("Failed to send GET request")?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -731,7 +840,10 @@ impl ApiClient {
 
         request = self.with_auth(request);
 
-        let response = request.send().await.context("Failed to send GET request")?;
+        let response = self
+            .send_retrying(request)
+            .await
+            .context("Failed to send GET request")?;
 
         let status = response.status();
         let text = response
