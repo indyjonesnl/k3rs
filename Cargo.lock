@@ -2647,6 +2647,7 @@ dependencies = [
  "kubernetes-rs-storage",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
 ]
 

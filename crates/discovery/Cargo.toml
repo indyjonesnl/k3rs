@@ -17,6 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 async-trait.workspace = true
+sha2 = "0.10"
 
 [dev-dependencies]
 tokio.workspace = true

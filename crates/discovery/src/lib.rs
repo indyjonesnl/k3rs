@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod deferred_restmapper;
 pub mod deleted_kinds;
+pub mod etag;
 pub mod kube_version;
 pub mod resource_config;
 pub mod restmapper;
