@@ -55,6 +55,7 @@ fn authorizer(url: &str, policy: FailurePolicy, exprs: &[&str]) -> WebhookAuthor
         factor: 0.0,
         jitter: 0.0,
         steps: 1,
+        cap: std::time::Duration::ZERO,
     };
     WebhookAuthorizer::new(cfg, "v1", Duration::ZERO, Duration::ZERO, backoff, policy)
         .unwrap()

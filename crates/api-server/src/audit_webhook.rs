@@ -54,6 +54,7 @@ pub fn default_retry_backoff_with_initial_delay(initial: Duration) -> Backoff {
         factor: 1.5,
         jitter: 0.2,
         steps: 5,
+        cap: Duration::ZERO,
     }
 }
 

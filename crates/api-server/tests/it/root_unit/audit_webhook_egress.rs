@@ -125,6 +125,7 @@ mod tests {
                 factor: 1.5,
                 jitter: 0.2,
                 steps: 2,
+                cap: std::time::Duration::ZERO,
             },
         )
         .unwrap();
