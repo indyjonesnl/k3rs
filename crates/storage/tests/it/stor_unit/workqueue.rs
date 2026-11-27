@@ -13,6 +13,41 @@ mod tests {
     use super::__parent::*;
     use kubernetes_rs_storage::workqueue::*;
 
+    /// A key that finished processing leaves no `last_dequeued` entry
+    /// (queue.go `Done` :289-305 cleans per-key state).
+    #[tokio::test]
+    async fn workqueue_last_dequeued_is_cleared_by_done() {
+        let q = WorkQueue::new();
+        for i in 0..50 {
+            q.add(format!("k{i}")).await;
+        }
+        for _ in 0..50 {
+            let k = q.get().await.unwrap();
+            assert!(q.inner.lock().await.last_dequeued.contains_key(&k));
+            q.done(&k).await;
+        }
+        assert_eq!(q.inner.lock().await.last_dequeued.len(), 0);
+    }
+
+    /// `TestReinsert`: a key re-added while processing is re-queued by
+    /// `done`, and the entry is again cleaned once that run completes.
+    #[tokio::test]
+    async fn workqueue_last_dequeued_reinsert_still_requeues() {
+        let q = WorkQueue::new();
+        q.add("a".into()).await;
+        let k = q.get().await.unwrap();
+        q.add("a".into()).await; // dirtied while processing
+        q.done(&k).await;
+        // re-queued (possibly delayed by the reprocess interval)
+        let again = tokio::time::timeout(Duration::from_secs(2), q.get())
+            .await
+            .expect("re-queued key must come back")
+            .unwrap();
+        assert_eq!(again, "a");
+        q.done(&again).await;
+        assert_eq!(q.inner.lock().await.last_dequeued.len(), 0);
+    }
+
     #[tokio::test]
     async fn test_add_and_get() {
         let q = WorkQueue::new();
