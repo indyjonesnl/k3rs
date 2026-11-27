@@ -48,6 +48,7 @@ pub mod pod_options;
 pub mod pod_resources;
 pub mod pod_security_context_values;
 pub mod pod_spec_extra;
+pub mod pod_spec_linux;
 pub mod pod_status;
 pub mod pod_subresource;
 pub mod podcertificaterequest;
