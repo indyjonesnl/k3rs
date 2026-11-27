@@ -18,3 +18,5 @@ mod token_source_test;
 mod urlbackoff_test;
 mod user_agent_test;
 mod watch_test;
+mod with_retry_http_test;
+mod with_retry_test;
