@@ -38,7 +38,6 @@ pub mod apiserver_request_metrics;
 pub mod conversion;
 pub mod deprecation;
 pub mod dynamic_certificates;
-pub mod dynamic_routes;
 pub mod egress_http;
 pub mod egress_selector;
 pub mod endpoints;
