@@ -61,3 +61,55 @@ async fn with_retry_gives_up_after_ten_retries() {
     assert!(c.get::<serde_json::Value>("/x").await.is_err());
     assert_eq!(hits.load(Ordering::SeqCst), 11);
 }
+
+mod urlbackoff {
+    use super::*;
+    use kubernetes_rs_client::urlbackoff::{Backoff, UrlBackoff};
+    use std::time::{Duration, Instant};
+
+    /// rest/request.go `request()` + `withRetry.Before/After`: a 5xx (> 499)
+    /// bumps the per-host backoff, so the NEXT request sleeps before it is
+    /// sent; a 2xx resets it.
+    #[tokio::test]
+    async fn urlbackoff_next_request_sleeps_after_server_error() {
+        let (url, hits) = serve(vec![
+            (500, "", "{}"),
+            (200, "", r#"{"ok":true}"#),
+            (200, "", r#"{"ok":true}"#),
+        ])
+        .await;
+        let c = ApiClient::new(&url, false, None)
+            .unwrap()
+            .with_backoff_manager(Arc::new(UrlBackoff::new(Backoff::new(
+                Duration::from_millis(300),
+                Duration::from_secs(2),
+            ))));
+        // first request: no backoff yet, gets the 500
+        let t = Instant::now();
+        assert!(c.get::<serde_json::Value>("/x").await.is_err());
+        assert!(t.elapsed() < Duration::from_millis(250));
+        // second request waits out the backoff, then succeeds (and resets it)
+        let t = Instant::now();
+        c.get::<serde_json::Value>("/x").await.unwrap();
+        assert!(
+            t.elapsed() >= Duration::from_millis(280),
+            "{:?}",
+            t.elapsed()
+        );
+        // third request: backoff was reset by the 200
+        let t = Instant::now();
+        c.get::<serde_json::Value>("/x").await.unwrap();
+        assert!(t.elapsed() < Duration::from_millis(250));
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn urlbackoff_default_is_no_backoff() {
+        let (url, _hits) = serve(vec![(500, "", "{}"), (200, "", "{}")]).await;
+        let c = ApiClient::new(&url, false, None).unwrap();
+        let _ = c.get::<serde_json::Value>("/x").await;
+        let t = Instant::now();
+        c.get::<serde_json::Value>("/x").await.unwrap();
+        assert!(t.elapsed() < Duration::from_millis(250));
+    }
+}

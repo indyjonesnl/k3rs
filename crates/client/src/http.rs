@@ -65,6 +65,10 @@ pub struct ApiClient {
     /// limiter belongs to ONE client: [`Self::for_controller`] gives a clone its
     /// own fresh bucket rather than sharing this one (#1863).
     limiter: Arc<RateLimiter>,
+    /// `RESTClient.createBackoffMgr` (rest/client.go:96,124): a per-client
+    /// manager read from `KUBE_CLIENT_BACKOFF_BASE` / `_DURATION`, `NoBackoff`
+    /// when unset.
+    backoff: Arc<dyn crate::urlbackoff::BackoffManager>,
     /// The component's default `User-Agent`
     /// (`rest.DefaultKubernetesUserAgent()`, set by
     /// [`Self::with_default_user_agent`]). [`Self::for_controller`] derives its
@@ -299,6 +303,7 @@ impl ApiClient {
             stream_client,
             token,
             limiter: Arc::new(RateLimiter::unlimited()),
+            backoff: Arc::from(crate::urlbackoff::read_exp_backoff_config()),
             default_user_agent: None,
             user_agent: None,
             basic_auth: None,
@@ -371,6 +376,7 @@ impl ApiClient {
             stream_client: self.stream_client.clone(),
             token: self.token.clone(),
             limiter: Arc::new(RateLimiter::new(self.limiter.qps(), self.limiter.burst())),
+            backoff: Arc::from(crate::urlbackoff::read_exp_backoff_config()),
             default_user_agent: self.default_user_agent.clone(),
             user_agent: self
                 .default_user_agent
@@ -428,6 +434,12 @@ impl ApiClient {
         request
     }
 
+    /// Replace the backoff manager (`Config.BackoffManager`, rest/config.go).
+    pub fn with_backoff_manager(mut self, m: Arc<dyn crate::urlbackoff::BackoffManager>) -> Self {
+        self.backoff = m;
+        self
+    }
+
     /// Stamp the `User-Agent` on a request, when this client has one.
     fn with_user_agent(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match &self.user_agent {
@@ -441,7 +453,8 @@ impl ApiClient {
     /// connection reset / probable EOF, up to `MAX_RETRIES` times (maxRetries
     /// :166). Each retry sleeps the `Retry-After` and is throttled by the
     /// client's rate limiter again (`withRetry.Before`, with_retry.go:195-236;
-    /// the per-URL backoff manager is not applied here). The final error
+    /// the per-URL backoff manager is consulted before every attempt and
+    /// updated after each, `Before`/`After` :195-279). The final error
     /// carries the previous attempt's error (`WrapPreviousError`).
     async fn send_retrying(&self, request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
         use crate::with_retry::{AttemptError, RetryResponse, WithRetry, Wrapped};
@@ -453,11 +466,28 @@ impl ApiClient {
             .try_clone()
             .and_then(|r| r.build().ok())
             .map(|r| r.method().clone());
+        let url = request
+            .try_clone()
+            .and_then(|r| r.build().ok())
+            .map(|r| r.url().clone());
         let mut retry = WithRetry::new(MAX_RETRIES);
         let mut current = request;
+        // `Before` for the first attempt (with_retry.go:206-212): a backoff
+        // sleep, preserving the pre-retry behaviour.
+        if let Some(u) = &url {
+            tokio::time::sleep(self.backoff.calculate_backoff(u)).await;
+        }
         loop {
             let next = current.try_clone();
             let result = current.send().await;
+            // `After` (with_retry.go:270-278): feed the outcome (status, or 0
+            // for a transport error) to the backoff manager.
+            if let Some(u) = &url {
+                match &result {
+                    Ok(r) => self.backoff.update_backoff(u, None, r.status().as_u16()),
+                    Err(e) => self.backoff.update_backoff(u, Some(&e.to_string()), 0),
+                }
+            }
             let (resp, err) = match &result {
                 Ok(r) => (
                     Some(RetryResponse::from_headers(
@@ -500,9 +530,16 @@ impl ApiClient {
                     }
                 };
             }
+            // `Before` for a retry (with_retry.go:214-223): sleep
+            // max(backoff, Retry-After).
+            let mut delay = url
+                .as_ref()
+                .map(|u| self.backoff.calculate_backoff(u))
+                .unwrap_or_default();
             if let Some(ra) = &retry.retry_after {
-                tokio::time::sleep(ra.wait).await;
+                delay = delay.max(ra.wait);
             }
+            tokio::time::sleep(delay).await;
             self.limiter.acquire().await;
             current = match next {
                 Some(n) => n,
