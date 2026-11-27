@@ -12,7 +12,7 @@
 //! - `client-go/rest/config.go` `ImpersonationConfig` (Impersonate-User/-Uid/
 //!   -Group/-Extra-* headers, `transport/round_trippers.go`).
 //!
-//! Pure and unit-tested; wiring into `main.rs` is a separate task. The
+//! `main.rs` builds its client from [`build_api_client`]. The
 //! kubeconfig is parsed into this module's own types so that fields the shared
 //! `kubernetes_rs_client::kubeconfig` types lack (`tls-server-name`, `as`,
 //! `as-groups`, `disable-compression`, ...) are not dropped.
@@ -601,4 +601,104 @@ impl AuthInfo {
 pub fn default_loading_rules() -> LoadingRules {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     LoadingRules::new_default(std::env::var("KUBECONFIG").ok().as_deref(), home.as_deref())
+}
+
+/// `dataFromSliceOrFile` (client-go transport/transport.go): inline `-data`
+/// (base64 in a kubeconfig) wins over the file.
+fn data_or_file(data: &str, file: &str, what: &str) -> Result<Option<Vec<u8>>, String> {
+    use base64::Engine;
+    if !data.is_empty() {
+        return base64::engine::general_purpose::STANDARD
+            .decode(data.trim())
+            .map(Some)
+            .map_err(|e| format!("{what}: illegal base64 data: {e}"));
+    }
+    if !file.is_empty() {
+        return std::fs::read(file)
+            .map(Some)
+            .map_err(|e| format!("open {file}: {e}"));
+    }
+    Ok(None)
+}
+
+/// The bearer token: `BearerToken`, else the trimmed content of
+/// `BearerTokenFile` (`NewBearerAuthWithRefreshRoundTripper`, which reads and
+/// `TrimSpace`s the file).
+fn bearer_token(a: &AuthInfo) -> Result<Option<String>, String> {
+    if !a.token.is_empty() {
+        return Ok(Some(a.token.clone()));
+    }
+    if a.token_file.is_empty() {
+        return Ok(None);
+    }
+    std::fs::read_to_string(&a.token_file)
+        .map(|t| Some(t.trim().to_string()))
+        .map_err(|e| format!("open {}: {e}", a.token_file))
+}
+
+/// Build the HTTP client from a resolved kubeconfig: CA, client certificate
+/// and key (data or file), bearer token (or token file), basic auth, and the
+/// impersonation headers. `--insecure-skip-tls-verify` ignores the CA, as
+/// `getServerIdentificationPartialConfig` does; the client identity is
+/// presented regardless.
+///
+/// Not carried over yet: `--tls-server-name`, `--request-timeout` and
+/// `--disable-compression` are parsed and validated but have no effect
+/// (reqwest has no SNI override, the shared client keeps its 60s request
+/// timeout, and compression is not negotiated at all).
+pub fn build_api_client(
+    r: &ResolvedConfig,
+) -> Result<kubernetes_rs_client::http::ApiClient, String> {
+    let c = &r.cluster;
+    let a = &r.auth_info;
+    let server = if c.server.is_empty() {
+        "https://localhost:6443".to_string()
+    } else {
+        c.server.clone()
+    };
+    let ca = if c.insecure_skip_tls_verify {
+        None
+    } else {
+        data_or_file(
+            &c.certificate_authority_data,
+            &c.certificate_authority,
+            "certificate-authority-data",
+        )?
+    };
+    let cert = data_or_file(
+        &a.client_certificate_data,
+        &a.client_certificate,
+        "client-certificate-data",
+    )?;
+    let key = data_or_file(&a.client_key_data, &a.client_key, "client-key-data")?;
+    let token = bearer_token(a)?;
+    if token.is_some() && !a.username.is_empty() {
+        return Err("username/password or bearer token may be set, but not both".to_string());
+    }
+    let mut client = kubernetes_rs_client::http::ApiClient::with_tls(
+        &server,
+        c.insecure_skip_tls_verify,
+        ca,
+        cert,
+        key,
+        token,
+    )
+    .map_err(|e| format!("{e:#}"))?
+    .with_extra_headers(a.impersonation_headers());
+    if !a.username.is_empty() {
+        client = client
+            .with_basic_auth(&a.username, &a.password)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(client)
+}
+
+/// The loading rules for a `--kubeconfig` flag (`ExplicitPath`) or, without
+/// it, the `KUBECONFIG` / `~/.kube/config` chain.
+pub fn loading_rules_for(flags: &ConfigFlags) -> LoadingRules {
+    let mut rules = default_loading_rules();
+    if let Some(p) = flags.kubeconfig.as_deref().filter(|p| !p.is_empty()) {
+        rules.explicit_path = p.to_string();
+    }
+    rules
 }
