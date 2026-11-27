@@ -54,6 +54,7 @@ mod nodeshutdown;
 mod pc_unit;
 mod pluginmanager_unit;
 mod pods_endpoint_test;
+mod qos_policy;
 mod root_unit;
 mod runtime_prestop_exit_test;
 mod sandbox_lookup_isolation;
