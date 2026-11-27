@@ -262,6 +262,7 @@ impl ImagePolicyWebhook {
             factor: 1.5,
             jitter: 0.2,
             steps: 5,
+            cap: Duration::ZERO,
         };
         Ok(Self {
             client: client_config.build_client()?,

@@ -367,6 +367,7 @@ mod tests {
             factor: 1.5,
             jitter: 0.2,
             steps: 5,
+            cap: std::time::Duration::ZERO,
         }
     }
 

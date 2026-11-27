@@ -53,6 +53,7 @@ fn authorizer(url: &str, name: &str, policy: FailurePolicy, exprs: &[&str]) -> W
         factor: 0.0,
         jitter: 0.0,
         steps: 1,
+        cap: std::time::Duration::ZERO,
     };
     let conds: Vec<_> = exprs
         .iter()

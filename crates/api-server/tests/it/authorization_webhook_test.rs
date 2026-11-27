@@ -90,6 +90,7 @@ fn test_backoff() -> Backoff {
         factor: 0.0,
         jitter: 0.0,
         steps: 5,
+        cap: std::time::Duration::ZERO,
     }
 }
 
