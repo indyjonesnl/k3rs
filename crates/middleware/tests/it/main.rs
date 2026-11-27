@@ -8,6 +8,7 @@
 //! below. A stray `tests/<name>.rs` still compiles -- it just silently
 //! reintroduces a separate binary, which is what this layout avoids.
 mod auth_unauthorized_status;
+mod authentication_metrics_test;
 mod controllerrevision_request_decode;
 mod legacy_token_observations;
 mod lifecycle_signals;
