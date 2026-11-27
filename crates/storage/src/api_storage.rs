@@ -1220,23 +1220,13 @@ fn map_watch_event(rt: &str, namespaced: bool, ev: ClientWatchEvent<Value>) -> O
     }
 }
 
-/// Whether a watch error is the server's in-stream `ERROR` envelope carrying a
-/// 410 `Status` — `isExpiredError` (`reflector.go:1051-1058`:
-/// `IsResourceExpired(err) || IsGone(err)`). `parse_watch_line` renders the
-/// envelope as `watch ERROR envelope: <Status json>`.
+/// Whether a watch error is the server's in-stream `ERROR` envelope carrying
+/// an expired/gone `Status` -- `isExpiredError` (`reflector.go:1051-1058`:
+/// `IsResourceExpired(err) || IsGone(err)`). `parse_watch_line` returns the
+/// envelope as a typed `ApiStatusError`.
 fn is_expired_watch_error(e: &anyhow::Error) -> bool {
-    let m = e.to_string();
-    let Some(body) = m.strip_prefix("watch ERROR envelope: ") else {
-        return false;
-    };
-    let Ok(status) = serde_json::from_str::<Value>(body) else {
-        return false;
-    };
-    status.get("code").and_then(Value::as_i64) == Some(410)
-        || matches!(
-            status.get("reason").and_then(Value::as_str),
-            Some("Expired" | "Gone")
-        )
+    kubernetes_rs_client::api_status::is_resource_expired(e)
+        || kubernetes_rs_client::api_status::is_gone(e)
 }
 
 /// A watch opened at `rv`, private to one caller (`watch_from_revision`).

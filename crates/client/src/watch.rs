@@ -35,14 +35,18 @@ struct RawEvent<T> {
 
 /// Parse one JSON line of a watch stream into a typed event.
 ///
-/// `ERROR` envelopes are surfaced as `Err` carrying the raw `Status` body so
-/// callers can detect `Expired` ("too old resource version") and re-list.
+/// `ERROR` envelopes are surfaced as `Err(ApiStatusError)` built from the
+/// `Status` object (`apierrors.FromObject`), so callers can use the
+/// `api_status` predicates, e.g. `is_resource_expired` to re-list.
 pub fn parse_watch_line<T: DeserializeOwned>(line: &str) -> Result<WatchEvent<T>> {
     // Sniff the envelope type first with a raw-value object so an ERROR
     // envelope (whose object is a Status, not a T) doesn't fail T-decoding.
     let raw: RawEvent<serde_json::Value> = serde_json::from_str(line)?;
     if raw.kind == "ERROR" {
-        anyhow::bail!("watch ERROR envelope: {}", raw.object);
+        // `Request.Watch` / `handleAnyWatch`: `apierrors.FromObject(event.Object)`,
+        // so `is_forbidden` / `is_resource_expired` / `is_too_large_resource_version`
+        // match. The text is the Status message.
+        return Err(crate::api_status::from_status_object(&raw.object)?.into());
     }
     let object: T = serde_json::from_value(raw.object)?;
     Ok(match raw.kind.as_str() {
@@ -132,4 +136,47 @@ pub async fn watch_stream<T: DeserializeOwned>(
             }
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api_status::*;
+
+    fn err_for(status: &str) -> anyhow::Error {
+        let line = format!(r#"{{"type":"ERROR","object":{status}}}"#);
+        parse_watch_line::<serde_json::Value>(&line).unwrap_err()
+    }
+
+    /// `TestReflectorListAndWatchWithErrors`: an expired watch.
+    #[test]
+    fn watch_error_expired_is_typed() {
+        let e = err_for(
+            r#"{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"Expired","code":410,"message":"too old resource version: 5 (10)"}"#,
+        );
+        assert!(is_resource_expired(&e));
+        assert_eq!(e.to_string(), "too old resource version: 5 (10)");
+        assert_eq!(reason_and_code_for_error(&e), ("Expired".to_string(), 410));
+    }
+
+    #[test]
+    fn watch_error_forbidden_and_too_large_rv() {
+        let e = err_for(
+            r#"{"kind":"Status","status":"Failure","reason":"Forbidden","code":403,"message":"no"}"#,
+        );
+        assert!(is_forbidden(&e) && !is_resource_expired(&e));
+        let e = err_for(
+            r#"{"kind":"Status","status":"Failure","reason":"Timeout","code":504,"message":"x","details":{"causes":[{"reason":"ResourceVersionTooLarge","message":"Too large resource version"}],"retryAfterSeconds":1}}"#,
+        );
+        assert!(is_too_large_resource_version(&e));
+        assert!(is_timeout(&e));
+        assert_eq!(suggests_client_delay(&e), Some(1));
+    }
+
+    #[test]
+    fn watch_error_non_status_object_is_rejected() {
+        let e = err_for(r#"{"kind":"Pod","metadata":{"name":"p"}}"#);
+        assert!(e.to_string().starts_with("unexpected object: "));
+        assert!(!is_resource_expired(&e));
+    }
 }

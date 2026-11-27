@@ -27,14 +27,11 @@ fn error_envelope_surfaces_status_body() {
     // The api-server delivers compacted-RV failures as an in-stream ERROR
     // envelope (HTTP 200): {type:"ERROR", object:Status{code:410,
     // reason:"Expired", message:"too old resource version: X (Y)"}}.
-    // parse_watch_line must surface that as an Err whose text carries the
-    // Status content so callers can detect Expired/Gone.
+    // parse_watch_line surfaces it as an ApiStatusError (apierrors.FromObject):
+    // Display is the Status message (StatusError.Error()), the reason and
+    // code are reachable through the api_status predicates.
     let line = r#"{"type":"ERROR","object":{"kind":"Status","status":"Failure","reason":"Expired","message":"too old resource version: 5 (100)","code":410}}"#;
     let err = parse_watch_line::<serde_json::Value>(line).unwrap_err();
-    let text = err.to_string();
-    assert!(text.contains("Expired"), "error text: {text}");
-    assert!(
-        text.contains("too old resource version"),
-        "error text: {text}"
-    );
+    assert!(kubernetes_rs_client::api_status::is_resource_expired(&err));
+    assert_eq!(err.to_string(), "too old resource version: 5 (100)");
 }

@@ -195,6 +195,54 @@ pub fn has_status_cause(err: &anyhow::Error, name: &str) -> bool {
         .is_some_and(|s| s.causes.iter().any(|c| c == name))
 }
 
+/// `isTooLargeResourceVersionError` (tools/cache/reflector.go:1060-1083),
+/// first branch: `HasStatusCause(err, CauseTypeResourceVersionTooLarge)`.
+/// Not ported: the fallback for servers 1.17.0-1.18.5, which matches the
+/// cause *message* "Too large resource version" (causes keep only their type).
+pub fn is_too_large_resource_version(err: &anyhow::Error) -> bool {
+    has_status_cause(err, "ResourceVersionTooLarge")
+}
+
+/// `apierrors.FromObject` for a `Status` object (errors.go:~60): the typed
+/// error a watch `ERROR` event carries. The text is `Status.Message`.
+/// A non-`Status` object is an error, as upstream's `unexpected object`.
+pub fn from_status_object(obj: &serde_json::Value) -> anyhow::Result<ApiStatusError> {
+    if obj.get("kind").and_then(|k| k.as_str()) != Some("Status") {
+        anyhow::bail!("unexpected object: {obj}");
+    }
+    let str_of = |k: &str| {
+        obj.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    Ok(ApiStatusError {
+        code: obj
+            .get("code")
+            .and_then(|c| c.as_u64())
+            .and_then(|c| u16::try_from(c).ok())
+            .unwrap_or(0),
+        reason: str_of("reason"),
+        message: str_of("message"),
+        retry_after_seconds: obj.get("details").map(|d| {
+            d.get("retryAfterSeconds")
+                .and_then(|r| r.as_i64())
+                .and_then(|r| i32::try_from(r).ok())
+                .unwrap_or(0)
+        }),
+        causes: obj
+            .pointer("/details/causes")
+            .and_then(|c| c.as_array())
+            .map(|cs| {
+                cs.iter()
+                    .filter_map(|c| c.get("reason").and_then(|r| r.as_str()))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
 /// `IsUnsupportedMediaType` (errors.go:607-615).
 pub fn is_unsupported_media_type(err: &anyhow::Error) -> bool {
     reason_or_code(err, "UnsupportedMediaType", 415)
