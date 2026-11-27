@@ -6,6 +6,7 @@
 pub mod admission_metrics;
 pub use kubernetes_rs_common::cancellation;
 pub mod cel_evaluators;
+pub mod rules_matcher;
 pub mod service_resolver;
 pub mod transport;
 pub mod webhook_match;
