@@ -15,8 +15,15 @@
 //! [`PullBackOff`]: a [`crate::flowcontrol::Backoff`] keyed `<podUID>_<image>`
 //! plus `prevPullErrMsg`.
 //!
+//! The pull records on disk (`pullmanager/fs_pullrecords.go`) are in
+//! [`image_pull_manager`].
+//!
 //! Not ported: `KubeletEnsureSecretPulledImages` credential verification
-//! (`pullmanager`) and the parallel/serial puller limits (`puller.go`).
+//! (the `pullmanager` policy and manager) and the parallel/serial puller limits (`puller.go`).
+
+// Declared here (not in lib.rs) to avoid a lib.rs edit collision; file is src/image_pull_manager.rs.
+#[path = "image_pull_manager.rs"]
+pub mod image_pull_manager;
 
 use crate::flowcontrol::Backoff;
 use std::collections::HashMap;

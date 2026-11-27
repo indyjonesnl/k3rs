@@ -43,6 +43,7 @@ mod ephemeral_containers_test;
 mod etc_hosts_hostaliases_test;
 mod eviction_test;
 mod hosts_file_test;
+mod image_pull_records;
 mod init_container_restart_test;
 mod init_containers_test;
 mod kubelet_lifecycle_test;
