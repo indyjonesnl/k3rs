@@ -65,6 +65,7 @@ x509-parser = { workspace = true }
 # Paused-clock tests (CSI capacity rate limiter / worker concurrency).
 tokio = { version = "1", features = ["test-util"] }
 tempfile = "3"
+prost-types.workspace = true
 tokio-stream = { version = "0.1", features = ["net"] }
 serial_test = { workspace = true }
 # Stateful fake MetricsClient in hpa_controller_test (changing readings across

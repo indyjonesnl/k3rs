@@ -3,15 +3,19 @@ use anyhow::{Context, Result};
 use kubernetes_rs_common::resources::service_account::ObjectReference;
 use kubernetes_rs_common::resources::volume::PersistentVolumeClaimPhase;
 use kubernetes_rs_common::resources::volume::VolumeSnapshotContentSource;
+use kubernetes_rs_common::resources::volume::VolumeSnapshotError;
 use kubernetes_rs_common::resources::{
     DeletionPolicy, EventSource, EventType, PersistentVolume, PersistentVolumeClaim,
     VolumeSnapshot, VolumeSnapshotClass, VolumeSnapshotContent, VolumeSnapshotContentSpec,
     VolumeSnapshotContentStatus, VolumeSnapshotStatus,
 };
 use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
+use kubernetes_rs_csi::controller_client::CsiControllerClient;
+use kubernetes_rs_csi::proto::{CreateSnapshotRequest, DeleteSnapshotRequest};
 use kubernetes_rs_storage::{
     build_key, build_prefix, extract_key, EventRecorder, Storage, WorkQueue,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
@@ -26,9 +30,64 @@ const IS_DEFAULT_SNAPSHOT_CLASS_ANNOTATION: &str =
 /// (external-snapshotter `cmd/snapshot-controller/main.go:70`).
 const WORKER_THREADS: usize = 10;
 
+/// `csiParameterPrefix` (external-snapshotter `pkg/utils/util.go`): parameter
+/// keys under this prefix are reserved for the controller, not the driver.
+const CSI_PARAMETER_PREFIX: &str = "csi.storage.k8s.io/";
+
+/// Well-known reserved keys `RemovePrefixedParameters` accepts and strips
+/// (`util.go:553-577`).
+const KNOWN_PREFIXED_PARAMETERS: &[&str] = &[
+    "csi.storage.k8s.io/snapshotter-secret-name",
+    "csi.storage.k8s.io/snapshotter-secret-namespace",
+    "csi.storage.k8s.io/snapshotter-list-secret-name",
+    "csi.storage.k8s.io/snapshotter-list-secret-namespace",
+    "csi.storage.k8s.io/group-snapshotter-get-secret-name",
+    "csi.storage.k8s.io/group-snapshotter-get-secret-namespace",
+    "csi.storage.k8s.io/group-snapshotter-secret-name",
+    "csi.storage.k8s.io/group-snapshotter-secret-namespace",
+];
+
+/// `--snapshot-name-prefix` default (`cmd/csi-snapshotter/main.go`).
+const SNAPSHOT_NAME_PREFIX: &str = "snapshot";
+
+/// `RemovePrefixedParameters` (`pkg/utils/util.go:553`): drop the controller's
+/// own well-known `csi.storage.k8s.io/` keys, reject unknown reserved keys, and
+/// pass everything else to the driver untouched.
+pub fn remove_prefixed_parameters(
+    params: &HashMap<String, String>,
+) -> Result<HashMap<String, String>> {
+    let mut out = HashMap::new();
+    for (k, v) in params {
+        if k.starts_with(CSI_PARAMETER_PREFIX) {
+            if !KNOWN_PREFIXED_PARAMETERS.contains(&k.as_str()) {
+                anyhow::bail!(
+                    "found unknown parameter key \"{k}\" with reserved namespace {CSI_PARAMETER_PREFIX}"
+                );
+            }
+        } else {
+            out.insert(k.clone(), v.clone());
+        }
+    }
+    Ok(out)
+}
+
+/// `makeSnapshotName` (`pkg/sidecar-controller/csi_handler.go:138`) with the
+/// default `--snapshot-name-uuid-length=-1`: `<prefix>-<snapshot UID>`.
+pub fn make_snapshot_name(snapshot_uid: &str) -> Result<String> {
+    if snapshot_uid.is_empty() {
+        anyhow::bail!("Corrupted snapshot object, it is missing UID");
+    }
+    Ok(format!("{SNAPSHOT_NAME_PREFIX}-{snapshot_uid}"))
+}
+
 pub struct VolumeSnapshotController<S: Storage> {
     storage: Arc<S>,
     recorder: EventRecorder<S>,
+    /// CSI driver name -> controller-service client: the external-snapshotter
+    /// sidecar's `snapshotter.NewSnapshotter(csiConn)`. A class whose driver
+    /// has a client here is driven through CreateSnapshot/DeleteSnapshot; any
+    /// other driver keeps the built-in hostpath behaviour.
+    driver_clients: HashMap<String, Arc<CsiControllerClient>>,
 }
 
 impl<S: Storage + 'static> VolumeSnapshotController<S> {
@@ -36,7 +95,18 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
         Self {
             recorder: EventRecorder::new(Arc::clone(&storage)),
             storage,
+            driver_clients: HashMap::new(),
         }
+    }
+
+    /// Register the CSI controller client for `driver`.
+    pub fn with_driver_client(
+        mut self,
+        driver: impl Into<String>,
+        client: CsiControllerClient,
+    ) -> Self {
+        self.driver_clients.insert(driver.into(), Arc::new(client));
+        self
     }
 
     pub async fn run(self: Arc<Self>) -> Result<()> {
@@ -250,7 +320,8 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
         );
 
         // Check if driver is supported
-        if !self.is_driver_supported(&vsc.driver) {
+        let driver_client = self.driver_clients.get(&vsc.driver).cloned();
+        if driver_client.is_none() && !self.is_driver_supported(&vsc.driver) {
             warn!(
                 "Driver {} is not supported. Skipping VolumeSnapshot {}/{}",
                 vsc.driver, namespace, vs_name
@@ -287,6 +358,12 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
 
         // Create VolumeSnapshotContent name
         let content_name = format!("snapcontent-{}-{}", namespace, vs_name);
+
+        if let Some(client) = driver_client {
+            return self
+                .create_snapshot_via_driver(&client, vs, &vsc, &content_name)
+                .await;
+        }
 
         // Check if content already exists
         let content_key = build_key("volumesnapshotcontents", None, &content_name);
@@ -558,6 +635,255 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
         Ok(content)
     }
 
+    /// The external-snapshotter flow for a driver-backed class: the common
+    /// controller's dynamic content creation (`createSnapshotContent`,
+    /// `snapshot_controller.go`) followed by the sidecar's `syncContent`
+    /// (`pkg/sidecar-controller/snapshot_controller.go:61-112`).
+    async fn create_snapshot_via_driver(
+        &self,
+        client: &CsiControllerClient,
+        vs: &VolumeSnapshot,
+        vsc: &VolumeSnapshotClass,
+        content_name: &str,
+    ) -> Result<()> {
+        let namespace = vs.metadata.namespace.as_deref().unwrap_or("default");
+        let pvc_name = vs
+            .spec
+            .source
+            .persistent_volume_claim_name
+            .as_deref()
+            .context("VolumeSnapshot source must specify persistentVolumeClaimName")?;
+
+        let content_key = build_key("volumesnapshotcontents", None, content_name);
+        let mut content = match self
+            .storage
+            .get::<VolumeSnapshotContent>(&content_key)
+            .await
+        {
+            Ok(c) => c,
+            Err(_) => {
+                // `spec.source.volumeHandle` is the PV's CSI volume handle
+                // (`getVolumeFromVolumeSnapshot` -> `pv.Spec.CSI.VolumeHandle`).
+                let pvc: PersistentVolumeClaim = self
+                    .storage
+                    .get(&build_key(
+                        "persistentvolumeclaims",
+                        Some(namespace),
+                        pvc_name,
+                    ))
+                    .await
+                    .with_context(|| format!("PVC {namespace}/{pvc_name} not found"))?;
+                let pv_name = pvc.spec.volume_name.as_deref().unwrap_or("");
+                let pv: PersistentVolume = self
+                    .storage
+                    .get(&build_key("persistentvolumes", None, pv_name))
+                    .await
+                    .with_context(|| format!("failed to retrieve PV {pv_name}"))?;
+                let Some(csi) = pv.spec.csi.as_ref() else {
+                    anyhow::bail!(
+                        "snapshotting non-CSI volumes is not supported, snapshot:{namespace}/{}",
+                        vs.metadata.name
+                    );
+                };
+                let mut c = self.create_snapshot_content(
+                    vsc,
+                    vs,
+                    content_name,
+                    csi.volume_handle.as_deref().unwrap_or(""),
+                )?;
+                // The driver, not the controller, reports the handle.
+                c.spec.source.snapshot_handle = None;
+                c.status = None;
+                self.storage
+                    .create(&content_key, &c)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to create VolumeSnapshotContent {content_name}")
+                    })?;
+                c
+            }
+        };
+
+        // `contentIsReady`: skip the driver once it reported ready.
+        let ready = content
+            .status
+            .as_ref()
+            .and_then(|s| s.ready_to_use)
+            .unwrap_or(false);
+        if !ready {
+            content = match self.create_snapshot_on_driver(client, vsc, &content).await {
+                Ok(c) => c,
+                Err(e) => {
+                    // `updateContentErrorStatusWithEvent` (`:130`).
+                    self.record_content_error(&content, &format!("Failed to create snapshot: {e}"))
+                        .await;
+                    return Err(e);
+                }
+            };
+        }
+        self.update_snapshot_status_from_content(vs, &content).await
+    }
+
+    /// `createSnapshotWrapper` (`pkg/sidecar-controller/snapshot_controller.go:341`)
+    /// and `csiHandler.CreateSnapshot` (`csi_handler.go:75`): returns the
+    /// content with the driver's answer recorded in `status`
+    /// (`updateSnapshotContentStatus`, `:622`). Not ported: snapshotter
+    /// credentials, the BeingCreated annotation, topology.
+    async fn create_snapshot_on_driver(
+        &self,
+        client: &CsiControllerClient,
+        vsc: &VolumeSnapshotClass,
+        content: &VolumeSnapshotContent,
+    ) -> Result<VolumeSnapshotContent> {
+        let parameters = remove_prefixed_parameters(&vsc.parameters.clone().unwrap_or_default())
+            .map_err(|e| {
+                anyhow::anyhow!("failed to remove CSI Parameters of prefixed keys: {e}")
+            })?;
+        let r = &content.spec.volume_snapshot_ref;
+        if r.uid.as_deref().unwrap_or("").is_empty() {
+            anyhow::bail!(
+                "cannot create snapshot. Snapshot content {} not bound to a snapshot",
+                content.metadata.name
+            );
+        }
+        let Some(volume_handle) = content.spec.source.volume_handle.as_deref() else {
+            anyhow::bail!(
+                "cannot create snapshot. Volume handle not found in snapshot content {}",
+                content.metadata.name
+            );
+        };
+        let name = make_snapshot_name(r.uid.as_deref().unwrap_or(""))?;
+        let snap = client
+            .create_snapshot(CreateSnapshotRequest {
+                source_volume_id: volume_handle.to_string(),
+                name,
+                parameters,
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!("failed to take snapshot of the volume {volume_handle}: \"{e}\"")
+            })?;
+
+        // `if creationTime.IsZero() { creationTime = time.Now() }` (`:404`).
+        let created_ns = snap
+            .creation_time
+            .as_ref()
+            .filter(|t| t.seconds != 0 || t.nanos != 0)
+            .map(|t| t.seconds.saturating_mul(1_000_000_000) + i64::from(t.nanos))
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+
+        let mut updated = content.clone();
+        updated.status = Some(VolumeSnapshotContentStatus {
+            snapshot_handle: Some(snap.snapshot_id),
+            creation_time: Some(created_ns),
+            ready_to_use: Some(snap.ready_to_use),
+            // `if size > 0 { newStatus.RestoreSize = &size }`.
+            restore_size: (snap.size_bytes > 0).then_some(snap.size_bytes),
+            error: None,
+        });
+        let key = build_key("volumesnapshotcontents", None, &content.metadata.name);
+        self.storage
+            .update_status(&key, &updated)
+            .await
+            .with_context(|| {
+                format!(
+                    "error updating status for volume snapshot content {}",
+                    content.metadata.name
+                )
+            })
+    }
+
+    /// `updateContentErrorStatusWithEvent`: record the failure on
+    /// `content.status.error` and emit a Warning event. Best effort.
+    async fn record_content_error(&self, content: &VolumeSnapshotContent, message: &str) {
+        let mut updated = content.clone();
+        let mut status = updated
+            .status
+            .take()
+            .unwrap_or(VolumeSnapshotContentStatus {
+                snapshot_handle: None,
+                creation_time: None,
+                ready_to_use: None,
+                restore_size: None,
+                error: None,
+            });
+        status.error = Some(VolumeSnapshotError {
+            time: Some(chrono::Utc::now().to_rfc3339()),
+            message: Some(message.to_string()),
+        });
+        updated.status = Some(status);
+        let key = build_key("volumesnapshotcontents", None, &content.metadata.name);
+        if let Err(e) = self.storage.update_status(&key, &updated).await {
+            warn!(
+                "failed to record error on content {}: {e}",
+                content.metadata.name
+            );
+        }
+        let involved = ObjectReference {
+            kind: Some("VolumeSnapshotContent".to_string()),
+            name: Some(content.metadata.name.clone()),
+            uid: Some(content.metadata.uid.clone()),
+            api_version: Some("snapshot.storage.k8s.io/v1".to_string()),
+            ..Default::default()
+        };
+        let source = EventSource {
+            component: "csi-snapshotter".to_string(),
+            host: None,
+        };
+        if let Err(e) = self
+            .recorder
+            .event(
+                &involved,
+                &source,
+                EventType::Warning,
+                "SnapshotCreationFailed",
+                message,
+            )
+            .await
+        {
+            warn!("failed to record SnapshotCreationFailed event: {e}");
+        }
+    }
+
+    /// Common controller's `updateSnapshotStatus` from a content's status
+    /// (`snapshot_controller.go`): bound name, ready, creation time, size.
+    async fn update_snapshot_status_from_content(
+        &self,
+        vs: &VolumeSnapshot,
+        content: &VolumeSnapshotContent,
+    ) -> Result<()> {
+        let namespace = vs.metadata.namespace.as_deref().unwrap_or("default");
+        let vs_key = build_key("volumesnapshots", Some(namespace), &vs.metadata.name);
+        let cs = content.status.as_ref();
+        let new_status = VolumeSnapshotStatus {
+            bound_volume_snapshot_content_name: Some(content.metadata.name.clone()),
+            creation_time: cs
+                .and_then(|s| s.creation_time)
+                .map(|ns| {
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(
+                        ns.div_euclid(1_000_000_000),
+                        ns.rem_euclid(1_000_000_000) as u32,
+                    )
+                    .unwrap_or_default()
+                    .to_rfc3339()
+                })
+                .or_else(|| vs.status.as_ref().and_then(|s| s.creation_time.clone())),
+            ready_to_use: Some(cs.and_then(|s| s.ready_to_use).unwrap_or(false)),
+            restore_size: cs.and_then(|s| s.restore_size).map(|b| b.to_string()),
+            error: None,
+        };
+        if serde_json::to_value(vs.status.as_ref()).ok()
+            == serde_json::to_value(Some(&new_status)).ok()
+        {
+            return Ok(());
+        }
+        let mut updated = vs.clone();
+        updated.status = Some(new_status);
+        self.storage.update_status(&vs_key, &updated).await?;
+        Ok(())
+    }
+
     async fn update_snapshot_status(
         &self,
         vs: &VolumeSnapshot,
@@ -638,6 +964,32 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
                 // If the VolumeSnapshot is deleted and deletion policy is Delete
                 if self.storage.get::<VolumeSnapshot>(&vs_key).await.is_err() {
                     if content.spec.deletion_policy == DeletionPolicy::Delete {
+                        // `syncContent` (`pkg/sidecar-controller/snapshot_controller.go:64-79`):
+                        // with the Delete policy and a driver snapshot
+                        // handle, issue DeleteSnapshot first and keep the
+                        // content (retry) when it fails.
+                        if let Some(client) = self.driver_clients.get(&content.spec.driver) {
+                            if let Some(handle) = content
+                                .status
+                                .as_ref()
+                                .and_then(|s| s.snapshot_handle.clone())
+                            {
+                                if let Err(e) = client
+                                    .delete_snapshot(DeleteSnapshotRequest {
+                                        snapshot_id: handle,
+                                        ..Default::default()
+                                    })
+                                    .await
+                                {
+                                    let msg = format!(
+                                        "failed to delete snapshot content {}: \"{e}\"",
+                                        content.metadata.name
+                                    );
+                                    warn!("{msg}");
+                                    return Err(anyhow::anyhow!(msg));
+                                }
+                            }
+                        }
                         info!(
                             "VolumeSnapshot {}/{} was deleted. Deleting VolumeSnapshotContent {} (deletion policy: Delete)",
                             namespace, name, content.metadata.name
