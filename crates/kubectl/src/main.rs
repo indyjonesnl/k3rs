@@ -9,8 +9,9 @@ use kubernetes_rs_kubectl::{commands, types};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use kubernetes_rs_client::http::ApiClient;
-use kubernetes_rs_client::kubeconfig::KubeConfig;
+use kubernetes_rs_kubectl::config_flags::{
+    build_api_client, loading_rules_for, resolve, ConfigFlags,
+};
 use types::{
     ApplyCommands, AuthCommands, CertificateCommands, ConfigCommands, CreateCommands,
     KubercCommands, PluginCommands, RolloutCommands, SetCommands, TopCommands,
@@ -20,25 +21,8 @@ use types::{
 #[command(name = "kubectl")]
 #[command(about = "kubernetes-rs kubectl - Command line tool for kubernetes-rs")]
 struct Cli {
-    /// Path to kubeconfig file
-    #[arg(long, global = true)]
-    kubeconfig: Option<String>,
-
-    /// Context to use from kubeconfig
-    #[arg(long, global = true)]
-    context: Option<String>,
-
-    /// API server address (overrides kubeconfig)
-    #[arg(long, global = true)]
-    server: Option<String>,
-
-    /// Skip TLS certificate verification (insecure)
-    #[arg(long, global = true)]
-    insecure_skip_tls_verify: bool,
-
-    /// Bearer token for authentication (overrides kubeconfig)
-    #[arg(long, global = true)]
-    token: Option<String>,
+    #[command(flatten)]
+    config_flags: ConfigFlags,
 
     #[command(subcommand)]
     command: Commands,
@@ -55,7 +39,7 @@ enum Commands {
         name: Option<String>,
 
         /// Namespace (for namespaced resources)
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// List resources in all namespaces
@@ -98,7 +82,7 @@ enum Commands {
         file: Option<String>,
 
         /// Namespace for the resource
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Subcommand for specific resource creation
@@ -123,7 +107,7 @@ enum Commands {
         file: Option<String>,
 
         /// Namespace (for namespaced resources)
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Label selector to filter resources to delete
@@ -166,7 +150,7 @@ enum Commands {
         file: Vec<String>,
 
         /// Namespace for the resource
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Perform a dry run
@@ -209,7 +193,7 @@ enum Commands {
         file: String,
 
         /// Namespace for the resource
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
 
@@ -239,7 +223,7 @@ enum Commands {
         restart: String,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// If true, use extra arguments as command instead of args
@@ -264,7 +248,7 @@ enum Commands {
         name: Option<String>,
 
         /// Namespace (for namespaced resources)
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Label selector to filter resources
@@ -282,7 +266,7 @@ enum Commands {
         pod_name: String,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Container name (optional, for multi-container pods)
@@ -324,7 +308,7 @@ enum Commands {
         container: Option<String>,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Allocate a TTY
@@ -349,7 +333,7 @@ enum Commands {
         ports: Vec<String>,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Address to bind to
@@ -370,7 +354,7 @@ enum Commands {
         container: Option<String>,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
 
@@ -383,7 +367,7 @@ enum Commands {
         name: String,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Output format (json or yaml)
@@ -400,7 +384,7 @@ enum Commands {
         name: String,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Patch content
@@ -429,7 +413,7 @@ enum Commands {
         replicas: i32,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
 
@@ -462,7 +446,7 @@ enum Commands {
         service_type: Option<String>,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
 
@@ -476,7 +460,7 @@ enum Commands {
         container: Option<String>,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Allocate a TTY
@@ -644,7 +628,7 @@ enum Commands {
         labels: Vec<String>,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Overwrite existing labels
@@ -664,7 +648,7 @@ enum Commands {
         annotations: Vec<String>,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Overwrite existing annotations
@@ -700,7 +684,7 @@ enum Commands {
         for_delete: bool,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Timeout duration
@@ -719,7 +703,7 @@ enum Commands {
         file: String,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
 
@@ -800,7 +784,7 @@ enum Commands {
         hpa_name: Option<String>,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
 
@@ -830,7 +814,7 @@ enum Commands {
         target_container: Option<String>,
 
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// Command to run in the debug container
@@ -841,7 +825,7 @@ enum Commands {
     /// List events
     Events {
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
 
         /// List events in all namespaces
@@ -933,7 +917,7 @@ enum RolloutCommands {
         /// Resource name
         name: String,
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
     /// View rollout history
@@ -943,7 +927,7 @@ enum RolloutCommands {
         /// Resource name
         name: String,
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
         /// Show details of a specific revision
         #[arg(long)]
@@ -956,7 +940,7 @@ enum RolloutCommands {
         /// Resource name
         name: String,
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
         /// Revision to rollback to
         #[arg(long)]
@@ -969,7 +953,7 @@ enum RolloutCommands {
         /// Resource name
         name: String,
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
     /// Pause a resource rollout
@@ -979,7 +963,7 @@ enum RolloutCommands {
         /// Resource name
         name: String,
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
     /// Resume a paused resource
@@ -989,7 +973,7 @@ enum RolloutCommands {
         /// Resource name
         name: String,
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
     },
 }
@@ -1009,7 +993,7 @@ enum TopCommands {
         /// Pod name (optional)
         name: Option<String>,
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
         /// List pods in all namespaces
         #[arg(short = 'A', long)]
@@ -1034,7 +1018,7 @@ enum AuthCommands {
         /// Resource name
         name: Option<String>,
         /// Namespace
-        #[arg(short = 'n', long)]
+        #[arg(skip)]
         namespace: Option<String>,
         /// Check all namespaces
         #[arg(short = 'A', long)]
@@ -1093,94 +1077,21 @@ enum ConfigCommands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Load kubeconfig or use CLI flags
-    let (server, skip_tls, ca_pem, client_cert, client_key, token, default_namespace) =
-        if let Some(server_url) = cli.server {
-            // CLI flags override kubeconfig. No CA / client-cert source on the
-            // bare --server path, so secure mode there relies on the system
-            // trust store and token auth.
-            (
-                server_url,
-                cli.insecure_skip_tls_verify,
-                None,
-                None,
-                None,
-                cli.token,
-                "default".to_string(),
-            )
-        } else {
-            // Try to load from kubeconfig
-            let config = if let Some(path) = &cli.kubeconfig {
-                KubeConfig::load_from_file(&std::path::PathBuf::from(path))?
-            } else {
-                KubeConfig::load_default().unwrap_or_else(|_| {
-                    eprintln!("Warning: Could not load kubeconfig, using defaults");
-                    // Return a minimal default config
-                    KubeConfig {
-                        api_version: Some("v1".to_string()),
-                        kind: Some("Config".to_string()),
-                        current_context: "default".to_string(),
-                        contexts: vec![],
-                        clusters: vec![],
-                        users: vec![],
-                        preferences: std::collections::HashMap::new(),
-                    }
-                })
-            };
-
-            let server = config
-                .get_server()
-                .unwrap_or_else(|_| "https://localhost:6443".to_string());
-            // Insecure mode is forced if EITHER the `--insecure-skip-tls-verify`
-            // CLI flag is set OR the kubeconfig cluster has
-            // `insecure-skip-tls-verify: true`. The CLI flag always wins, so it
-            // overrides a kubeconfig that pins a (possibly stale) CA.
-            let skip_tls =
-                cli.insecure_skip_tls_verify || config.should_skip_tls_verify().unwrap_or(false);
-            // Trust the kubeconfig CA in secure mode so the api-server's
-            // self-signed cert verifies. Skipped when insecure (CA is irrelevant).
-            let ca_pem = if skip_tls {
-                None
-            } else {
-                config.get_ca_cert_pem().unwrap_or(None)
-            };
-            let token = cli.token.or_else(|| config.get_token().ok().flatten());
-            // Client cert/key for mTLS auth (#1578), sourced from the kubeconfig
-            // user. Resolved regardless of insecure mode: upstream client-go
-            // presents the client identity independent of
-            // insecure-skip-tls-verify (that flag governs SERVER verification
-            // only), and the daemon components (kubelet/scheduler/etc.) do the
-            // same — so kubectl must too, or `--insecure-skip-tls-verify`
-            // against a client-cert-auth apiserver would 401.
-            let (client_cert, client_key) = (
-                config.get_client_cert_pem().unwrap_or(None),
-                config.get_client_key_pem().unwrap_or(None),
-            );
-            let namespace = config
-                .get_namespace()
-                .unwrap_or_else(|_| "default".to_string());
-
-            (
-                server,
-                skip_tls,
-                ca_pem,
-                client_cert,
-                client_key,
-                token,
-                namespace,
-            )
-        };
-
-    let client = ApiClient::with_tls(
-        &server,
-        skip_tls,
-        ca_pem,
-        client_cert.map(|p| p.into_bytes()),
-        client_key.map(|p| p.into_bytes()),
-        token,
-    )?
-    // `rest.SetKubernetesDefaults`: the component's default User-Agent.
-    .with_default_user_agent(kubernetes_rs_common::compatibility::default_kubernetes_user_agent());
+    // `ConfigFlags.ToRESTConfig`: kubeconfig chain (or --kubeconfig) plus the
+    // global flag overrides. The namespace is the global `-n/--namespace`, else
+    // the context's, else "default".
+    let config = loading_rules_for(&cli.config_flags)
+        .load()
+        .map_err(anyhow::Error::msg)?;
+    let resolved =
+        resolve(&config, &cli.config_flags.to_overrides()).map_err(anyhow::Error::msg)?;
+    let default_namespace = resolved.namespace.clone();
+    let client = build_api_client(&resolved)
+        .map_err(anyhow::Error::msg)?
+        // `rest.SetKubernetesDefaults`: the component's default User-Agent.
+        .with_default_user_agent(
+            kubernetes_rs_common::compatibility::default_kubernetes_user_agent(),
+        );
 
     match cli.command {
         Commands::Get {
@@ -1722,7 +1633,7 @@ async fn main() -> Result<()> {
             commands::api_versions::execute(&client).await?;
         }
         Commands::Config { command } => {
-            commands::config::execute(command, cli.kubeconfig.as_deref()).await?;
+            commands::config::execute(command, cli.config_flags.kubeconfig.as_deref()).await?;
         }
         Commands::ClusterInfo { dump } => {
             commands::cluster_info::execute(&client, dump).await?;
@@ -1731,9 +1642,9 @@ async fn main() -> Result<()> {
             let proxy_config = commands::proxy::ProxyConfig {
                 address,
                 port,
-                api_server: server.clone(),
+                api_server: client.get_base_url().to_string(),
                 token: client.get_token().cloned(),
-                skip_tls_verify: skip_tls,
+                skip_tls_verify: resolved.cluster.insecure_skip_tls_verify,
             };
             commands::proxy::execute(proxy_config).await?;
         }

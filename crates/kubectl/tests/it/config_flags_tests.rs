@@ -329,4 +329,104 @@ contexts:
         a.impersonate.clear();
         assert!(a.impersonation_headers().is_empty());
     }
+
+    /// `main.rs` hands the resolved config to `build_api_client`: the global
+    /// flags reach the wire as impersonation and bearer headers.
+    #[tokio::test]
+    async fn config_flags_build_api_client_sends_flags_on_the_wire() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let head = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let h = head.clone();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let n = sock.read(&mut buf).await.unwrap();
+            *h.lock().unwrap() = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+            sock.write_all(
+                b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}",
+            )
+            .await
+            .unwrap();
+        });
+        let server = format!("http://{addr}");
+        let r = resolve(
+            &Config::default(),
+            &flags(&[
+                "--server",
+                &server,
+                "--token",
+                "tok",
+                "--as",
+                "bob",
+                "--as-group",
+                "g1",
+            ])
+            .to_overrides(),
+        )
+        .unwrap();
+        let c = build_api_client(&r).unwrap();
+        let _: serde_json::Value = c.get("/x").await.unwrap();
+        let head = head.lock().unwrap().clone();
+        assert!(head.contains("authorization: bearer tok"), "{head}");
+        assert!(head.contains("impersonate-user: bob"), "{head}");
+        assert!(head.contains("impersonate-group: g1"), "{head}");
+    }
+
+    #[test]
+    fn config_flags_build_api_client_rejects_token_with_basic_auth() {
+        let r = resolve(
+            &Config::default(),
+            &flags(&[
+                "--server",
+                "http://x",
+                "--token",
+                "t",
+                "--username",
+                "u",
+                "--password",
+                "p",
+            ])
+            .to_overrides(),
+        )
+        .unwrap();
+        assert_eq!(
+            build_api_client(&r).err().unwrap(),
+            "username/password or bearer token may be set, but not both"
+        );
+    }
+
+    #[test]
+    fn config_flags_build_api_client_reads_token_file_and_reports_bad_inputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let tf = write(dir.path(), "token", " from-file \n");
+        let r = resolve(
+            &Config::default(),
+            &flags(&["--server", "http://x"]).to_overrides(),
+        )
+        .unwrap();
+        let mut with_file = ResolvedConfig { ..r.clone() };
+        with_file.auth_info.token_file = tf;
+        let c = build_api_client(&with_file).unwrap();
+        assert_eq!(c.get_token().map(String::as_str), Some("from-file"));
+
+        let mut bad_data = r.clone();
+        bad_data.cluster.certificate_authority_data = "!!!notbase64".into();
+        assert!(build_api_client(&bad_data)
+            .err()
+            .unwrap()
+            .starts_with("certificate-authority-data: illegal base64 data"));
+
+        // --insecure-skip-tls-verify ignores a CA that cannot be read.
+        let mut insecure = r;
+        insecure.cluster.certificate_authority = "/nonexistent/ca.crt".into();
+        insecure.cluster.insecure_skip_tls_verify = true;
+        assert!(build_api_client(&insecure).is_ok());
+        insecure.cluster.insecure_skip_tls_verify = false;
+        assert!(build_api_client(&insecure)
+            .err()
+            .unwrap()
+            .starts_with("open /nonexistent/ca.crt"));
+    }
 }

@@ -51,6 +51,12 @@ pub struct ApiClient {
     default_user_agent: Option<String>,
     /// The `User-Agent` sent on every request, none when unset.
     user_agent: Option<String>,
+    /// `Authorization: Basic` credentials, used when there is no bearer token
+    /// (`HTTPWrappersForConfig`, transport/round_trippers.go:49-60).
+    basic_auth: Option<(String, String)>,
+    /// Impersonation headers added to every request
+    /// (`NewImpersonatingRoundTripper`, round_trippers.go:247-267).
+    extra_headers: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -274,6 +280,8 @@ impl ApiClient {
             limiter: Arc::new(RateLimiter::unlimited()),
             default_user_agent: None,
             user_agent: None,
+            basic_auth: None,
+            extra_headers: Vec::new(),
         })
     }
 
@@ -347,6 +355,8 @@ impl ApiClient {
                 .default_user_agent
                 .as_ref()
                 .map(|default| format!("{default}/{name}")),
+            basic_auth: self.basic_auth.clone(),
+            extra_headers: self.extra_headers.clone(),
         }
     }
 
@@ -358,6 +368,43 @@ impl ApiClient {
         self.user_agent = Some(ua.clone());
         self.default_user_agent = Some(ua);
         self
+    }
+
+    /// Send `Authorization: Basic` with every request. Errors when a bearer
+    /// token is also set: `HTTPWrappersForConfig` refuses both
+    /// (transport/round_trippers.go:50-51).
+    pub fn with_basic_auth(
+        mut self,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Result<Self> {
+        if self.token.is_some() {
+            anyhow::bail!("username/password or bearer token may be set, but not both");
+        }
+        self.basic_auth = Some((username.into(), password.into()));
+        Ok(self)
+    }
+
+    /// Add headers to every request, as the impersonating round tripper does
+    /// (`Impersonate-User`, `Impersonate-Uid`, `Impersonate-Group`,
+    /// `Impersonate-Extra-*`). Repeated names are all sent.
+    pub fn with_extra_headers(mut self, headers: Vec<(String, String)>) -> Self {
+        self.extra_headers = headers;
+        self
+    }
+
+    /// Authentication and impersonation of a request: bearer token, else
+    /// basic auth (`HTTPWrappersForConfig`), then the impersonation headers.
+    fn with_auth(&self, mut request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if let Some(ref token) = self.token {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        } else if let Some((user, password)) = &self.basic_auth {
+            request = request.basic_auth(user, Some(password));
+        }
+        for (k, v) in &self.extra_headers {
+            request = request.header(k.as_str(), v.as_str());
+        }
+        request
     }
 
     /// Stamp the `User-Agent` on a request, when this client has one.
@@ -374,9 +421,7 @@ impl ApiClient {
         let mut request = self.client.get(&url);
         request = self.with_user_agent(request);
 
-        if let Some(ref token) = self.token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
+        request = self.with_auth(request);
 
         let response = request
             .send()
@@ -426,9 +471,7 @@ impl ApiClient {
         let mut request = self.stream_client.get(&url);
         request = self.with_user_agent(request);
 
-        if let Some(ref token) = self.token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
+        request = self.with_auth(request);
 
         let response = request
             .send()
@@ -468,9 +511,7 @@ impl ApiClient {
         let mut request = self.client.post(&url).json(body);
         request = self.with_user_agent(request);
 
-        if let Some(ref token) = self.token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
+        request = self.with_auth(request);
 
         let response = match request.send().await.context("Failed to send POST request") {
             Ok(r) => r,
@@ -504,9 +545,7 @@ impl ApiClient {
         let mut request = self.client.put(&url).json(body);
         request = self.with_user_agent(request);
 
-        if let Some(ref token) = self.token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
+        request = self.with_auth(request);
 
         let response = request.send().await.context("Failed to send PUT request")?;
 
@@ -548,9 +587,7 @@ impl ApiClient {
         let mut request = self.client.delete(&url);
         request = self.with_user_agent(request);
 
-        if let Some(ref token) = self.token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
+        request = self.with_auth(request);
 
         if let Some(b) = body {
             request = request.header("Content-Type", "application/json").json(b);
@@ -584,9 +621,7 @@ impl ApiClient {
         let mut request = self.client.get(&url);
         request = self.with_user_agent(request);
 
-        if let Some(ref token) = self.token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
+        request = self.with_auth(request);
 
         let response = request.send().await.context("Failed to send GET request")?;
 
@@ -608,9 +643,7 @@ impl ApiClient {
             .json(body);
         request = self.with_user_agent(request);
 
-        if let Some(ref token) = self.token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
+        request = self.with_auth(request);
 
         let response = request
             .send()
@@ -639,9 +672,7 @@ impl ApiClient {
         let mut request = self.client.get(&url);
         request = self.with_user_agent(request);
 
-        if let Some(ref token) = self.token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
+        request = self.with_auth(request);
 
         let response = request.send().await.context("Failed to send GET request")?;
 
@@ -698,9 +729,7 @@ impl ApiClient {
         let mut request = self.client.get(&url).header("Accept", accept);
         request = self.with_user_agent(request);
 
-        if let Some(ref token) = self.token {
-            request = request.header("Authorization", format!("Bearer {}", token));
-        }
+        request = self.with_auth(request);
 
         let response = request.send().await.context("Failed to send GET request")?;
 
@@ -1036,6 +1065,82 @@ pYMXass1aOZuRtmE5ibX9iPpBQ==
             t.elapsed() >= Duration::from_millis(400),
             "A's second request must be throttled: {:?}",
             t.elapsed()
+        );
+    }
+    /// A server that records each request head and answers `{}`.
+    async fn spawn_capture_server() -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let rec = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let rec = rec.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    while let Ok(n) = sock.read(&mut buf).await {
+                        if n == 0 {
+                            return;
+                        }
+                        rec.lock()
+                            .unwrap()
+                            .push(String::from_utf8_lossy(&buf[..n]).to_lowercase());
+                        let resp = "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}";
+                        if sock.write_all(resp.as_bytes()).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        (format!("http://{addr}"), seen)
+    }
+
+    /// `impersonatingRoundTripper.RoundTrip` (round_trippers.go:247-267): the
+    /// extra headers are sent on every request, repeated names included.
+    #[tokio::test]
+    async fn extra_headers_are_sent_on_every_request() {
+        let (base, seen) = spawn_capture_server().await;
+        let c = ApiClient::new(&base, true, Some("tok".into()))
+            .unwrap()
+            .with_extra_headers(vec![
+                ("Impersonate-User".into(), "alice".into()),
+                ("Impersonate-Group".into(), "g1".into()),
+                ("Impersonate-Group".into(), "g2".into()),
+            ]);
+        let _: serde_json::Value = c.get("/x").await.unwrap();
+        let _ = c.get_stream("/x").await.unwrap();
+        let heads = seen.lock().unwrap().clone();
+        assert_eq!(heads.len(), 2);
+        for h in heads {
+            assert!(h.contains("impersonate-user: alice"), "{h}");
+            assert!(h.contains("impersonate-group: g1"), "{h}");
+            assert!(h.contains("impersonate-group: g2"), "{h}");
+            assert!(h.contains("authorization: bearer tok"), "{h}");
+        }
+    }
+
+    /// `HTTPWrappersForConfig` (round_trippers.go:49-60): basic auth when
+    /// there is no token, an error when both are set.
+    #[tokio::test]
+    async fn basic_auth_is_sent_and_conflicts_with_a_token() {
+        let (base, seen) = spawn_capture_server().await;
+        let c = ApiClient::new(&base, true, None)
+            .unwrap()
+            .with_basic_auth("u", "p")
+            .unwrap();
+        let _: serde_json::Value = c.get("/x").await.unwrap();
+        // base64("u:p")
+        assert!(seen.lock().unwrap()[0].contains("authorization: basic dtpw"));
+        let err = ApiClient::new(&base, true, Some("t".into()))
+            .unwrap()
+            .with_basic_auth("u", "p")
+            .err()
+            .unwrap();
+        assert_eq!(
+            err.to_string(),
+            "username/password or bearer token may be set, but not both"
         );
     }
 }
