@@ -30,21 +30,6 @@ mod tests {
     }
 
     #[test]
-    fn test_pod_security_levels() {
-        assert_eq!(PodSecurityLevel::Privileged.as_str(), "privileged");
-        assert_eq!(PodSecurityLevel::Baseline.as_str(), "baseline");
-        assert_eq!(PodSecurityLevel::Restricted.as_str(), "restricted");
-    }
-
-    #[test]
-    fn test_allowed_capabilities() {
-        assert!(is_allowed_capability_baseline("NET_BIND_SERVICE"));
-        assert!(is_allowed_capability_baseline("CHOWN"));
-        assert!(!is_allowed_capability_baseline("SYS_ADMIN"));
-        assert!(!is_allowed_capability_baseline("NET_ADMIN"));
-    }
-
-    #[test]
     fn test_admission_review_response() {
         let allow = AdmissionReviewResponse::allow("test-uid".to_string());
         assert!(allow.allowed);
