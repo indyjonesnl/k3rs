@@ -45,5 +45,6 @@ mod sync_locks;
 mod sync_loop_monitor;
 mod sysctl;
 mod token_manager;
+mod userns;
 mod volume_ownership;
 mod volumes;
