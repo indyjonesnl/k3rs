@@ -2,6 +2,8 @@
 //! TestJSONInput, TestKubernetes, TestEmptyRange, TestNestedRanges,
 //! TestFilterPartialMatchesSometimesMissingAnnotations) for the executor.
 
+mod table;
+
 mod jsonpath {
     use kubernetes_rs_kubectl::printers::jsonpath::JsonPath;
     use serde_json::{json, Value};

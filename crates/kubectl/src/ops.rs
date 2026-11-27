@@ -163,6 +163,23 @@ pub async fn list_value(
         .unwrap_or_default())
 }
 
+/// GET a resource collection asking the server for a `meta.k8s.io` Table
+/// (`GetOptions.transformRequests`, kubectl/pkg/cmd/get/get.go:424). The
+/// response is returned as-is: a Table when the server negotiated it, the
+/// plain list otherwise (decode with `printers::table::Table::from_value`).
+pub async fn list_table(
+    client: &ApiClient,
+    m: &ResourceMapping,
+    namespace: Option<&str>,
+    all_namespaces: bool,
+    query: &str,
+) -> Result<Value> {
+    let path = format!("{}{}", list_path(m, namespace, all_namespaces), query);
+    client
+        .get_raw_with_accept(&path, crate::printers::table::TABLE_ACCEPT)
+        .await
+}
+
 /// DELETE a single resource by name.
 ///
 /// `query` is an optional query-string suffix (e.g. `?gracePeriodSeconds=0&dryRun=All`)
