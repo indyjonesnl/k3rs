@@ -1717,7 +1717,16 @@ pub fn container_config_with_mounts(
     labels.insert(labels::CONTAINER_NAME.to_string(), container.name.clone());
 
     let linux = {
-        let resources = linux_resources(container);
+        let mut resources = linux_resources(container);
+        // `generateLinuxContainerResources` (kuberuntime_container_linux.go:145):
+        // `lcr.OomScoreAdj = GetContainerOOMScoreAdjust(pod, container,
+        // machineInfo.MemoryCapacity)`. Left at 0 when the machine memory is
+        // unreadable (upstream always has it).
+        let memory_capacity = crate::qos_policy::machine_memory_capacity();
+        if let (Some(r), true) = (resources.as_mut(), memory_capacity > 0) {
+            r.oom_score_adj =
+                crate::qos_policy::get_container_oom_score_adjust(pod, container, memory_capacity);
+        }
         let security_context = linux_security_context(pod, container);
         if resources.is_some() || security_context.is_some() {
             Some(v1::LinuxContainerConfig {

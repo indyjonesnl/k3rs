@@ -35,6 +35,7 @@ pub mod pod_dirs;
 pub mod pod_status;
 pub mod podcertificate;
 pub mod poll;
+pub mod qos_policy;
 pub mod removeall;
 pub mod runtime;
 pub mod runtime_state;
