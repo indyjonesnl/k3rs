@@ -114,6 +114,33 @@ fn empty_error() -> &'static str {
     "must be non-empty"
 }
 
+/// Upstream `validation.InclusiveRangeError`
+/// (staging/src/k8s.io/apimachinery/pkg/util/validation/validation.go:453).
+pub fn inclusive_range_error(lo: i64, hi: i64) -> String {
+    format!("must be between {lo} and {hi}, inclusive")
+}
+
+/// `minUserID`/`maxUserID`/`minGroupID`/`maxGroupID`
+/// (validation.go:287-292): libcontainer's limits, 0..=1<<31-1.
+const MIN_ID: i64 = 0;
+const MAX_ID: i64 = i32::MAX as i64;
+
+/// Upstream `validation.IsValidGroupID` (validation.go:295).
+pub fn is_valid_group_id(gid: i64) -> Vec<String> {
+    if (MIN_ID..=MAX_ID).contains(&gid) {
+        return Vec::new();
+    }
+    vec![inclusive_range_error(MIN_ID, MAX_ID)]
+}
+
+/// Upstream `validation.IsValidUserID` (validation.go:303).
+pub fn is_valid_user_id(uid: i64) -> Vec<String> {
+    if (MIN_ID..=MAX_ID).contains(&uid) {
+        return Vec::new();
+    }
+    vec![inclusive_range_error(MIN_ID, MAX_ID)]
+}
+
 /// Upstream `validation.IsDNS1123Subdomain`.
 pub fn is_dns1123_subdomain(value: &str) -> Vec<String> {
     let mut errs = Vec::new();

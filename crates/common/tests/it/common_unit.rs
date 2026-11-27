@@ -132,6 +132,7 @@ mod validation__persistentvolume;
 mod validation__pod;
 mod validation__pod_options;
 mod validation__pod_resources;
+mod validation__pod_security_context_values;
 mod validation__pod_spec_extra;
 mod validation__pod_status;
 mod validation__pod_subresource;
