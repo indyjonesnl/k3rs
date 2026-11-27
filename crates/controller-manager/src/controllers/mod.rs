@@ -32,6 +32,7 @@ pub mod ephemeral_volume_metrics;
 pub mod events;
 pub mod expectations;
 pub mod garbage_collector;
+pub mod gc_monitors;
 pub mod hpa;
 pub mod hpa_behavior;
 pub mod hpa_metrics_client;
