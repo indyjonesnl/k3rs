@@ -287,3 +287,175 @@ mod portforward_tests {
         assert!(validate_port(443).is_err());
     }
 }
+
+/// Ports of the helper behaviour behind `kubectl exec` / `attach` targets
+/// (polymorphichelpers/helpers.go, podutils.go, podcmd.go, util/helpers.go).
+mod exec_targets {
+    use kubernetes_rs_kubectl::commands::exec::*;
+    use serde_json::{json, Value};
+    use std::time::Duration;
+
+    #[test]
+    fn exec_targets_selectors_for_object() {
+        let dep = json!({"kind": "Deployment", "metadata": {"namespace": "ns"},
+            "spec": {"selector": {"matchLabels": {"b": "2", "a": "1"},
+                "matchExpressions": [{"key": "c", "operator": "In", "values": ["y", "x"]},
+                                     {"key": "d", "operator": "DoesNotExist"}]}}});
+        assert_eq!(
+            selectors_for_object(&dep).unwrap(),
+            ("ns".to_string(), "a=1,b=2,c in (x,y),!d".to_string())
+        );
+        let rc = json!({"kind": "ReplicationController", "metadata": {"namespace": "ns"},
+            "spec": {"selector": {"z": "1", "a": "2"}}});
+        assert_eq!(selectors_for_object(&rc).unwrap().1, "a=2,z=1");
+        let svc = json!({"kind": "Service", "metadata": {"name": "s", "namespace": "ns"},
+            "spec": {"selector": {"app": "x"}}});
+        assert_eq!(selectors_for_object(&svc).unwrap().1, "app=x");
+    }
+
+    #[test]
+    fn exec_targets_selectors_fail_closed() {
+        let svc = json!({"kind": "Service", "metadata": {"name": "s"}, "spec": {}});
+        assert_eq!(
+            selectors_for_object(&svc).unwrap_err().to_string(),
+            "invalid service 's': Service is defined without a selector"
+        );
+        let cm = json!({"kind": "ConfigMap", "metadata": {"name": "c"}});
+        assert_eq!(
+            selectors_for_object(&cm).unwrap_err().to_string(),
+            "selector for ConfigMap not implemented"
+        );
+    }
+
+    fn pod(
+        name: &str,
+        node: &str,
+        phase: &str,
+        ready: bool,
+        restarts: i64,
+        created: &str,
+    ) -> Value {
+        json!({"metadata": {"name": name, "creationTimestamp": created},
+            "spec": {"nodeName": node},
+            "status": {"phase": phase,
+                "conditions": [{"type": "Ready", "status": if ready {"True"} else {"False"},
+                                "lastTransitionTime": "2024-01-01T00:00:00Z"}],
+                "containerStatuses": [{"restartCount": restarts}]}})
+    }
+
+    #[test]
+    fn exec_targets_active_pods_reverse_order() {
+        // Reverse of ActivePods: assigned, running, ready, more restarts and older pods first.
+        let mut pods = vec![
+            pod(
+                "unassigned",
+                "",
+                "Pending",
+                false,
+                0,
+                "2024-01-01T00:00:00Z",
+            ),
+            pod("pending", "n", "Pending", false, 0, "2024-01-01T00:00:00Z"),
+            pod(
+                "running-notready",
+                "n",
+                "Running",
+                false,
+                0,
+                "2024-01-01T00:00:00Z",
+            ),
+            pod("ready-new", "n", "Running", true, 0, "2024-03-01T00:00:00Z"),
+            pod("ready-old", "n", "Running", true, 0, "2024-01-01T00:00:00Z"),
+            pod(
+                "ready-restarts",
+                "n",
+                "Running",
+                true,
+                3,
+                "2024-03-01T00:00:00Z",
+            ),
+        ];
+        sort_active_pods_reverse(&mut pods);
+        let names: Vec<&str> = pods
+            .iter()
+            .map(|p| p["metadata"]["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "ready-old",
+                "ready-new",
+                "ready-restarts",
+                "running-notready",
+                "pending",
+                "unassigned"
+            ]
+        );
+    }
+
+    #[test]
+    fn exec_targets_default_container() {
+        let single = json!({"metadata": {"name": "p"}, "spec": {"containers": [{"name": "a"}]}});
+        let multi = json!({"metadata": {"name": "p", "namespace": "ns"},
+            "spec": {"containers": [{"name": "a"}, {"name": "b"}],
+                     "initContainers": [{"name": "i"}]}});
+        let mut warn = Vec::new();
+        assert_eq!(
+            find_or_default_container(&single, "", false, &mut warn).unwrap(),
+            "a"
+        );
+        assert!(warn.is_empty());
+        assert_eq!(
+            find_or_default_container(&multi, "", false, &mut warn).unwrap(),
+            "a"
+        );
+        assert_eq!(
+            String::from_utf8(warn).unwrap(),
+            "Defaulted container \"a\" out of: a, b, i (init)\n"
+        );
+        // -q suppresses the notice
+        let mut warn = Vec::new();
+        find_or_default_container(&multi, "", true, &mut warn).unwrap();
+        assert!(warn.is_empty());
+        assert_eq!(
+            find_or_default_container(&multi, "zz", false, &mut Vec::new())
+                .unwrap_err()
+                .to_string(),
+            "container zz not found in pod p"
+        );
+        // KEP-2227 annotation
+        let ann = json!({"metadata": {"name": "p", "annotations":
+            {"kubectl.kubernetes.io/default-container": "b"}},
+            "spec": {"containers": [{"name": "a"}, {"name": "b"}]}});
+        assert_eq!(
+            find_or_default_container(&ann, "", false, &mut Vec::new()).unwrap(),
+            "b"
+        );
+    }
+
+    #[test]
+    fn exec_targets_completed_pod_and_timeout() {
+        let done = json!({"status": {"phase": "Succeeded"}});
+        assert_eq!(
+            check_pod_running(&done, "exec into")
+                .unwrap_err()
+                .to_string(),
+            "cannot exec into a container in a completed pod; current phase is Succeeded"
+        );
+        assert!(check_pod_running(&json!({"status": {"phase": "Running"}}), "exec into").is_ok());
+        assert_eq!(
+            pod_running_timeout("1m0s").unwrap(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            pod_running_timeout("1h30m").unwrap(),
+            Duration::from_secs(5400)
+        );
+        assert_eq!(
+            pod_running_timeout("0s").unwrap_err().to_string(),
+            "--pod-running-timeout must be higher than zero"
+        );
+        assert!(pod_running_timeout("-5s").is_err());
+        assert!(pod_running_timeout("5").is_err());
+    }
+}

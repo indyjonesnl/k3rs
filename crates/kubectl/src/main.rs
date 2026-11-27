@@ -300,8 +300,20 @@ enum Commands {
 
     /// Execute a command in a container
     Exec {
-        /// Pod name
-        pod_name: String,
+        /// Pod name, or TYPE/NAME (deployment, replicaset, statefulset, daemonset, job, service, ...)
+        pod_name: Option<String>,
+
+        /// Filename to use to exec into the resource
+        #[arg(short = 'f', long = "filename")]
+        filename: Vec<String>,
+
+        /// The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running
+        #[arg(long = "pod-running-timeout", default_value = commands::exec::DEFAULT_POD_EXEC_TIMEOUT)]
+        pod_running_timeout: String,
+
+        /// Only print output from the remote session
+        #[arg(short = 'q', long)]
+        quiet: bool,
 
         /// Container name (optional, for multi-container pods)
         #[arg(short = 'c', long)]
@@ -319,8 +331,8 @@ enum Commands {
         #[arg(short = 'i', long)]
         stdin: bool,
 
-        /// Command to execute
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        /// Command to execute (after `--`)
+        #[arg(last = true, required = true)]
         command: Vec<String>,
     },
 
@@ -452,8 +464,16 @@ enum Commands {
 
     /// Attach to a running container
     Attach {
-        /// Pod name
+        /// Pod name, or TYPE/NAME
         pod_name: String,
+
+        /// The length of time (like 5s, 2m, or 3h, higher than zero) to wait until at least one pod is running
+        #[arg(long = "pod-running-timeout", default_value = commands::attach::DEFAULT_POD_ATTACH_TIMEOUT)]
+        pod_running_timeout: String,
+
+        /// Only print output from the remote session
+        #[arg(short = 'q', long)]
+        quiet: bool,
 
         /// Container name (optional, for multi-container pods)
         #[arg(short = 'c', long)]
@@ -1334,20 +1354,34 @@ async fn main() -> Result<()> {
         }
         Commands::Exec {
             pod_name,
+            filename,
+            pod_running_timeout,
+            quiet,
             container,
             namespace,
             tty,
             stdin,
             command,
         } => {
+            // ExecOptions.Validate
+            if pod_name.is_none() && filename.is_empty() {
+                anyhow::bail!("pod, type/name or --filename must be specified");
+            }
+            let timeout = commands::exec::pod_running_timeout(&pod_running_timeout)?;
+            let target = commands::exec::Target {
+                resource_name: pod_name.as_deref(),
+                filenames: &filename,
+                namespace: namespace.as_deref().unwrap_or(&default_namespace),
+                timeout,
+            };
             commands::exec::execute(
                 &client,
-                &pod_name,
-                namespace.as_deref().unwrap_or(&default_namespace),
+                &target,
                 container.as_deref(),
                 &command,
                 tty,
                 stdin,
+                quiet,
             )
             .await?;
         }
@@ -1455,20 +1489,22 @@ async fn main() -> Result<()> {
         }
         Commands::Attach {
             pod_name,
+            pod_running_timeout,
+            quiet,
             container,
             namespace,
             tty,
             stdin,
         } => {
-            commands::attach::execute(
-                &client,
-                &pod_name,
-                namespace.as_deref().unwrap_or(&default_namespace),
-                container.as_deref(),
-                tty,
-                stdin,
-            )
-            .await?;
+            let timeout = commands::exec::pod_running_timeout(&pod_running_timeout)?;
+            let target = commands::exec::Target {
+                resource_name: Some(&pod_name),
+                filenames: &[],
+                namespace: namespace.as_deref().unwrap_or(&default_namespace),
+                timeout,
+            };
+            commands::attach::execute(&client, &target, container.as_deref(), tty, stdin, quiet)
+                .await?;
         }
         Commands::Set { command } => {
             commands::set::execute_set(&client, command, &default_namespace).await?;
