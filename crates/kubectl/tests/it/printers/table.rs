@@ -263,3 +263,83 @@ fn printers_table_decode_and_accept_header() {
         "application/json;as=Table;v=v1;g=meta.k8s.io,application/json;as=Table;v=v1beta1;g=meta.k8s.io,application/json"
     );
 }
+
+/// TestPrintTable_NonTable (tableprinter_test.go:473-531).
+#[test]
+fn printers_table_non_table_fallbacks() {
+    let pod = test_pod();
+    let status = json!({"kind": "Status", "status": "Failure",
+        "reason": "test-status-reason", "message": "test-status-message"});
+    let cases: Vec<(Value, PrintOptions, &str)> = vec![
+        (
+            pod.clone(),
+            PrintOptions::default(),
+            "NAME            AGE\ntest-pod-name   <unknown>\n",
+        ),
+        (
+            pod.clone(),
+            PrintOptions {
+                no_headers: true,
+                ..Default::default()
+            },
+            "test-pod-name   <unknown>\n",
+        ),
+        (
+            pod.clone(),
+            PrintOptions {
+                with_namespace: true,
+                ..Default::default()
+            },
+            "NAMESPACE        NAME            AGE\ntest-namespace   test-pod-name   <unknown>\n",
+        ),
+        (
+            pod.clone(),
+            PrintOptions {
+                show_labels: true,
+                ..Default::default()
+            },
+            "NAME            AGE         LABELS\ntest-pod-name   <unknown>   first-label=12,second-label=label-value\n",
+        ),
+        (
+            status.clone(),
+            PrintOptions::default(),
+            "STATUS    REASON               MESSAGE\nFailure   test-status-reason   test-status-message\n",
+        ),
+        (
+            status,
+            PrintOptions {
+                no_headers: true,
+                ..Default::default()
+            },
+            "Failure   test-status-reason   test-status-message\n",
+        ),
+    ];
+    for (obj, opts, expected) in cases {
+        let mut p = HumanReadablePrinter::new(opts);
+        assert_eq!(p.print_object(&obj, "").unwrap(), expected);
+    }
+}
+
+/// `lastType`: a header and a blank line when the handler changes, none when it repeats.
+#[test]
+fn printers_table_non_table_last_type() {
+    let mut p = HumanReadablePrinter::new(PrintOptions::default());
+    let pod = test_pod();
+    let status = json!({"kind": "Status", "status": "Failure", "reason": "r", "message": "m"});
+    let a = p.print_object(&pod, "").unwrap();
+    let b = p.print_object(&pod, "").unwrap();
+    let c = p.print_object(&status, "").unwrap();
+    assert!(a.starts_with("NAME"));
+    assert_eq!(b, "test-pod-name   <unknown>\n");
+    assert!(c.starts_with("\nSTATUS"));
+}
+
+#[test]
+fn printers_table_non_table_list_items() {
+    let list = json!({"kind": "PodList", "items": [test_pod(), test_pod()]});
+    let mut p = HumanReadablePrinter::new(PrintOptions::default());
+    assert_eq!(
+        p.print_object(&list, "").unwrap(),
+        "NAME            AGE\ntest-pod-name   <unknown>\ntest-pod-name   <unknown>\n"
+    );
+}
