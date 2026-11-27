@@ -10,3 +10,4 @@ pub mod ratelimit;
 pub mod reflector;
 pub mod urlbackoff;
 pub mod watch;
+pub mod with_retry;
