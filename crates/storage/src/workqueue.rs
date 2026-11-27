@@ -342,13 +342,18 @@ impl WorkQueue {
             m.done(key);
         }
         inner.processing.remove(key);
+        // The dequeue time is only needed for the re-queue decision below;
+        // take it out so the map does not keep one entry per key ever
+        // processed (client-go `Done`, queue.go:289-305, keeps no such
+        // per-key history: dirty/processing are cleaned as the key finishes).
+        let last_dequeued = inner.last_dequeued.remove(key);
         // If add() was called while we were processing, re-queue
         if inner.dirty.contains(key) {
             // Check if this key was dequeued recently — if so, delay to
             // prevent self-write feedback loops (controller writes status,
             // which triggers watch event, which re-enqueues same key).
             let now = Instant::now();
-            if let Some(&dequeued_at) = inner.last_dequeued.get(key) {
+            if let Some(dequeued_at) = last_dequeued {
                 let elapsed = now - dequeued_at;
                 if elapsed < MIN_REPROCESS_INTERVAL {
                     // Too soon — delay the re-queue
