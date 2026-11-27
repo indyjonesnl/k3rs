@@ -46,6 +46,7 @@ mod hosts_file_test;
 mod image_pull_records;
 mod init_container_restart_test;
 mod init_containers_test;
+mod kubelet_bootstrap_test;
 mod kubelet_lifecycle_test;
 mod kubelet_predicates_test;
 mod node_registration_preserves_spec;
