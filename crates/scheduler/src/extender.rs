@@ -611,3 +611,134 @@ fn make_transport(config: &ExtenderConfig) -> Result<reqwest::ClientBuilder> {
     };
     Ok(reqwest::Client::builder().use_preconfigured_tls(client_config))
 }
+
+// ---------------------------------------------------------------------------
+// Bind and ProcessPreemption (extender.go:137-247, 362-382)
+// ---------------------------------------------------------------------------
+
+impl HttpExtender {
+    /// `Bind` (extender.go:362): delegate binding a pod to a node to the
+    /// extender. A non-empty `Error` in the reply is an error.
+    pub async fn bind(&self, binding: &kubernetes_rs_common::resources::Binding) -> Result<()> {
+        if !self.is_binder() {
+            // This shouldn't happen as this extender wouldn't have become a Binder.
+            bail!("unexpected empty bindVerb in extender");
+        }
+        let req = ExtenderBindingArgs {
+            pod_name: binding.metadata.name.clone(),
+            pod_namespace: binding.metadata.namespace.clone().unwrap_or_default(),
+            pod_uid: binding.metadata.uid.clone(),
+            node: binding.target.name.clone(),
+        };
+        let result: ExtenderBindingResult = self.send(&self.bind_verb, &req).await?;
+        if !result.error.is_empty() {
+            bail!("{}", result.error);
+        }
+        Ok(())
+    }
+
+    /// `ProcessPreemption` (extender.go:137): the candidate nodes and victims
+    /// after running preemption logic in the extender. `node_infos` is the
+    /// `NodeInfoLister.Get` used to restore victim pods from their UIDs.
+    pub async fn process_preemption<'a>(
+        &self,
+        pod: &Pod,
+        node_name_to_victims: &BTreeMap<String, Victims>,
+        node_infos: &dyn Fn(&str) -> Result<crate::fwk::NodeInfo<'a>>,
+    ) -> Result<BTreeMap<String, Victims>> {
+        if !self.supports_preemption() {
+            bail!(
+                "preempt verb is not defined for extender {} but run into ProcessPreemption",
+                self.extender_url
+            );
+        }
+        let args = if self.node_cache_capable {
+            // If extender has cached node info, pass NodeNameToMetaVictims in args.
+            ExtenderPreemptionArgs {
+                pod: Some(pod.clone()),
+                node_name_to_victims: None,
+                node_name_to_meta_victims: Some(convert_to_meta_victims(node_name_to_victims)),
+            }
+        } else {
+            ExtenderPreemptionArgs {
+                pod: Some(pod.clone()),
+                node_name_to_victims: Some(node_name_to_victims.clone()),
+                node_name_to_meta_victims: None,
+            }
+        };
+        let result: ExtenderPreemptionResult = self.send(&self.preempt_verb, &args).await?;
+        // Extender will always return NodeNameToMetaVictims, so convert it to
+        // NodeNameToVictims using <node_infos>. The input is not overridden.
+        self.convert_to_victims(&result.node_name_to_meta_victims, node_infos)
+    }
+
+    /// `convertToVictims` (extender.go:181): from object identifiers (UIDs)
+    /// to the pods themselves.
+    pub fn convert_to_victims<'a>(
+        &self,
+        node_name_to_meta_victims: &BTreeMap<String, MetaVictims>,
+        node_infos: &dyn Fn(&str) -> Result<crate::fwk::NodeInfo<'a>>,
+    ) -> Result<BTreeMap<String, Victims>> {
+        let mut out = BTreeMap::new();
+        for (node_name, meta_victims) in node_name_to_meta_victims {
+            let node_info = node_infos(node_name)?;
+            let mut victims = Victims {
+                pods: Vec::new(),
+                num_pdb_violations: meta_victims.num_pdb_violations,
+            };
+            for meta_pod in &meta_victims.pods {
+                victims
+                    .pods
+                    .push(self.convert_pod_uid_to_pod(meta_pod, &node_info)?);
+            }
+            out.insert(node_name.clone(), victims);
+        }
+        Ok(out)
+    }
+
+    /// `convertPodUIDToPod` (extender.go:211): restore the pod from
+    /// `node_info.pods()`; an error means the scheduler's and the extender's
+    /// caches disagree.
+    pub fn convert_pod_uid_to_pod(
+        &self,
+        meta_pod: &MetaPod,
+        node_info: &crate::fwk::NodeInfo<'_>,
+    ) -> Result<Pod> {
+        node_info
+            .pods()
+            .find(|p| p.metadata.uid == meta_pod.uid)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow!(
+                    "extender: {} claims to preempt pod (UID: {:?}) on node: {}, but the pod is not found on that node",
+                    self.extender_url,
+                    meta_pod,
+                    node_info.node().metadata.name
+                )
+            })
+    }
+}
+
+/// `convertToMetaVictims` (extender.go:224): from struct type to meta types.
+pub fn convert_to_meta_victims(
+    node_name_to_victims: &BTreeMap<String, Victims>,
+) -> BTreeMap<String, MetaVictims> {
+    node_name_to_victims
+        .iter()
+        .map(|(node, victims)| {
+            (
+                node.clone(),
+                MetaVictims {
+                    pods: victims
+                        .pods
+                        .iter()
+                        .map(|p| MetaPod {
+                            uid: p.metadata.uid.clone(),
+                        })
+                        .collect(),
+                    num_pdb_violations: victims.num_pdb_violations,
+                },
+            )
+        })
+        .collect()
+}
