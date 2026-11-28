@@ -224,3 +224,73 @@ fn kubeproxy_config_logging() {
         vec!["KubeProxyConfiguration.logging.format: Unsupported log format"]
     );
 }
+
+const LOAD_YAML: &str = "apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+bindAddress: 0.0.0.0
+clientConnection:
+  burst: 100
+  qps: 7
+clusterCIDR: 1.2.3.0/24
+configSyncPeriod: 15s
+conntrack:
+  maxPerCore: 2
+  min: 1
+  tcpCloseWaitTimeout: 10s
+  tcpEstablishedTimeout: 20s
+healthzBindAddress: 1.2.3.4:12345
+hostnameOverride: foo
+iptables:
+  masqueradeAll: true
+  masqueradeBit: 17
+  minSyncPeriod: 10s
+  syncPeriod: 60s
+metricsBindAddress: 2.3.4.5:23456
+mode: iptables
+oomScoreAdj: 17
+nodePortAddresses:
+  - 10.20.30.40/16
+";
+
+#[test]
+fn kubeproxy_config_load_config() {
+    let c = load_config(LOAD_YAML).unwrap();
+    assert_eq!(c.mode, "iptables");
+    assert_eq!(c.client_connection.burst, 100);
+    assert_eq!(
+        c.conntrack.tcp_established_timeout,
+        Some(Duration::secs(20))
+    );
+    assert_eq!(c.config_sync_period, Duration::secs(15));
+    assert_eq!(c.iptables.masquerade_bit, Some(17));
+    // Unset fields get the decoder defaults.
+    assert_eq!(c.nftables.sync_period, Duration::secs(30));
+    assert_eq!(errs(&c), Vec::<String>::new());
+    // Unknown fields are tolerated (lenient decoding).
+    assert!(load_config(&format!("{LOAD_YAML}foo: bar\n")).is_ok());
+}
+
+#[test]
+fn kubeproxy_config_load_config_failures() {
+    let v = "apiVersion: kubeproxy.config.k8s.io/v1alpha1\n";
+    let e = load_config(&format!("{v}Twas bryllyg, and ye slythy toves")).unwrap_err();
+    assert!(e.starts_with("failed to decode"), "{e}");
+    let e = load_config(&format!("{v}kind: KubeSchedulerConfiguration")).unwrap_err();
+    assert!(e.contains("no kind"), "{e}");
+    let e = load_config(&format!("{v}kind: KubeProxyConfiguration\nbindAddress: ::")).unwrap_err();
+    assert!(e.starts_with("failed to decode"), "{e}");
+}
+
+#[test]
+fn kubeproxy_config_hostname_override_flag() {
+    let mk = || KubeProxyConfiguration {
+        hostname_override: "foo".into(),
+        ..Default::default()
+    };
+    let mut c = mk();
+    process_hostname_override(&mut c, "").unwrap();
+    assert_eq!(c.hostname_override, "foo");
+    process_hostname_override(&mut c, "  Bar ").unwrap();
+    assert_eq!(c.hostname_override, "bar");
+    assert!(process_hostname_override(&mut mk(), "   ").is_err());
+}
