@@ -5436,7 +5436,17 @@ impl Kubelet {
                     })
                     .unwrap_or(false);
 
+                // Container-level restartPolicy / restartPolicyRules can restart
+                // a container of an OnFailure or Never pod (`computePodActions`
+                // via `ShouldContainerBeRestarted`), and keep an OnFailure pod
+                // from restarting a container the rules say to leave.
+                let restart_due =
+                    restart_policy != "Always" && self.any_container_should_restart(pod).await;
                 match restart_policy {
+                    _ if restart_due => {
+                        self.reconcile_container_restarts(namespace, pod_name, pod)
+                            .await;
+                    }
                     "Always" => {
                         // Restart stopped containers individually, paced by
                         // per-container CrashLoopBackOff. restartCount is owned
@@ -5535,6 +5545,79 @@ impl Kubelet {
         Ok(())
     }
 
+    /// The `kubecontainer.PodStatus.ContainerStatuses` fields
+    /// `ShouldContainerBeRestarted` reads, for every regular container and
+    /// restartable init container of `pod`. A container the runtime has never
+    /// created has no entry (upstream: "never started, start it"); one that
+    /// exited carries its exit code (a lookup failure reads as exit code 1, as
+    /// the previous OnFailure gate did).
+    async fn restart_statuses(&self, pod: &Pod) -> Vec<crate::lifecycle::RuntimeContainerStatus> {
+        use crate::lifecycle::{RuntimeContainerState, RuntimeContainerStatus};
+        let Some(spec) = pod.spec.as_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let names = spec.containers.iter().map(|c| &c.name).chain(
+            spec.init_containers
+                .iter()
+                .flatten()
+                .filter(|ic| ic.restart_policy.as_deref() == Some("Always"))
+                .map(|ic| &ic.name),
+        );
+        for name in names {
+            let running = self
+                .runtime
+                .is_container_running(&pod.metadata.uid, name)
+                .await
+                .unwrap_or(true);
+            if running {
+                out.push(RuntimeContainerStatus {
+                    name: name.clone(),
+                    state: RuntimeContainerState::Running,
+                    exit_code: 0,
+                });
+                continue;
+            }
+            if let Ok(code) = self
+                .runtime
+                .get_container_exit_code(&pod.metadata.uid, name)
+                .await
+            {
+                out.push(RuntimeContainerStatus {
+                    name: name.clone(),
+                    state: RuntimeContainerState::Exited,
+                    exit_code: code as i32,
+                });
+            }
+        }
+        out
+    }
+
+    /// Whether any container of `pod` is due a restart under
+    /// `ShouldContainerBeRestarted` (init containers must have finished, as in
+    /// `computePodActions`).
+    async fn any_container_should_restart(&self, pod: &Pod) -> bool {
+        let Some(spec) = pod.spec.as_ref() else {
+            return false;
+        };
+        let (all_init_done, _, _) = self.runtime.compute_init_container_actions(pod).await;
+        let statuses = self.restart_statuses(pod).await;
+        spec.containers
+            .iter()
+            .filter(|_| all_init_done)
+            .chain(
+                spec.init_containers
+                    .iter()
+                    .flatten()
+                    .filter(|ic| ic.restart_policy.as_deref() == Some("Always")),
+            )
+            .any(|c| {
+                statuses.iter().any(|s| {
+                    s.name == c.name && s.state == crate::lifecycle::RuntimeContainerState::Exited
+                }) && crate::lifecycle::should_container_be_restarted(c, pod, &statuses)
+            })
+    }
+
     /// Detect terminated containers and restart them per the pod's
     /// `restartPolicy`, paced by per-container CrashLoopBackOff.
     ///
@@ -5557,20 +5640,15 @@ impl Kubelet {
         if pod.metadata.deletion_timestamp.is_some() {
             return;
         }
-        let restart_policy = pod
-            .spec
-            .as_ref()
-            .and_then(|s| s.restart_policy.as_deref())
-            .unwrap_or("Always");
-        if restart_policy != "Always" && restart_policy != "OnFailure" {
-            return;
-        }
         if !self.runtime.has_terminated_containers(pod).await {
             return;
         }
         let Some(spec) = pod.spec.as_ref() else {
             return;
         };
+        // `computePodActions` asks `ShouldContainerBeRestarted` per container
+        // (pod restartPolicy, container restartPolicy and restartPolicyRules).
+        let statuses = self.restart_statuses(pod).await;
 
         // NOTE: volume (re)projection is deferred to an actual restart below —
         // it must NOT run on every sync of a running pod. Re-projecting churns
@@ -5619,16 +5697,11 @@ impl Kubelet {
                 continue; // still running — nothing to do
             }
 
-            // OnFailure: a clean exit (code 0) is terminal — do not restart.
-            if restart_policy == "OnFailure" {
-                let exit_code = self
-                    .runtime
-                    .get_container_exit_code(&pod.metadata.uid, &c.name)
-                    .await
-                    .unwrap_or(1);
-                if exit_code == 0 {
-                    continue;
-                }
+            // kubecontainer.ShouldContainerBeRestarted (helpers.go:82-117): a
+            // clean exit under OnFailure, a Never container, or a matching
+            // restartPolicyRules Exit entry is terminal -- do not restart.
+            if !crate::lifecycle::should_container_be_restarted(c, pod, &statuses) {
+                continue;
             }
 
             // CrashLoopBackOff gate. The check-and-advance is atomic under the
