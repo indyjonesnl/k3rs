@@ -17,6 +17,7 @@ mod host_port;
 mod image_gc;
 mod image_gc_cri;
 mod image_manager;
+mod image_pull_manager_cache;
 mod image_pull_policies;
 mod kubelet;
 mod labels;

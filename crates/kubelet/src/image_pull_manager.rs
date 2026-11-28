@@ -11,15 +11,19 @@
 //! Decoding is strict (unknown fields are rejected), as upstream
 //! (`serializer.EnableStrict`).
 //!
+//! The write-through in-memory cache over any accessor is a port of
+//! `mem_pullrecords.go` ([`CachedPullRecordsAccessor`]).
+//!
 //! Not ported here (tracked as backlog tasks): the pull manager itself
-//! (`image_pull_manager.go`: intent ref-counting, `MustAttemptImagePull`, the
-//! in-memory cache and pull policies) and the metering wrapper
-//! (`NewMeteringRecordsAccessor`, metrics.go).
+//! (`image_pull_manager.go`: intent ref-counting, `MustAttemptImagePull`) and
+//! the metering wrapper (`NewMeteringRecordsAccessor`, metrics.go).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -493,4 +497,314 @@ pub fn decode_pulled_record(bytes: &[u8]) -> Result<(ImagePulledRecord, bool), E
         },
         current,
     ))
+}
+
+// ---------------------------------------------------------------------------
+// mem_pullrecords.go
+// ---------------------------------------------------------------------------
+
+use super::image_pull_policies::StripedLockSet;
+
+struct LruInner<V> {
+    /// key -> (value, recency tick)
+    map: HashMap<String, (V, u64)>,
+    /// recency tick -> key; the first entry is the least recently used.
+    order: BTreeMap<u64, String>,
+    tick: u64,
+}
+
+/// `lruCache` (mem_pullrecords.go) over `k8s.io/utils/lru` (an LRU with an
+/// eviction callback that fires for every removed entry).
+pub struct LruCache<V> {
+    inner: Mutex<LruInner<V>>,
+    max_size: usize,
+    /// `authoritative`: the cached records can be considered the complete
+    /// source. False once the cache evicted a record because it was full, or
+    /// after errors during its initialisation.
+    authoritative: AtomicBool,
+}
+
+impl<V: Clone> LruCache<V> {
+    /// `newLRUCache`. A non-positive size is raised to 1.
+    pub fn new(size: usize) -> Self {
+        Self {
+            inner: Mutex::new(LruInner {
+                map: HashMap::new(),
+                order: BTreeMap::new(),
+                tick: 0,
+            }),
+            max_size: size.max(1),
+            authoritative: AtomicBool::new(false),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, LruInner<V>> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// `Get`: a hit marks the key most recently used.
+    pub fn get(&self, key: &str) -> Option<V> {
+        let mut g = self.lock();
+        let g = &mut *g;
+        g.tick += 1;
+        let tick = g.tick;
+        let (value, old) = g.map.get_mut(key)?;
+        let old_tick = std::mem::replace(old, tick);
+        g.order.remove(&old_tick);
+        g.order.insert(tick, key.to_string());
+        Some(value.clone())
+    }
+
+    /// `Set` (`lru.Add`): evicting the least recently used entry on overflow
+    /// makes the cache non-authoritative (the eviction function).
+    pub fn set(&self, key: &str, value: V) {
+        let mut g = self.lock();
+        let g = &mut *g;
+        g.tick += 1;
+        let tick = g.tick;
+        if let Some((_, old)) = g.map.get(key) {
+            g.order.remove(old);
+        }
+        g.map.insert(key.to_string(), (value, tick));
+        g.order.insert(tick, key.to_string());
+        if g.map.len() > self.max_size {
+            if let Some((_, oldest)) = g.order.pop_first() {
+                g.map.remove(&oldest);
+                self.authoritative.store(false, Ordering::SeqCst);
+            }
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.lock().map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// `Clear`: every removed entry triggers the eviction function, so a
+    /// non-empty clear makes the cache non-authoritative.
+    pub fn clear(&self) {
+        let mut g = self.lock();
+        if !g.map.is_empty() {
+            self.authoritative.store(false, Ordering::SeqCst);
+        }
+        g.map.clear();
+        g.order.clear();
+    }
+
+    /// `Delete`: an explicit delete does not change the authoritative status.
+    /// Must be called with the external lock on `key` held.
+    pub fn delete(&self, key: &str) {
+        let mut g = self.lock();
+        if let Some((_, tick)) = g.map.remove(key) {
+            g.order.remove(&tick);
+        }
+    }
+
+    pub fn is_authoritative(&self) -> bool {
+        self.authoritative.load(Ordering::SeqCst)
+    }
+
+    pub fn set_authoritative(&self, v: bool) {
+        self.authoritative.store(v, Ordering::SeqCst);
+    }
+
+    pub fn max_size(&self) -> usize {
+        self.max_size
+    }
+}
+
+/// `cachedPullRecordsAccessor`: a write-through cache layer on top of another
+/// [`PullRecordsAccessor`].
+pub struct CachedPullRecordsAccessor {
+    delegate: Arc<dyn PullRecordsAccessor>,
+    intents_locks: StripedLockSet,
+    intents: LruCache<ImagePullIntent>,
+    pulled_records_locks: StripedLockSet,
+    pulled_records: LruCache<ImagePulledRecord>,
+}
+
+impl CachedPullRecordsAccessor {
+    /// `NewCachedPullRecordsAccessor` (without the metering wrapper). Warms
+    /// both caches by listing the delegate; a listing error leaves that cache
+    /// non-authoritative until a later list succeeds.
+    pub fn new(
+        delegate: Arc<dyn PullRecordsAccessor>,
+        intents_cache_size: i32,
+        pulled_records_cache_size: i32,
+        striped_locks_size: i32,
+    ) -> Self {
+        let intents_cache_size = intents_cache_size.clamp(1, 1024) as usize;
+        let pulled_records_cache_size = pulled_records_cache_size.clamp(1, 2000) as usize;
+        let c = Self {
+            delegate,
+            intents_locks: StripedLockSet::new(striped_locks_size),
+            intents: LruCache::new(intents_cache_size),
+            pulled_records_locks: StripedLockSet::new(striped_locks_size),
+            pulled_records: LruCache::new(pulled_records_cache_size),
+        };
+        // warm our caches and set authoritative
+        if let (_, Some(e)) = c.list_image_pull_intents() {
+            tracing::info!(
+                error = %e,
+                "there was an error initializing the image pull intents cache, the cache will work in a non-authoritative mode until the intents are listed successfully"
+            );
+        }
+        if let (_, Some(e)) = c.list_image_pulled_records() {
+            tracing::info!(
+                error = %e,
+                "there was an error initializing the image pulled records cache, the cache will work in a non-authoritative mode until the pulled records are listed successfully"
+            );
+        }
+        c
+    }
+
+    pub fn intents_authoritative(&self) -> bool {
+        self.intents.is_authoritative()
+    }
+
+    pub fn pulled_records_authoritative(&self) -> bool {
+        self.pulled_records.is_authoritative()
+    }
+
+    /// `intentsSize`: percent of the intents cache in use.
+    pub fn intents_size(&self) -> usize {
+        self.intents.len() * 100 / self.intents.max_size()
+    }
+
+    /// `pulledRecordsSize`: percent of the pulled records cache in use.
+    pub fn pulled_records_size(&self) -> usize {
+        self.pulled_records.len() * 100 / self.pulled_records.max_size()
+    }
+}
+
+/// `cacheRefreshingList`.
+fn cache_refreshing_list<V: Clone>(
+    cache: &LruCache<V>,
+    delegate_locks: &StripedLockSet,
+    list: impl FnOnce() -> (Vec<V>, Option<Error>),
+    record_to_key: impl Fn(&V) -> &str,
+) -> (Vec<V>, Option<Error>) {
+    let was_authoritative = cache.is_authoritative();
+    // doing a full list gives us an opportunity to become authoritative if we
+    // get back an error-free result that fits in our cache
+    let _guards = (!was_authoritative).then(|| delegate_locks.global_lock());
+
+    let (results, err) = list();
+    if was_authoritative {
+        return (results, err);
+    }
+
+    let results_are_authoritative = err.is_none() && results.len() < cache.max_size();
+    // populate the cache if that would make our cache authoritative or if the
+    // cache is currently empty
+    if results_are_authoritative || cache.is_empty() {
+        cache.clear();
+        for record in results.iter().take(cache.max_size()) {
+            cache.set(record_to_key(record), record.clone());
+        }
+        cache.set_authoritative(results_are_authoritative);
+    }
+    (results, err)
+}
+
+impl PullRecordsAccessor for CachedPullRecordsAccessor {
+    fn list_image_pull_intents(&self) -> (Vec<ImagePullIntent>, Option<Error>) {
+        cache_refreshing_list(
+            &self.intents,
+            &self.intents_locks,
+            || self.delegate.list_image_pull_intents(),
+            |i| i.image.as_str(),
+        )
+    }
+
+    fn image_pull_intent_exists(&self, image: &str) -> Result<bool, Error> {
+        // do the cheap get lock-free
+        if self.intents.get(image).is_some() {
+            return Ok(true);
+        }
+        // on a miss, lock on the image
+        let _g = self.intents_locks.lock(image);
+        // check again under the image lock
+        if self.intents.get(image).is_some() {
+            return Ok(true);
+        }
+        // if the cache is authoritative, return false on a miss
+        if self.intents.is_authoritative() {
+            return Ok(false);
+        }
+        // fall through to the expensive lookup
+        let exists = self.delegate.image_pull_intent_exists(image)?;
+        if exists {
+            self.intents.set(
+                image,
+                ImagePullIntent {
+                    image: image.to_string(),
+                },
+            );
+        }
+        Ok(exists)
+    }
+
+    fn write_image_pull_intent(&self, image: &str) -> Result<(), Error> {
+        let _g = self.intents_locks.lock(image);
+        self.delegate.write_image_pull_intent(image)?;
+        self.intents.set(
+            image,
+            ImagePullIntent {
+                image: image.to_string(),
+            },
+        );
+        Ok(())
+    }
+
+    fn delete_image_pull_intent(&self, image: &str) -> Result<(), Error> {
+        let _g = self.intents_locks.lock(image);
+        self.delegate.delete_image_pull_intent(image)?;
+        self.intents.delete(image);
+        Ok(())
+    }
+
+    fn list_image_pulled_records(&self) -> (Vec<ImagePulledRecord>, Option<Error>) {
+        cache_refreshing_list(
+            &self.pulled_records,
+            &self.pulled_records_locks,
+            || self.delegate.list_image_pulled_records(),
+            |r| r.image_ref.as_str(),
+        )
+    }
+
+    fn get_image_pulled_record(&self, image_ref: &str) -> Result<Option<ImagePulledRecord>, Error> {
+        if let Some(r) = self.pulled_records.get(image_ref) {
+            return Ok(Some(r));
+        }
+        let _g = self.pulled_records_locks.lock(image_ref);
+        if let Some(r) = self.pulled_records.get(image_ref) {
+            return Ok(Some(r));
+        }
+        if self.pulled_records.is_authoritative() {
+            return Ok(None);
+        }
+        let rec = self.delegate.get_image_pulled_record(image_ref)?;
+        if let Some(r) = &rec {
+            self.pulled_records.set(image_ref, r.clone());
+        }
+        Ok(rec)
+    }
+
+    fn write_image_pulled_record(&self, record: &ImagePulledRecord) -> Result<(), Error> {
+        let _g = self.pulled_records_locks.lock(&record.image_ref);
+        self.delegate.write_image_pulled_record(record)?;
+        self.pulled_records.set(&record.image_ref, record.clone());
+        Ok(())
+    }
+
+    fn delete_image_pulled_record(&self, image_ref: &str) -> Result<(), Error> {
+        let _g = self.pulled_records_locks.lock(image_ref);
+        self.delegate.delete_image_pulled_record(image_ref)?;
+        self.pulled_records.delete(image_ref);
+        Ok(())
+    }
 }
