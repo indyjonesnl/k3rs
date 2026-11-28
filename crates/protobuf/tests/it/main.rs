@@ -11,6 +11,7 @@ mod admissionregistration_mutating_policy;
 mod authorization_selector_attributes;
 mod controllerrevision_decode;
 mod crd_items_roundtrip;
+mod decoder_overflow;
 mod empty_pointer_strings;
 mod flowcontrol_wire;
 mod go_zero_field_emission;
