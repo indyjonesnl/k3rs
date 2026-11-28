@@ -229,6 +229,9 @@ pub struct ValidationRule {
     pub path: Vec<String>,
     /// `optionalOldSelf` (KEP-4008).
     pub optional_old_self: bool,
+    /// The schema node the rule is attached to; `self` is converted with it
+    /// (`UnstructuredToVal`). `None` converts schema-blind.
+    pub schema: Option<JSONSchemaProps>,
 }
 
 /// Extract every `x-kubernetes-validations[]` entry from `schema`, recursing
@@ -276,6 +279,7 @@ fn collect_rules_recursive(
                         .get("optionalOldSelf")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false),
+                    schema: Some(schema.clone()),
                 });
             }
         }
@@ -966,17 +970,38 @@ pub fn validate_cr_rules(
             .cloned()
             .unwrap_or(serde_json::Value::Null);
 
+        // Schema-aware conversion (`UnstructuredToVal`); a value that does
+        // not convert is an evaluation error for the rule, not an internal
+        // error.
         let mut ctx = CELContext::new();
-        ctx.add_json_variable("self", &self_node)
-            .map_err(|e| Error::Internal(e.to_string()))?;
-
         let old_self = old_json.as_ref().and_then(|old| node_at_path(old, &r.path));
-        if r.optional_old_self {
-            ctx.add_optional_json_variable("oldSelf", old_self)
-                .map_err(|e| Error::Internal(e.to_string()))?;
-        } else if let Some(old_self) = old_self {
-            ctx.add_json_variable("oldSelf", old_self)
-                .map_err(|e| Error::Internal(e.to_string()))?;
+        let bound = match &r.schema {
+            Some(sch) => ctx
+                .add_json_variable_with_schema("self", &self_node, sch)
+                .and_then(|_| {
+                    if r.optional_old_self {
+                        ctx.add_optional_json_variable_with_schema("oldSelf", old_self, sch)
+                    } else if let Some(o) = old_self {
+                        ctx.add_json_variable_with_schema("oldSelf", o, sch)
+                    } else {
+                        Ok(())
+                    }
+                }),
+            None => ctx.add_json_variable("self", &self_node).and_then(|_| {
+                if r.optional_old_self {
+                    ctx.add_optional_json_variable("oldSelf", old_self)
+                } else if let Some(o) = old_self {
+                    ctx.add_json_variable("oldSelf", o)
+                } else {
+                    Ok(())
+                }
+            }),
+        };
+        if bound.is_err() {
+            return Err(Error::InvalidResource(format!(
+                "failed to evaluate x-kubernetes-validations rule {:?}",
+                r.rule
+            )));
         }
 
         // Also expose `object`/`oldObject` for tests that author rules against
