@@ -19,5 +19,6 @@ mod ratelimiter;
 #[cfg(any(feature = "sqlite", feature = "redis"))]
 mod rhino;
 mod size_estimator;
+mod storage_metrics;
 mod workqueue;
 mod workqueue_metrics;
