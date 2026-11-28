@@ -11,6 +11,7 @@ mod config_test;
 mod events_test;
 mod exec_credential;
 mod get_not_found_test;
+mod kubeconfig_loading;
 mod list_envelope_test;
 mod pager_test;
 mod reflector_live_test;
