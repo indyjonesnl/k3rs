@@ -397,3 +397,64 @@ fn kubeconfig_loading_precedence_from_env() {
     assert_eq!(r.default_filename(), "/nonexistent/one");
     std::env::remove_var("KUBECONFIG");
 }
+
+// TestFileLocking (loader_test.go:702): a second lock on the same file fails
+// until the first is released.
+#[test]
+fn kubeconfig_loading_file_locking() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("nested/cfg");
+    let l = FileLock::lock(&f).expect("first lock");
+    assert!(
+        FileLock::lock(&f).is_err(),
+        "expected error while locking file"
+    );
+    drop(l);
+    assert!(!dir.path().join("nested/cfg.lock").exists());
+    FileLock::lock(&f).expect("lock after unlock");
+}
+
+// WriteToFile (loader.go:451): creates the directory, mode 0600.
+#[test]
+fn kubeconfig_loading_write_to_file_mode_and_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("a/b/config");
+    let cfg = KubeConfig::empty();
+    write_to_file(&cfg, &f).unwrap();
+    assert_eq!(
+        std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(KubeConfig::load_from_file(&f).is_ok());
+}
+
+// RelativizeConfigPaths / RelativizePathWithNoBacksteps (loader.go:582,632).
+#[test]
+fn kubeconfig_loading_relativize_paths() {
+    let mut c = KubeConfig::parse(
+        "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: https://x\n    certificate-authority: /base/certs/ca.pem\nusers:\n- name: u\n  user:\n    client-certificate: /base/u.crt\n    client-key: /elsewhere/u.key\n    tokenFile: ''\n",
+    )
+    .unwrap();
+    relativize_config_paths(&mut c, std::path::Path::new("/base")).unwrap();
+    assert_eq!(
+        c.clusters[0].cluster.certificate_authority.as_deref(),
+        Some("certs/ca.pem")
+    );
+    assert_eq!(c.users[0].user.client_certificate.as_deref(), Some("u.crt"));
+    // absolute path needing backsteps is left alone
+    assert_eq!(
+        c.users[0].user.client_key.as_deref(),
+        Some("/elsewhere/u.key")
+    );
+}
+
+#[test]
+fn kubeconfig_loading_relativize_relative_backstep_is_error() {
+    let mut c = KubeConfig::parse(
+        "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: https://x\n    certificate-authority: ../ca.pem\n",
+    )
+    .unwrap();
+    let err = relativize_config_paths(&mut c, std::path::Path::new("/base")).unwrap_err();
+    assert_eq!(err, "../ca.pem requires backsteps and is not absolute");
+}
