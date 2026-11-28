@@ -2,6 +2,9 @@ use anyhow::{Context, Result};
 use kubernetes_rs_client::http::ApiClient;
 use serde_json::{json, Value};
 
+#[path = "debug_profiles.rs"]
+pub mod profiles;
+
 /// Create debugging sessions for troubleshooting workloads and nodes.
 ///
 /// Adds an ephemeral container to a running pod for debugging.
