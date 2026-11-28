@@ -70,6 +70,76 @@ fn should_strip(name: &str, nominated: &[String]) -> bool {
 #[derive(Clone)]
 pub struct ConnectionHold(pub std::sync::Arc<dyn std::any::Any + Send + Sync>);
 
+/// `httpstream.IsUpgradeRequest`: a `Connection` header value containing
+/// `upgrade`.
+fn is_upgrade_request(headers: &http::HeaderMap) -> bool {
+    headers.get_all(http::header::CONNECTION).iter().any(|v| {
+        v.to_str()
+            .is_ok_and(|s| s.to_ascii_lowercase().contains("upgrade"))
+    })
+}
+
+/// `utilnet.AppendForwardedForHeader`.
+fn append_forwarded_for(headers: &mut http::HeaderMap, ip: Option<std::net::IpAddr>) {
+    let Some(ip) = ip else { return };
+    let mut value = ip.to_string();
+    let prior: Vec<&str> = headers
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+    if !prior.is_empty() {
+        value = format!("{}, {}", prior.join(", "), value);
+    }
+    if let Ok(v) = http::HeaderValue::from_str(&value) {
+        headers.insert("x-forwarded-for", v);
+    }
+}
+
+/// The `metav1.Status` the `ErrorResponder` writes (`ErrorNegotiated` /
+/// `ErrorToAPIStatus`, apiserver `responsewriters/status.go`): a plain error
+/// is a 500 with an empty (`Unknown`) reason, `NewBadRequest` a 400
+/// `BadRequest`. kubectl prints the message as `unable to upgrade
+/// connection: <message>`.
+fn status_error(code: StatusCode, reason: Option<&str>, message: &str) -> Response {
+    let mut status = serde_json::json!({
+        "kind": "Status",
+        "apiVersion": "v1",
+        "metadata": {},
+        "status": "Failure",
+        "message": message,
+        "code": code.as_u16(),
+    });
+    if let Some(r) = reason {
+        status["reason"] = serde_json::json!(r);
+    }
+    let mut resp = Response::new(Body::from(status.to_string()));
+    *resp.status_mut() = code;
+    resp.headers_mut().insert(
+        http::header::CONTENT_TYPE,
+        http::HeaderValue::from_static("application/json"),
+    );
+    resp
+}
+
+/// "Proxy the connection. This is bidirectional ... Wait for one half the
+/// connection to exit. Once it does the defer will clean up the other half"
+/// (upgradeaware.go tryUpgrade :388-415).
+async fn splice<C, B>(client: C, backend: B)
+where
+    C: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    B: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut client_r, mut client_w) = tokio::io::split(client);
+    let (mut backend_r, mut backend_w) = tokio::io::split(backend);
+    let writer = tokio::io::copy(&mut client_r, &mut backend_w);
+    let reader = tokio::io::copy(&mut backend_r, &mut client_w);
+    tokio::select! {
+        r = writer => if let Err(e) = r { debug!("Error proxying data from client to backend: {e}") },
+        r = reader => if let Err(e) = r { debug!("Error proxying data from backend to client: {e}") },
+    }
+}
+
 /// Upgrade-aware reverse proxy: forwards `req` to `target`, and on a backend
 /// 101 splices both upgraded byte streams. Mirrors apimachinery
 /// proxy.NewUpgradeAwareHandler(upgradeRequired=true).
@@ -94,13 +164,23 @@ where
     let client_on_upgrade = parts.extensions.remove::<hyper::upgrade::OnUpgrade>();
     let hold = parts.extensions.get::<ConnectionHold>().cloned();
 
-    // If hyper never set up an upgrade future for this request, we cannot
-    // splice the client side after a backend 101. Returning 101 anyway would
-    // leave the client connection hung. Fail fast with 502 instead.
-    let Some(client_on_upgrade) = client_on_upgrade else {
-        warn!("proxy_upgrade: client OnUpgrade not present — refusing to upgrade");
-        return StatusCode::BAD_GATEWAY.into_response();
-    };
+    // `ServeHTTP` (upgradeaware.go:213-220): `tryUpgrade` handles only
+    // `httpstream.IsUpgradeRequest`; with `UpgradeRequired` anything else is
+    // `NewBadRequest("Upgrade request required")`.
+    if !is_upgrade_request(&parts.headers) {
+        return status_error(
+            StatusCode::BAD_REQUEST,
+            Some("BadRequest"),
+            "Upgrade request required",
+        );
+    }
+    // `utilnet.AppendForwardedForHeader` (tryUpgrade :331): only on the
+    // upgrade path, and only when the peer address is known (Go: RemoteAddr
+    // parses).
+    let peer_ip = parts
+        .extensions
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|c| c.0.ip());
 
     // Capture the protocol the client wants to upgrade to so we can echo it
     // back verbatim in our 101. Defaults to the conventional SPDY token.
@@ -127,6 +207,7 @@ where
                 fwd_headers.append(name.clone(), value.clone());
             }
         }
+        append_forwarded_for(fwd_headers, peer_ip);
         // Re-add the upgrade handshake headers explicitly.
         fwd_headers.insert(
             http::header::CONNECTION,
@@ -143,7 +224,11 @@ where
         Ok(r) => r,
         Err(e) => {
             warn!("proxy_upgrade: failed to build backend request: {e}");
-            return StatusCode::BAD_GATEWAY.into_response();
+            return status_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                None,
+                &format!("error sending request: {e}"),
+            );
         }
     };
 
@@ -155,8 +240,36 @@ where
         Ok(r) => r,
         Err(e) => {
             warn!("proxy_upgrade: backend request failed: {e}");
-            return StatusCode::BAD_GATEWAY.into_response();
+            // `dial` (upgradeaware.go:496-506).
+            let msg = if e.is_connect() {
+                format!("error dialing backend: {e}")
+            } else {
+                format!("error sending request: {e}")
+            };
+            return status_error(StatusCode::INTERNAL_SERVER_ERROR, None, &msg);
         }
+    };
+
+    // "If the backend did not upgrade the request, return an error to the
+    // client. If the response was an error, the error is forwarded directly"
+    // (tryUpgrade :349-355).
+    let backend_status = backend_resp.status();
+    if backend_status != StatusCode::SWITCHING_PROTOCOLS && backend_status.as_u16() < 400 {
+        let err = format!(
+            "invalid upgrade response: status code {}",
+            backend_status.as_u16()
+        );
+        warn!("Proxy upgrade error: {err}");
+        return status_error(StatusCode::INTERNAL_SERVER_ERROR, None, &err);
+    }
+    // "hijacking should be the last step in the upgrade" (:357-370): a
+    // request that cannot be upgraded is reported before anything is relayed.
+    let Some(client_on_upgrade) = client_on_upgrade else {
+        return status_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            None,
+            "request connection cannot be hijacked",
+        );
     };
 
     if backend_resp.status() == StatusCode::SWITCHING_PROTOCOLS {
@@ -185,13 +298,11 @@ where
             let _hold = hold;
             match tokio::try_join!(client_on_upgrade, backend_on_upgrade) {
                 Ok((client_upgraded, backend_upgraded)) => {
-                    let mut client_io = hyper_util::rt::TokioIo::new(client_upgraded);
-                    let mut backend_io = hyper_util::rt::TokioIo::new(backend_upgraded);
-                    if let Err(e) =
-                        tokio::io::copy_bidirectional(&mut client_io, &mut backend_io).await
-                    {
-                        debug!("proxy_upgrade splice ended: {e}");
-                    }
+                    splice(
+                        hyper_util::rt::TokioIo::new(client_upgraded),
+                        hyper_util::rt::TokioIo::new(backend_upgraded),
+                    )
+                    .await
                 }
                 Err(e) => warn!("proxy_upgrade: upgrade handshake failed: {e}"),
             }
