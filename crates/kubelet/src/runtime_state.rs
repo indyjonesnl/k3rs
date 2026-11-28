@@ -35,7 +35,42 @@ pub const ERR_NETWORK_UNKNOWN: &str = "network state unknown";
 pub const RUNTIME_READY: &str = "RuntimeReady";
 pub const NETWORK_READY: &str = "NetworkReady";
 
+/// `kubecontainer.RuntimeHandler` (pkg/kubelet/container/runtime.go:619-629).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RuntimeHandler {
+    pub name: String,
+    pub supports_recursive_read_only_mounts: bool,
+    pub supports_user_namespaces: bool,
+}
+
+/// `kubecontainer.RuntimeFeatures` (container/runtime.go:653-656).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RuntimeFeatures {
+    pub supplemental_groups_policy: bool,
+}
+
+/// `toKubeRuntimeStatus` handlers/features (kuberuntime/helpers.go:231-262).
+fn to_kube_runtime_handlers(handlers: &[v1::RuntimeHandler]) -> Vec<RuntimeHandler> {
+    handlers
+        .iter()
+        .map(|h| {
+            let (rro, userns) = h.features.as_ref().map_or((false, false), |f| {
+                (f.recursive_read_only_mounts, f.user_namespaces)
+            });
+            RuntimeHandler {
+                name: h.name.clone(),
+                supports_recursive_read_only_mounts: rro,
+                supports_user_namespaces: userns,
+            }
+        })
+        .collect()
+}
+
 struct Inner {
+    /// `rtHandlers` (runtime.go:38).
+    rt_handlers: Vec<RuntimeHandler>,
+    /// `rtFeatures` (runtime.go:39).
+    rt_features: Option<RuntimeFeatures>,
     last_base_runtime_sync: Option<Instant>,
     base_runtime_sync_threshold: Duration,
     network_error: Option<String>,
@@ -53,6 +88,8 @@ impl RuntimeState {
     /// `newRuntimeState` (runtime.go:176-182).
     pub fn new(threshold: Duration) -> Self {
         Self(Mutex::new(Inner {
+            rt_handlers: Vec::new(),
+            rt_features: None,
             last_base_runtime_sync: None,
             base_runtime_sync_threshold: threshold,
             network_error: Some(ERR_NETWORK_UNKNOWN.to_string()),
@@ -121,6 +158,16 @@ impl RuntimeState {
         )
     }
 
+    /// `runtimeState.runtimeHandlers` (runtime.go:81-85).
+    pub fn runtime_handlers(&self) -> Vec<RuntimeHandler> {
+        self.0.lock().unwrap().rt_handlers.clone()
+    }
+
+    /// `runtimeState.runtimeFeatures` (runtime.go:93-97).
+    pub fn runtime_features(&self) -> Option<RuntimeFeatures> {
+        self.0.lock().unwrap().rt_features
+    }
+
     /// Port of `updateRuntimeUp` (kubelet.go:3113-3157) over the CRI `Status`
     /// result. An RPC error only logs upstream (the stale `lastBaseRuntimeSync`
     /// turns into "container runtime is down" after the threshold).
@@ -156,6 +203,12 @@ impl RuntimeState {
         match condition(&rs, RUNTIME_READY) {
             Some(c) if c.status => {
                 s.runtime_error = None;
+                // kubelet.go:3150-3152: handlers and features are recorded
+                // only once the runtime reports ready.
+                s.rt_handlers = to_kube_runtime_handlers(&resp.runtime_handlers);
+                s.rt_features = resp.features.as_ref().map(|f| RuntimeFeatures {
+                    supplemental_groups_policy: f.supplemental_groups_policy,
+                });
                 s.last_base_runtime_sync = Some(Instant::now());
             }
             c => {

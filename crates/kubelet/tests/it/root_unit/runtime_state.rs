@@ -320,3 +320,79 @@ mod tests {
         assert_eq!(evs[0].source.host.as_deref(), Some("node-1"));
     }
 }
+
+// kubelet.go:3150-3152 `setRuntimeHandlers`/`setRuntimeFeatures` through
+// kuberuntime/helpers.go `toKubeRuntimeStatus`.
+mod node_runtime_handlers_state_tests {
+    use kubernetes_rs_cri::v1;
+    use kubernetes_rs_kubelet::runtime_state::*;
+    use std::time::Duration;
+
+    fn ready(runtime: bool) -> v1::StatusResponse {
+        let cond = |t: &str, s: bool| v1::RuntimeCondition {
+            r#type: t.to_string(),
+            status: s,
+            reason: String::new(),
+            message: String::new(),
+        };
+        v1::StatusResponse {
+            status: Some(v1::RuntimeStatus {
+                conditions: vec![cond(RUNTIME_READY, runtime), cond(NETWORK_READY, true)],
+            }),
+            runtime_handlers: vec![
+                v1::RuntimeHandler {
+                    name: String::new(),
+                    features: Some(v1::RuntimeHandlerFeatures {
+                        recursive_read_only_mounts: true,
+                        user_namespaces: true,
+                    }),
+                },
+                v1::RuntimeHandler {
+                    name: "nofeatures".into(),
+                    features: None,
+                },
+            ],
+            features: Some(v1::RuntimeFeatures {
+                supplemental_groups_policy: true,
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn node_runtime_handlers_state_recorded_when_runtime_ready() {
+        let s = RuntimeState::new(Duration::from_secs(30));
+        assert!(s.runtime_handlers().is_empty());
+        assert_eq!(s.runtime_features(), None);
+        s.update_from_status(Ok(ready(true)));
+        assert_eq!(
+            s.runtime_handlers(),
+            vec![
+                RuntimeHandler {
+                    name: String::new(),
+                    supports_recursive_read_only_mounts: true,
+                    supports_user_namespaces: true,
+                },
+                // a handler without features: both unsupported
+                RuntimeHandler {
+                    name: "nofeatures".into(),
+                    ..Default::default()
+                },
+            ]
+        );
+        assert_eq!(
+            s.runtime_features(),
+            Some(RuntimeFeatures {
+                supplemental_groups_policy: true
+            })
+        );
+    }
+
+    #[test]
+    fn node_runtime_handlers_state_not_recorded_when_runtime_not_ready() {
+        let s = RuntimeState::new(Duration::from_secs(30));
+        s.update_from_status(Ok(ready(false)));
+        assert!(s.runtime_handlers().is_empty());
+        assert_eq!(s.runtime_features(), None);
+    }
+}

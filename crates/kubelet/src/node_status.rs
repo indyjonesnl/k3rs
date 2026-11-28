@@ -421,3 +421,46 @@ pub fn prepare_patch_for_node_status(old: &Node, new: &Node) -> Result<Value, St
     }
     Ok(Value::Object(patch))
 }
+
+/// `nodestatus.NodeFeatures` (pkg/kubelet/nodestatus/setters.go:431-445).
+/// Upstream returns early unless `SupplementalGroupsPolicy` is enabled; the
+/// gate is GA and locked on in 1.35 (kube_features.go:1848-1852), so it is
+/// always enabled here.
+pub fn set_node_features(
+    node: &mut kubernetes_rs_common::resources::Node,
+    features: Option<crate::runtime_state::RuntimeFeatures>,
+) {
+    let Some(features) = features else {
+        return;
+    };
+    if let Some(status) = node.status.as_mut() {
+        status.features = Some(kubernetes_rs_common::resources::node::NodeFeatures {
+            supplemental_groups_policy: Some(features.supplemental_groups_policy),
+        });
+    }
+}
+
+/// `nodestatus.RuntimeHandlers` (setters.go:448-466). Upstream returns early
+/// unless `RecursiveReadOnlyMounts` or `UserNamespacesSupport` is enabled;
+/// `RecursiveReadOnlyMounts` is GA and locked on in 1.35
+/// (kube_features.go:1686-1690), so the setter always runs.
+pub fn set_runtime_handlers(
+    node: &mut kubernetes_rs_common::resources::Node,
+    handlers: &[crate::runtime_state::RuntimeHandler],
+) {
+    use kubernetes_rs_common::resources::node::{NodeRuntimeHandler, NodeRuntimeHandlerFeatures};
+    if let Some(status) = node.status.as_mut() {
+        // `make([]NodeRuntimeHandler, 0)` marshals away (omitempty).
+        let converted: Vec<NodeRuntimeHandler> = handlers
+            .iter()
+            .map(|h| NodeRuntimeHandler {
+                name: h.name.clone(),
+                features: Some(NodeRuntimeHandlerFeatures {
+                    recursive_read_only_mounts: Some(h.supports_recursive_read_only_mounts),
+                    user_namespaces: Some(h.supports_user_namespaces),
+                }),
+            })
+            .collect();
+        status.runtime_handlers = (!converted.is_empty()).then_some(converted);
+    }
+}
