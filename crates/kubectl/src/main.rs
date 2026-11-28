@@ -234,6 +234,18 @@ enum Commands {
         #[arg(long)]
         dry_run: Option<String>,
 
+        /// Annotations to apply to the pod.
+        #[arg(long = "annotations", action = clap::ArgAction::Append)]
+        annotations: Vec<String>,
+
+        /// The image pull policy for the container.
+        #[arg(long = "image-pull-policy", default_value = "")]
+        image_pull_policy: String,
+
+        /// If true, run the container in privileged mode.
+        #[arg(long)]
+        privileged: bool,
+
         /// Extra arguments (command or args for the container)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,
@@ -1287,25 +1299,28 @@ async fn main() -> Result<()> {
             namespace,
             command,
             dry_run,
+            annotations,
+            image_pull_policy,
+            privileged,
             extra_args,
         } => {
-            // Split extra_args into command vs args based on --command flag
-            let (cmd_args, container_args) = if command {
-                (extra_args.as_slice(), [].as_slice())
-            } else {
-                ([].as_slice(), extra_args.as_slice())
-            };
             commands::run::execute(
                 &client,
-                &name,
                 namespace.as_deref().unwrap_or(&default_namespace),
-                &image,
-                port,
-                &env,
-                labels.as_deref(),
-                &restart,
-                cmd_args,
-                container_args,
+                commands::run::RunPodParams {
+                    name,
+                    image,
+                    port,
+                    env,
+                    labels,
+                    annotations,
+                    restart,
+                    image_pull_policy,
+                    privileged,
+                    command,
+                    args: extra_args,
+                    ..Default::default()
+                },
                 dry_run.as_deref(),
             )
             .await?;
