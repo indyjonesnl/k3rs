@@ -15,6 +15,15 @@ on:
     - cron: "17 3 * * *"
   workflow_dispatch:
 
+# One live run per PR (a new push cancels the superseded run) and, on main, at
+# most one running plus the newest pending run: GitHub drops older *pending*
+# runs of a group when a newer one queues, while cancel-in-progress is off so
+# a run that already started is never killed. Without this a burst of merges
+# queued one full run per merge commit and starved the PR checks of runners.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
