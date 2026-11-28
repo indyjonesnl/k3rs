@@ -18,8 +18,16 @@
 //! comprehension variables (`r` in `requirements.exists(r, ...)`) are not
 //! checked.
 
+use crate::cel_checker_shadow::checker_env_set;
+use crate::cel_policy_types::{DeclType, PolicyCheck};
+use crate::cel_versions::{EnvSet, EnvType};
 use crate::feature_gates::{self, Feature};
 use cel::common::ast::{EntryExpr, Expr, IdedExpr, LiteralValue};
+use kubernetes_rs_cel_checker as checker;
+use kubernetes_rs_cel_checker::decl::{DeclField, DeclTypeProvider};
+use kubernetes_rs_cel_checker::DType;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// `subjectAccessReviewRequestVarName` (compile.go:36).
 const REQUEST: &str = "request";
@@ -335,4 +343,185 @@ fn detect_selector_usage(e: &IdedExpr, usage: &mut SelectorUsage) {
             }
         }
     }
+}
+
+// --- The typed environment for the cel-go checker port -----------------------
+
+fn decl_field(name: &str, ty: DeclType) -> (String, DeclField) {
+    (
+        name.to_string(),
+        DeclField {
+            name: name.to_string(),
+            ty,
+            required: false,
+        },
+    )
+}
+
+fn decl_object(name: &str, fields: Vec<(String, DeclField)>) -> DeclType {
+    DeclType::object(name, fields.into_iter().collect::<BTreeMap<_, _>>())
+}
+
+fn decl_string() -> DeclType {
+    DeclType::simple(DType::Str)
+}
+
+fn decl_string_list() -> DeclType {
+    DeclType::list(decl_string(), -1)
+}
+
+/// `buildSelectorRequirementType` (compile.go:253-259).
+fn build_selector_requirement_type() -> DeclType {
+    decl_object(
+        "kubernetes.SelectorRequirement",
+        vec![
+            decl_field("key", decl_string()),
+            decl_field("operator", decl_string()),
+            decl_field("values", decl_string_list()),
+        ],
+    )
+}
+
+/// `buildFieldSelectorType` (compile.go:239-244).
+fn build_field_selector_type() -> DeclType {
+    decl_object(
+        "kubernetes.FieldSelectorAttributes",
+        vec![
+            decl_field("rawSelector", decl_string()),
+            decl_field(
+                "requirements",
+                DeclType::list(build_selector_requirement_type(), -1),
+            ),
+        ],
+    )
+}
+
+/// `buildLabelSelectorType` (compile.go:246-251).
+fn build_label_selector_type() -> DeclType {
+    decl_object(
+        "kubernetes.LabelSelectorAttributes",
+        vec![
+            decl_field("rawSelector", decl_string()),
+            decl_field(
+                "requirements",
+                DeclType::list(build_selector_requirement_type(), -1),
+            ),
+        ],
+    )
+}
+
+/// `buildResourceAttributesType` (compile.go:222-237): the selector fields
+/// exist only with the `AuthorizeWithSelectors` gate.
+pub fn build_resource_attributes_type(authorize_with_selectors: bool) -> DeclType {
+    let mut fields = vec![
+        decl_field("namespace", decl_string()),
+        decl_field("verb", decl_string()),
+        decl_field("group", decl_string()),
+        decl_field("version", decl_string()),
+        decl_field("resource", decl_string()),
+        decl_field("subresource", decl_string()),
+        decl_field("name", decl_string()),
+    ];
+    if authorize_with_selectors {
+        fields.push(decl_field("fieldSelector", build_field_selector_type()));
+        fields.push(decl_field("labelSelector", build_label_selector_type()));
+    }
+    decl_object("kubernetes.ResourceAttributes", fields)
+}
+
+/// `buildNonResourceAttributesType` (compile.go:263-268).
+pub fn build_non_resource_attributes_type() -> DeclType {
+    decl_object(
+        "kubernetes.NonResourceAttributes",
+        vec![
+            decl_field("path", decl_string()),
+            decl_field("verb", decl_string()),
+        ],
+    )
+}
+
+/// `buildRequestType` (compile.go:207-218): `kubernetes.SubjectAccessReviewSpec`,
+/// the type of the `request` variable.
+pub fn build_request_type(authorize_with_selectors: bool) -> DeclType {
+    decl_object(
+        "kubernetes.SubjectAccessReviewSpec",
+        vec![
+            decl_field(
+                "resourceAttributes",
+                build_resource_attributes_type(authorize_with_selectors),
+            ),
+            decl_field(
+                "nonResourceAttributes",
+                build_non_resource_attributes_type(),
+            ),
+            decl_field("user", decl_string()),
+            decl_field("groups", decl_string_list()),
+            decl_field("extra", DeclType::map(decl_string_list(), -1)),
+            decl_field("uid", decl_string()),
+        ],
+    )
+}
+
+/// `mustBuildEnv` (compile.go:173-205) and the check half of
+/// `CompileCELExpression`: the `StoredExpressions` environment of `set` with
+/// the single variable `request`, then the checker. `None` when the expression
+/// does not parse.
+pub fn check_authorization_expression(
+    set: &EnvSet,
+    authorize_with_selectors: bool,
+    expression: &str,
+) -> Option<PolicyCheck> {
+    let env_type = EnvType::StoredExpressions;
+    let (env_set, ct) = checker_env_set(set, env_type);
+    let source = expression.to_string();
+    // The antlr4rust parser panics on some invalid expressions.
+    let (parsed, source_info) =
+        std::panic::catch_unwind(|| env_set.parser(ct).parse_with_source_info(&source))
+            .ok()?
+            .ok()?;
+    let request = build_request_type(authorize_with_selectors);
+    // Stored expressions keep the keyword escaping of the old environments.
+    let provider = DeclTypeProvider::new(
+        std::slice::from_ref(&request),
+        Arc::new(checker::MapProvider::new()),
+        true,
+    );
+    let mut env = env_set.env(ct, checker::Container::default(), Arc::new(provider));
+    env.add_ident(checker::VariableDecl::new(REQUEST, request.dtype()))
+        .ok();
+    let locator = checker::SourceLocator::new(&source_info, expression);
+    let (ast, errs) = checker::check(&parsed, &mut env, &locator);
+    let errors: Vec<String> = errs.errors().iter().map(|e| e.message.clone()).collect();
+    let output = errors
+        .is_empty()
+        .then(|| ast.output_type().cloned())
+        .flatten();
+    Some(PolicyCheck {
+        display: errs.to_display_string(Some(expression)),
+        errors,
+        output,
+    })
+}
+
+/// `CompileCELExpression` (compile.go:81-115) as far as the checker goes: the
+/// compile issues, then the `ReturnTypes()` check (`[bool]`).
+pub fn check_authorization_compile(
+    set: &EnvSet,
+    authorize_with_selectors: bool,
+    expression: &str,
+) -> Result<(), String> {
+    let Some(check) = check_authorization_expression(set, authorize_with_selectors, expression)
+    else {
+        return Err(format!(
+            "compilation failed: Syntax error in '{expression}'"
+        ));
+    };
+    if !check.errors.is_empty() {
+        return Err(format!("compilation failed: {}", check.display));
+    }
+    let output = check.output.unwrap_or(DType::Dyn);
+    if output != DType::Bool {
+        return Err(format!("must evaluate to bool but got {}", output.name()));
+    }
+    Ok(())
 }

@@ -20,6 +20,7 @@ mod cel_policy_types;
 mod cel_schema_types;
 mod cel_schema_values;
 mod cel_struct_literals_test;
+mod cel_typed_env;
 mod common_unit;
 mod crd_jsonschemaprops_roundtrip_test;
 mod decode_parity;
