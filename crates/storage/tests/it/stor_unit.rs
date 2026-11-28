@@ -14,6 +14,7 @@ mod lib;
 mod memory;
 mod metadata;
 mod preconditions;
+mod ratelimiter;
 #[cfg(any(feature = "sqlite", feature = "redis"))]
 mod rhino;
 mod size_estimator;
