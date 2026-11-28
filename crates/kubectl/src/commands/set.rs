@@ -685,6 +685,10 @@ pub fn select_string(s: &str, spec: &str) -> bool {
 /// Update resource requests/limits on a resource.
 ///
 /// Usage: `kubectl set resources deployment nginx --limits=cpu=200m,memory=512Mi`
+///
+/// Ports `SetResourcesOptions.Validate/Run` (set_resources.go:176-262):
+/// `HandleResourceRequirementsV1`, `ContainerSelector` (default `*`) over init
+/// containers and containers, limits/requests merged key by key.
 pub async fn execute_resources(
     client: &ApiClient,
     resource: &str,
@@ -693,96 +697,106 @@ pub async fn execute_resources(
     limits: Option<&str>,
     requests: Option<&str>,
 ) -> Result<()> {
+    // Validate (set_resources.go:176)
+    let (limits, requests) = (limits.unwrap_or(""), requests.unwrap_or(""));
+    if limits.is_empty() && requests.is_empty() {
+        anyhow::bail!(
+            "you must specify an update to requests or limits (in the form of --requests/--limits)"
+        );
+    }
+    let limits_map = parse_resource_spec(Some(limits))?;
+    let requests_map = parse_resource_spec(Some(requests))?;
+
     let (resource_type, name) = parse_resource_arg(resource)?;
     let (path, mapping) = resolve_resource(client, &resource_type, &name, namespace).await?;
 
-    // Get current resource
     let current: Value = client
         .get(&path)
         .await
         .map_err(|e| anyhow::anyhow!("{}", e))
         .context("Failed to get resource")?;
 
-    let containers = if current
-        .get("spec")
-        .and_then(|s| s.get("template"))
-        .is_some()
-    {
-        current["spec"]["template"]["spec"]["containers"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-    } else {
-        current["spec"]["containers"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-    };
+    let selector = container_name.unwrap_or("*");
+    let spec_ptr = pod_spec_pointer(&current);
+    let pod_spec = current.pointer(&spec_ptr).cloned().unwrap_or(Value::Null);
+    let (ops, errs) = resources_patch_ops(
+        &spec_ptr,
+        &pod_spec,
+        selector,
+        (!limits.is_empty()).then_some(&limits_map),
+        (!requests.is_empty()).then_some(&requests_map),
+    );
+    if !ops.is_empty() {
+        let _result: Value = client
+            .patch(&path, &Value::Array(ops), "application/json-patch+json")
+            .await
+            .context("failed to patch resources update to pod template")?;
+        println!(
+            "{} resource requirements updated",
+            crate::ops::resource_label(&mapping, &name)
+        );
+    }
+    if !errs.is_empty() {
+        anyhow::bail!("{}", errs.join("\n"));
+    }
+    Ok(())
+}
 
-    // Parse limits and requests
-    let limits_map = parse_resource_spec(limits)?;
-    let requests_map = parse_resource_spec(requests)?;
-
-    // Build updated containers
-    let mut updated_containers: Vec<Value> = Vec::new();
-
-    for c in &containers {
-        let cname = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
-
-        if let Some(target) = container_name {
-            if cname != target {
+/// The body of `SetResourcesOptions.Run`'s patch function (set_resources.go:
+/// 214-238) against one pod spec: JSON-patch ops that set the given limits and
+/// requests on every selected container (init containers included), and the
+/// `unable to find container named` error when none matches.
+pub fn resources_patch_ops(
+    spec_ptr: &str,
+    pod_spec: &Value,
+    selector: &str,
+    limits: Option<&std::collections::BTreeMap<String, String>>,
+    requests: Option<&std::collections::BTreeMap<String, String>>,
+) -> (Vec<Value>, Vec<String>) {
+    let mut ops = Vec::new();
+    let mut matched = false;
+    // containers = selectContainers(Containers) + selectContainers(InitContainers),
+    // each patched in place, so the order does not matter for the result.
+    for field in ["containers", "initContainers"] {
+        let list = pod_spec.get(field).and_then(|c| c.as_array());
+        for (i, c) in list.into_iter().flatten().enumerate() {
+            let cname = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            if !select_string(cname, selector) {
                 continue;
             }
-        }
-
-        let mut resources = json!({});
-
-        if !limits_map.is_empty() {
-            resources["limits"] = json!(limits_map);
-        }
-        if !requests_map.is_empty() {
-            resources["requests"] = json!(requests_map);
-        }
-
-        updated_containers.push(json!({
-            "name": cname,
-            "resources": resources,
-        }));
-    }
-
-    let patch_body = if current
-        .get("spec")
-        .and_then(|s| s.get("template"))
-        .is_some()
-    {
-        json!({
-            "spec": {
-                "template": {
-                    "spec": {
-                        "containers": updated_containers,
-                    }
+            matched = true;
+            let mut res = c.get("resources").cloned().unwrap_or_else(|| json!({}));
+            if !res.is_object() {
+                res = json!({});
+            }
+            for (key, want) in [("limits", limits), ("requests", requests)] {
+                let Some(want) = want else { continue };
+                // make(v1.ResourceList) when empty, then set each key
+                let slot = res[key].take();
+                let mut list = match slot {
+                    Value::Object(m) => m,
+                    _ => serde_json::Map::new(),
+                };
+                for (k, v) in want {
+                    list.insert(k.clone(), Value::String(v.clone()));
                 }
+                res[key] = Value::Object(list);
             }
-        })
+            if Some(&res) != c.get("resources") {
+                ops.push(json!({
+                    "op": "add",
+                    "path": format!("{spec_ptr}/{field}/{i}/resources"),
+                    "value": res,
+                }));
+            }
+        }
+    }
+    let errs = if matched {
+        Vec::new()
     } else {
-        json!({
-            "spec": {
-                "containers": updated_containers,
-            }
-        })
+        vec![format!("error: unable to find container named {selector}")]
     };
-
-    let _result: Value = client
-        .patch(&path, &patch_body, "application/strategic-merge-patch+json")
-        .await
-        .context("Failed to update resource requirements")?;
-
-    println!(
-        "{} resource requirements updated",
-        crate::ops::resource_label(&mapping, &name)
-    );
-
-    Ok(())
+    (ops, errs)
 }
 
 /// Set the selector on a resource (e.g., a Service).
@@ -998,23 +1012,24 @@ pub async fn execute_subject(
     Ok(())
 }
 
-/// Parse a resource spec string like "cpu=200m,memory=512Mi" into a map.
+/// `populateResourceListV1` (cmd/util/../generate/versioned/run.go:133):
+/// `<resource>=<quantity>,...`, each quantity parsed with `ParseQuantity` and
+/// printed in canonical form. Strict: a statement must have exactly one `=`.
 pub fn parse_resource_spec(
     spec: Option<&str>,
-) -> Result<std::collections::HashMap<String, String>> {
-    let mut map = std::collections::HashMap::new();
-    if let Some(s) = spec {
-        for pair in s.split(',') {
-            let pair = pair.trim();
-            if pair.is_empty() {
-                continue;
-            }
-            if let Some((key, value)) = pair.split_once('=') {
-                map.insert(key.to_string(), value.to_string());
-            } else {
-                anyhow::bail!("Invalid resource spec: '{}'. Expected key=value", pair);
-            }
+) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut map = std::collections::BTreeMap::new();
+    let Some(spec) = spec.filter(|s| !s.is_empty()) else {
+        return Ok(map);
+    };
+    for statement in spec.split(',') {
+        let parts: Vec<&str> = statement.split('=').collect();
+        if parts.len() != 2 {
+            anyhow::bail!("Invalid argument syntax {statement}, expected <resource>=<value>");
         }
+        let q = kubernetes_rs_common::quantity::Quantity::parse(parts[1])
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        map.insert(parts[0].to_string(), q.to_string());
     }
     Ok(map)
 }
