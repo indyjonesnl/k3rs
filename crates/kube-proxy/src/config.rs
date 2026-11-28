@@ -759,3 +759,61 @@ fn validate_logging(c: &LoggingConfiguration, fld_path: &Path) -> ErrorList {
     }
     errs
 }
+
+// ---------------------------------------------------------------------------
+// Loading (cmd/kube-proxy/app/options.go)
+// ---------------------------------------------------------------------------
+
+/// `GroupVersion` of the only registered config version
+/// (`staging/src/k8s.io/kube-proxy/config/v1alpha1/register.go`).
+pub const API_VERSION: &str = "kubeproxy.config.k8s.io/v1alpha1";
+pub const KIND: &str = "KubeProxyConfiguration";
+
+/// `Options.loadConfig` (options.go:474-506): decode a serialized
+/// `KubeProxyConfiguration` (YAML or JSON) and apply the v1alpha1 defaults the
+/// decoder runs. Unknown and duplicate fields are tolerated: upstream retries
+/// a strict-decoding failure with the lenient codec (options.go:481-498),
+/// which is the only outcome with a single registered version.
+pub fn load_config(data: &str) -> Result<KubeProxyConfiguration, String> {
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(data).map_err(|e| format!("failed to decode: {e}"))?;
+    let field = |k: &str| value.get(k).and_then(|v| v.as_str()).unwrap_or("");
+    let (kind, api_version) = (field("kind"), field("apiVersion"));
+    if kind.is_empty() {
+        return Err("failed to decode: Object 'Kind' is missing".to_string());
+    }
+    if api_version.is_empty() {
+        return Err("failed to decode: Object 'apiVersion' is missing".to_string());
+    }
+    if api_version != API_VERSION || kind != KIND {
+        return Err(format!(
+            "failed to decode: no kind \"{kind}\" is registered for version \"{api_version}\" in scheme"
+        ));
+    }
+    let mut cfg: KubeProxyConfiguration =
+        serde_yaml::from_value(value).map_err(|e| format!("failed to decode: {e}"))?;
+    set_defaults(&mut cfg);
+    Ok(cfg)
+}
+
+/// `Options.loadConfigFromFile` (options.go:464-471).
+pub fn load_config_from_file(path: &std::path::Path) -> Result<KubeProxyConfiguration, String> {
+    let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    load_config(&data)
+}
+
+/// `Options.processHostnameOverrideFlag` (options.go:~430-440): a non-empty
+/// flag value is trimmed, lower-cased and wins over the config file.
+pub fn process_hostname_override(
+    config: &mut KubeProxyConfiguration,
+    flag: &str,
+) -> Result<(), String> {
+    if !flag.is_empty() {
+        let host = flag.trim();
+        if host.is_empty() {
+            return Err("empty hostname-override is invalid".to_string());
+        }
+        config.hostname_override = host.to_lowercase();
+    }
+    Ok(())
+}

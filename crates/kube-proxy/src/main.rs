@@ -24,6 +24,16 @@ struct Args {
     #[arg(long, default_value = "")]
     feature_gates: String,
 
+    /// Path to a KubeProxyConfiguration file (options.go `--config`). When set
+    /// it replaces the per-field flags it covers (options.go:215-231).
+    #[arg(long)]
+    config: Option<String>,
+
+    /// Hostname override (options.go `--hostname-override`); trimmed and
+    /// lower-cased, wins over the config file (processHostnameOverrideFlag).
+    #[arg(long, default_value = "")]
+    hostname_override: String,
+
     /// Node name
     #[arg(long)]
     node_name: String,
@@ -121,6 +131,45 @@ struct Args {
     bind_address_hard_fail: bool,
 }
 
+/// `Options.Complete` (options.go:205-241) for `--config`: load the file,
+/// apply `--hostname-override`, validate the fully resolved config
+/// (`Options.Validate`) and let it replace the flag values it covers.
+fn apply_config_file(args: &mut Args) -> Result<()> {
+    use kubernetes_rs_kube_proxy::config as kpc;
+    let Some(path) = args.config.clone() else {
+        return Ok(());
+    };
+    let mut cfg = kpc::load_config_from_file(std::path::Path::new(&path))
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    kpc::process_hostname_override(&mut cfg, &args.hostname_override)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let errs = kpc::validate(&kpc::convert_to_internal(&cfg), false);
+    if !errs.is_empty() {
+        let msgs: Vec<String> = errs
+            .iter()
+            .map(|e| format!("{}: {}", e.field, e.detail))
+            .collect();
+        anyhow::bail!("invalid configuration: {}", msgs.join("; "));
+    }
+    args.healthz_bind_address = cfg.healthz_bind_address.clone();
+    args.metrics_bind_address = cfg.metrics_bind_address.clone();
+    args.nodeport_addresses = cfg.node_port_addresses.clone();
+    args.iptables_localhost_nodeports = cfg.iptables.localhost_node_ports.unwrap_or(true);
+    args.bind_address_hard_fail = cfg.bind_address_hard_fail;
+    if !cfg.cluster_cidr.is_empty() {
+        args.cluster_cidr = cfg.cluster_cidr.clone();
+    }
+    if !cfg.feature_gates.is_empty() {
+        let gates: Vec<String> = cfg
+            .feature_gates
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        args.feature_gates = gates.join(",");
+    }
+    Ok(())
+}
+
 /// Apply `--feature-gates` process-wide. Port of `featureGate.Set`
 /// (staging/src/k8s.io/component-base/featuregate/feature_gate.go:340-359).
 fn apply_feature_gates(args: &Args) -> Result<()> {
@@ -133,9 +182,10 @@ fn apply_feature_gates(args: &Args) -> Result<()> {
 async fn main() -> Result<()> {
     let cmd = <Args as clap::CommandFactory>::command();
     let matches = cmd.clone().get_matches();
-    let args = <Args as clap::FromArgMatches>::from_arg_matches(&matches)
+    let mut args = <Args as clap::FromArgMatches>::from_arg_matches(&matches)
         .map_err(|e| e.exit())
         .unwrap();
+    apply_config_file(&mut args)?;
     apply_feature_gates(&args)?;
 
     // options.go:244-251: after the feature gates are applied, the flagz
