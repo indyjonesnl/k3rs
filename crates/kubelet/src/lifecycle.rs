@@ -188,6 +188,71 @@ pub fn should_restart_container(restart_policy: Option<&str>, exit_code: i32) ->
     }
 }
 
+/// `kubecontainer.State` (pkg/kubelet/container/runtime.go): the runtime
+/// state of a container as the kubelet sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeContainerState {
+    Created,
+    Running,
+    Exited,
+    Unknown,
+}
+
+/// The `kubecontainer.Status` fields `ShouldContainerBeRestarted` reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeContainerStatus {
+    pub name: String,
+    pub state: RuntimeContainerState,
+    pub exit_code: i32,
+}
+
+/// `ShouldContainerBeRestarted` (pkg/kubelet/container/helpers.go:82-117):
+/// whether a container needs to be restarted.
+///
+/// `statuses` is `PodStatus.ContainerStatuses`, newest first: the first entry
+/// with the container's name is its latest status (`FindContainerStatusByName`).
+/// With `ContainerRestartRules` on (Beta, default on in 1.35) the decision is
+/// `podutil.ContainerShouldRestart` (container rules, container policy, pod
+/// policy); otherwise only the pod's `restartPolicy` counts.
+pub fn should_container_be_restarted(
+    container: &kubernetes_rs_common::resources::Container,
+    pod: &Pod,
+    statuses: &[RuntimeContainerStatus],
+) -> bool {
+    use kubernetes_rs_common::feature_gates::{enabled, Feature};
+    // Once a pod has been marked deleted, it should not be restarted.
+    if pod.metadata.deletion_timestamp.is_some() {
+        return false;
+    }
+    // If the container was never started before, start it. If all historical
+    // containers were GC'd, this is also true.
+    let Some(status) = statuses.iter().find(|s| s.name == container.name) else {
+        return true;
+    };
+    match status.state {
+        RuntimeContainerState::Running => return false,
+        // Always restart a container in the unknown or created state.
+        RuntimeContainerState::Unknown | RuntimeContainerState::Created => return true,
+        RuntimeContainerState::Exited => {}
+    }
+    // Check the restart policy for a dead container.
+    let default_spec = Default::default();
+    let spec = pod.spec.as_ref().unwrap_or(&default_spec);
+    if enabled(Feature::ContainerRestartRules) {
+        return kubernetes_rs_common::validation::pod_status::container_should_restart(
+            container,
+            spec,
+            status.exit_code,
+        );
+    }
+    match spec.restart_policy.as_deref() {
+        Some("Never") => false,
+        // Already successfully ran the container: do nothing.
+        Some("OnFailure") => status.exit_code != 0,
+        _ => true,
+    }
+}
+
 /// Decide the terminal pod phase for a pod whose every container has
 /// exited, given the pod's `restartPolicy` and whether *any* container
 /// failed (non-zero exit).

@@ -29,6 +29,7 @@ mod pod_dirs;
 mod pod_status;
 mod poll;
 mod removeall;
+mod restart_rules;
 mod runtime;
 mod runtime_state;
 mod server;
