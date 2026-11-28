@@ -1,5 +1,6 @@
 pub mod config;
 pub mod conntrack;
+pub mod conntrack_sysctl;
 pub mod endpointslice_cache;
 pub mod iptables;
 pub mod linebuffer;

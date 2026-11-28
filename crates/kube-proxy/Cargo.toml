@@ -47,6 +47,7 @@ futures = { workspace = true }
 tower = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 serial_test = { workspace = true }
+tempfile = "3"
 # Integration tests drive the Endpoints/EndpointSlice controllers to populate
 # state kube-proxy then programs. (The lib no longer depends on it — ApiStorage
 # now lives in the storage crate.)
