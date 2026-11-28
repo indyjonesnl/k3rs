@@ -17,6 +17,7 @@ pub mod lease_lock;
 pub mod memory;
 pub mod metadata;
 pub mod preconditions;
+pub mod ratelimiter;
 #[cfg(any(feature = "sqlite", feature = "redis"))]
 pub mod rhino;
 pub mod size_estimator;
