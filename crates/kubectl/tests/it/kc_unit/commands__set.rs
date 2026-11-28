@@ -546,3 +546,185 @@ mod tests {
         assert!(result.is_err()); // connection error
     }
 }
+
+/// Ports of cmd/set/env/env_parse_test.go and cmd/set/helper_test.go
+/// `Test_updateEnv`.
+mod set_env_parse {
+    use kubernetes_rs_kubectl::commands::set::*;
+    use serde_json::{json, Value};
+
+    fn s(v: &[&str]) -> Vec<String> {
+        v.iter().map(|x| x.to_string()).collect()
+    }
+    fn ev(n: &str, v: &str) -> Value {
+        json!({"name": n, "value": v})
+    }
+
+    #[test]
+    fn set_env_is_environment_argument() {
+        assert!(is_environment_argument("returns=true"));
+        assert!(!is_environment_argument("returnsfalse"));
+        assert!(!is_environment_argument("=x"));
+    }
+
+    #[test]
+    fn set_env_split_environment_from_resources() {
+        let args = s(&["resource", "ENV\\=ARG", "ONE\\=MORE", "DASH-"]);
+        let (r, e) = split_environment_from_resources(&args).unwrap();
+        assert_eq!(r, ["resource"]);
+        assert_eq!(e, ["ENV\\=ARG", "ONE\\=MORE", "DASH-"]);
+        // a resource after an env argument is not ok
+        assert!(split_environment_from_resources(&s(&["A=b", "res"])).is_none());
+    }
+
+    #[test]
+    fn set_env_parse_env_good_with_stdin() {
+        let mut r = std::io::Cursor::new("FROM=READER");
+        let ss = s(&[
+            "ENV=VARIABLE",
+            "ENV.TEST=VARIABLE",
+            "AND=ANOTHER",
+            "REMOVE-",
+            "-",
+        ]);
+        let (env, remove, used) = parse_env(&ss, Some(&mut r)).unwrap();
+        assert_eq!(
+            env,
+            [
+                ev("ENV", "VARIABLE"),
+                ev("ENV.TEST", "VARIABLE"),
+                ev("AND", "ANOTHER"),
+                ev("FROM", "READER")
+            ]
+        );
+        assert_eq!(remove, ["REMOVE"]);
+        assert!(used);
+    }
+
+    #[test]
+    fn set_env_parse_env_good_without_stdin() {
+        let ss = s(&[
+            "ENV=VARIABLE",
+            "ENV.TEST=VARIABLE",
+            "AND=ANOTHER",
+            "REMOVE-",
+        ]);
+        let (env, remove, used) = parse_env(&ss, None).unwrap();
+        assert_eq!(env.len(), 3);
+        assert_eq!(remove, ["REMOVE"]);
+        assert!(!used);
+        // '-' needs an open STDIN
+        assert_eq!(
+            parse_env(&s(&["-"]), None).unwrap_err().to_string(),
+            "when '-' is used, STDIN must be open"
+        );
+    }
+
+    #[test]
+    fn set_env_parse_env_errors() {
+        let msg = "a valid environment variable name must consist of alphabetic characters, digits, '_', '-', or '.', and must not start with a digit (e.g. 'my.env-name',  or 'MY_ENV.NAME',  or 'MyEnvName1', regex used for validation is '[-._a-zA-Z][-._a-zA-Z0-9]*')";
+        let e = |x: &str| parse_env(&s(&[x]), None).unwrap_err().to_string();
+        assert_eq!(
+            e("This not in the key=value format."),
+            format!("\"This not in the key\" is not a valid key name: {msg}")
+        );
+        assert_eq!(
+            e(".=VARIABLE"),
+            "\".\" is not a valid key name: must not be '.'"
+        );
+        assert_eq!(
+            e("..=VARIABLE"),
+            "\"..\" is not a valid key name: must not be '..'"
+        );
+        assert_eq!(
+            e("..ENV=VARIABLE"),
+            "\"..ENV\" is not a valid key name: must not start with '..'"
+        );
+        assert_eq!(e("plain"), "unknown environment variable: plain");
+        assert_eq!(
+            parse_env(&s(&["A=1", "A-"]), None).unwrap_err().to_string(),
+            "can not both modify and remove the same environment variable in the same command"
+        );
+    }
+
+    // Test_updateEnv (helper_test.go:26)
+    #[test]
+    fn set_env_update_env() {
+        let (e1, e2, e3) = (ev("env1", "env1"), ev("env2", "env2"), ev("env3", "env3"));
+        let r = |x: &[&str]| s(x);
+        type Case = (Vec<Value>, Vec<Value>, Vec<String>, Vec<Value>);
+        let cases: Vec<Case> = vec![
+            (
+                vec![e1.clone()],
+                vec![e2.clone()],
+                r(&["env1"]),
+                vec![e2.clone()],
+            ),
+            (
+                vec![e1.clone(), e2.clone()],
+                vec![e3.clone()],
+                r(&["env1"]),
+                vec![e2.clone(), e3.clone()],
+            ),
+            (
+                vec![e1.clone()],
+                vec![e2.clone(), e2.clone()],
+                r(&["env1"]),
+                vec![e2.clone()],
+            ),
+            (
+                vec![e1.clone()],
+                vec![e2.clone(), e2.clone(), e2.clone(), e3.clone()],
+                r(&["env1"]),
+                vec![e2.clone(), e3.clone()],
+            ),
+            (
+                vec![e1.clone()],
+                vec![e2.clone(), e1.clone()],
+                r(&["env1", "env1"]),
+                vec![e2.clone()],
+            ),
+            (
+                vec![e1.clone(), e1.clone()],
+                vec![e2.clone()],
+                vec![],
+                vec![e1.clone(), e1.clone(), e2.clone()],
+            ),
+            (
+                vec![e1.clone(), e1.clone(), e2.clone()],
+                vec![e1.clone()],
+                vec![],
+                vec![e1.clone(), e2.clone()],
+            ),
+        ];
+        for (i, (existing, add, remove, want)) in cases.iter().enumerate() {
+            assert_eq!(&update_env(existing, add, remove), want, "case {}", i + 1);
+        }
+    }
+
+    #[test]
+    fn set_env_validate_no_overwrites_and_key_names() {
+        let existing = vec![ev("A", "1")];
+        assert!(validate_no_overwrites(&existing, &[ev("A", "1")]).is_ok());
+        assert_eq!(
+            validate_no_overwrites(&existing, &[ev("A", "2")])
+                .unwrap_err()
+                .to_string(),
+            "'A' already has a value (1), and --overwrite is false"
+        );
+        assert!(env_keys_contain("k", &[]));
+        assert!(!env_keys_contain("k", &s(&["x"])));
+        assert_eq!(key_to_env_name("my-key.v1"), "MY_KEY_V1");
+    }
+
+    #[test]
+    fn set_env_select_string() {
+        assert!(select_string("abc", "*"));
+        assert!(select_string("abc", "abc"));
+        assert!(!select_string("abc", "abd"));
+        assert!(select_string("abcdef", "abc*"));
+        assert!(select_string("abcdef", "*def"));
+        assert!(!select_string("abcdef", "*de"));
+        assert!(!select_string("abcdef", "x*"));
+    }
+}
