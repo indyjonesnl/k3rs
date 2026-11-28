@@ -9,6 +9,7 @@ pub mod audit_format;
 pub mod audit_metrics;
 pub mod audit_truncate;
 pub mod audit_webhook;
+pub mod authentication_config;
 pub mod authorization_config;
 pub mod authorization_config_metrics;
 pub mod authorization_filter;
