@@ -6,8 +6,8 @@
 //!   (`--encryption-provider-config`): refuse to start, never silently store
 //!   plaintext;
 //! - everything else: accept and log a WARN naming the flag
-//!   (`--anonymous-auth=false`, `--tls-min-version` and `--tls-cipher-suites`
-//!   are called out as SECURITY because ignoring them is fail-open).
+//!   (`--anonymous-auth=false` is called out as SECURITY because ignoring it
+//!   is fail-open). `--tls-min-version` and `--tls-cipher-suites` are enforced.
 //!
 //! Flag names/types: apiserver/pkg/server/options/{serving,etcd,feature,
 //! api_enablement}.go, cmd/kube-apiserver/app/options/options.go,
@@ -40,11 +40,12 @@ pub struct UpstreamCompatArgs {
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     pub anonymous_auth: Option<bool>,
 
-    /// `--tls-min-version` (serving.go:193). Accepted, not enforced.
+    /// `--tls-min-version` (serving.go:193). Enforced on the listener via
+    /// [`Self::tls_policy`].
     #[arg(long)]
     pub tls_min_version: Option<String>,
 
-    /// `--tls-cipher-suites` (serving.go:186). Accepted, not enforced.
+    /// `--tls-cipher-suites` (serving.go:186). Enforced via [`Self::tls_policy`].
     #[arg(long, value_delimiter = ',')]
     pub tls_cipher_suites: Vec<String>,
 
@@ -188,6 +189,24 @@ impl UpstreamCompatArgs {
         ]
     }
 
+    /// `--tls-min-version` / `--tls-cipher-suites` as the serving policy
+    /// (serving.go:186-193; `cliflag.TLSVersion` / `cliflag.TLSCipherSuites`
+    /// from component-base ciphersuites_flag.go). `None` when neither flag is
+    /// given. A bad value is an error (the flag parse fails upstream).
+    pub fn tls_policy(&self) -> Result<Option<kubernetes_rs_common::tls::TlsPolicy>, String> {
+        use kubernetes_rs_middleware::secure_serving::serve::{
+            tls_cipher_suites, tls_version, TlsVersion,
+        };
+        if self.tls_min_version.is_none() && self.tls_cipher_suites.is_empty() {
+            return Ok(None);
+        }
+        let version = tls_version(self.tls_min_version.as_deref().unwrap_or(""))?;
+        Ok(Some(kubernetes_rs_common::tls::TlsPolicy {
+            tls13_only: version == TlsVersion::Tls13,
+            cipher_suites: tls_cipher_suites(&self.tls_cipher_suites)?,
+        }))
+    }
+
     /// Flags that were given, accepted, and have no effect (message per flag).
     pub fn ignored_flags(&self) -> Vec<String> {
         let given = [
@@ -223,14 +242,6 @@ impl UpstreamCompatArgs {
                  unauthenticated requests are handled as before"
                     .into(),
             );
-        }
-        if let Some(v) = &self.tls_min_version {
-            out.push(format!(
-                "SECURITY: --tls-min-version={v} is accepted but NOT enforced"
-            ));
-        }
-        if !self.tls_cipher_suites.is_empty() {
-            out.push("SECURITY: --tls-cipher-suites is accepted but NOT enforced".into());
         }
         out
     }
@@ -343,7 +354,8 @@ mod tests {
         );
         let ignored = a.upstream.ignored_flags().join("\n");
         assert!(ignored.contains("SECURITY: --anonymous-auth=false"));
-        assert!(ignored.contains("SECURITY: --tls-min-version=VersionTLS13"));
+        // Enforced now, so no longer reported as ignored.
+        assert!(!ignored.contains("--tls-min-version"));
         // --profiling=false is a no-op, not a warning.
         assert!(!ignored.contains("--profiling"));
     }
@@ -385,5 +397,37 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(a.tls_key_file.as_deref(), Some("/k"));
+    }
+
+    #[test]
+    fn tls_min_version_policy_from_flags() {
+        let mut a = Args::try_parse_from(["api-server"]).unwrap();
+        assert!(a.upstream.tls_policy().unwrap().is_none());
+        a.upstream.tls_min_version = Some("VersionTLS13".into());
+        let p = a.upstream.tls_policy().unwrap().unwrap();
+        assert!(p.tls13_only);
+        a.upstream.tls_min_version = Some("VersionTLS12".into());
+        assert!(!a.upstream.tls_policy().unwrap().unwrap().tls13_only);
+        a.upstream.tls_min_version = Some("VersionTLS99".into());
+        assert_eq!(
+            a.upstream.tls_policy().unwrap_err(),
+            "unknown tls version \"VersionTLS99\""
+        );
+        a.upstream.tls_min_version = None;
+        a.upstream.tls_cipher_suites = vec!["TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384".into()];
+        assert_eq!(
+            a.upstream
+                .tls_policy()
+                .unwrap()
+                .unwrap()
+                .cipher_suites
+                .len(),
+            1
+        );
+        a.upstream.tls_cipher_suites = vec!["TLS_BOGUS".into()];
+        assert_eq!(
+            a.upstream.tls_policy().unwrap_err(),
+            "Cipher suite TLS_BOGUS not supported or doesn't exist"
+        );
     }
 }

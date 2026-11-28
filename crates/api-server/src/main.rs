@@ -636,6 +636,11 @@ async fn main() -> Result<()> {
         .unwrap();
     args.authorization.mark_legacy_flags_set(&matches);
     args.upstream.validate()?;
+    // `--tls-min-version` / `--tls-cipher-suites` (serving.go:186-193): a bad
+    // value stops startup; a good one constrains every serving listener.
+    if let Some(policy) = args.upstream.tls_policy().map_err(|e| anyhow::anyhow!(e))? {
+        kubernetes_rs_common::tls::set_serving_tls_policy(policy);
+    }
     args.bind_address =
         upstream_flags::resolve_bind_address(&args.bind_address, args.upstream.secure_port)?;
     // Upstream serves TLS whenever a serving cert/key is configured.
