@@ -11,6 +11,7 @@ mod apply_tests;
 mod auth_tests;
 mod command_tests;
 mod config_flags_tests;
+mod describe_core_a;
 mod describe_events_tests;
 mod describe_tests;
 mod drain_tests;
