@@ -82,6 +82,9 @@ pub struct ApiClient {
     /// Impersonation headers added to every request
     /// (`NewImpersonatingRoundTripper`, round_trippers.go:247-267).
     extra_headers: Vec<(String, String)>,
+    /// Exec credential plugin (`exec.roundTripper`, client-go
+    /// plugin/pkg/client/auth/exec/exec.go:346).
+    exec_auth: Option<Arc<crate::exec_auth::Authenticator>>,
 }
 
 #[derive(Debug)]
@@ -308,6 +311,7 @@ impl ApiClient {
             user_agent: None,
             basic_auth: None,
             extra_headers: Vec::new(),
+            exec_auth: None,
         })
     }
 
@@ -384,6 +388,7 @@ impl ApiClient {
                 .map(|default| format!("{default}/{name}")),
             basic_auth: self.basic_auth.clone(),
             extra_headers: self.extra_headers.clone(),
+            exec_auth: self.exec_auth.clone(),
         }
     }
 
@@ -418,6 +423,70 @@ impl ApiClient {
     pub fn with_extra_headers(mut self, headers: Vec<(String, String)>) -> Self {
         self.extra_headers = headers;
         self
+    }
+
+    /// Authenticate requests through an exec credential plugin
+    /// (`UpdateTransportConfig` installs `exec.roundTripper`, exec.go:176-214).
+    pub fn with_exec_authenticator(mut self, a: Arc<crate::exec_auth::Authenticator>) -> Self {
+        self.exec_auth = Some(a);
+        self
+    }
+
+    /// `roundTripper.RoundTrip` (exec.go:346-366), request half: unless an
+    /// `Authorization` header is already set, `getCreds` and send
+    /// `Authorization: Bearer <token>` when the token is non-empty. The
+    /// plugin is blocking, so it runs off the async worker.
+    async fn with_exec_creds(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<(
+        reqwest::RequestBuilder,
+        Option<Arc<crate::exec_auth::Credentials>>,
+    )> {
+        let Some(auth) = &self.exec_auth else {
+            return Ok((request, None));
+        };
+        let has_auth = request
+            .try_clone()
+            .and_then(|r| r.build().ok())
+            .map(|r| r.headers().contains_key(reqwest::header::AUTHORIZATION))
+            .unwrap_or(false);
+        if has_auth {
+            return Ok((request, None));
+        }
+        let a = auth.clone();
+        let creds = tokio::task::spawn_blocking(move || a.get_creds())
+            .await
+            .map_err(|e| anyhow::anyhow!("getting credentials: {e}"))?
+            .map_err(|e| anyhow::anyhow!("getting credentials: {e}"))?;
+        let request = if creds.token.is_empty() {
+            request
+        } else {
+            request.header(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", creds.token),
+            )
+        };
+        Ok((request, Some(creds)))
+    }
+
+    /// `RoundTrip` (exec.go:376-381), response half: a 401 makes
+    /// `maybeRefreshCreds`; a refresh error is only logged.
+    async fn exec_after_response(
+        &self,
+        creds: &Option<Arc<crate::exec_auth::Credentials>>,
+        status: StatusCode,
+    ) {
+        if let (Some(auth), Some(creds)) = (&self.exec_auth, creds) {
+            if status == StatusCode::UNAUTHORIZED {
+                let (a, c) = (auth.clone(), creds.clone());
+                match tokio::task::spawn_blocking(move || a.maybe_refresh_creds(&c)).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => tracing::error!("refreshing credentials: {e}"),
+                    Err(e) => tracing::error!("refreshing credentials: {e}"),
+                }
+            }
+        }
     }
 
     /// Authentication and impersonation of a request: bearer token, else
@@ -470,6 +539,7 @@ impl ApiClient {
             .try_clone()
             .and_then(|r| r.build().ok())
             .map(|r| r.url().clone());
+        let (request, exec_creds) = self.with_exec_creds(request).await?;
         let mut retry = WithRetry::new(MAX_RETRIES);
         let mut current = request;
         // `Before` for the first attempt (with_retry.go:206-212): a backoff
@@ -480,6 +550,9 @@ impl ApiClient {
         loop {
             let next = current.try_clone();
             let result = current.send().await;
+            if let Ok(r) = &result {
+                self.exec_after_response(&exec_creds, r.status()).await;
+            }
             // `After` (with_retry.go:270-278): feed the outcome (status, or 0
             // for a transport error) to the backoff manager.
             if let Some(u) = &url {

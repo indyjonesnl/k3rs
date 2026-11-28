@@ -98,22 +98,9 @@ pub struct AuthProvider {
     pub config: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExecConfig {
-    pub api_version: String,
-    pub command: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub args: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<Vec<EnvVar>>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct EnvVar {
-    pub name: String,
-    pub value: String,
-}
+/// `api.ExecConfig`: the full exec credential plugin config, as parsed by
+/// `exec_auth` (interactiveMode, provideClusterInfo, installHint, pluginPolicy).
+pub use crate::exec_auth::{ExecConfig, ExecEnvVar as EnvVar};
 
 impl KubeConfig {
     /// Load kubeconfig the way kubectl does: `KUBECONFIG` as a path list (or
