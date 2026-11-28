@@ -424,13 +424,33 @@ pub enum CertificateCommands {
 pub enum RolloutCommands {
     /// Show rollout status
     Status {
-        /// Resource type
-        resource_type: String,
-        /// Resource name
-        name: String,
+        /// TYPE NAME | TYPE/NAME
+        args: Vec<String>,
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        /// Filename identifying the resource to get from a server
+        #[arg(short = 'f', long = "filename")]
+        filename: Vec<String>,
+        /// Watch the status of the rollout until it's done
+        #[arg(
+            short = 'w',
+            long,
+            num_args = 0..=1,
+            require_equals = true,
+            default_value_t = true,
+            default_missing_value = "true"
+        )]
+        watch: bool,
+        /// Pin to a specific revision for showing its status. Defaults to 0 (last revision)
+        #[arg(long, default_value_t = 0)]
+        revision: i64,
+        /// The length of time to wait before ending watch, zero means never
+        #[arg(long, default_value = "0s")]
+        timeout: String,
+        /// Selector (label query) to filter on
+        #[arg(short = 'l', long)]
+        selector: Option<String>,
     },
     /// View rollout history
     History {

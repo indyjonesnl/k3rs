@@ -11,12 +11,21 @@ pub async fn execute(
 ) -> Result<()> {
     match command {
         RolloutCommands::Status {
-            resource_type,
-            name,
+            args,
             namespace,
+            filename,
+            watch,
+            revision,
+            timeout,
+            selector,
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
-            rollout_status(client, &resource_type, &name, ns).await?;
+            let opts = RolloutStatusOptions {
+                watch,
+                revision,
+                timeout: Some(super::exec::parse_go_duration(&timeout)?),
+            };
+            rollout_status_run(client, &args, &filename, selector.as_deref(), ns, &opts).await?;
         }
         RolloutCommands::History {
             resource_type,
@@ -317,6 +326,105 @@ fn rollout_kind(resource_type: &str) -> &'static str {
         "statefulset" | "statefulsets" | "sts" => "StatefulSet",
         _ => "DaemonSet",
     }
+}
+
+/// `RolloutStatusOptions.Validate` (rollout_status.go:147).
+pub fn validate_status_args(args: &[String], filenames: &[String], revision: i64) -> Result<()> {
+    if args.is_empty() && filenames.is_empty() {
+        anyhow::bail!("required resource not specified");
+    }
+    if revision < 0 {
+        anyhow::bail!("revision must be a positive integer: {revision}");
+    }
+    Ok(())
+}
+
+/// `ResourceTypeOrNameArgs(true, args...)`: `TYPE NAME`, `TYPE/NAME` and
+/// `TYPE` (every object of the type, narrowed by `-l`) as (type, name?).
+pub fn split_status_args(args: &[String]) -> Result<Vec<(String, Option<String>)>> {
+    match args {
+        [] => Ok(vec![]),
+        [one] => Ok(match one.split_once('/') {
+            Some((t, n)) => vec![(t.to_string(), Some(n.to_string()))],
+            None => vec![(one.clone(), None)],
+        }),
+        [t, rest @ ..] if !t.contains('/') => {
+            Ok(rest.iter().map(|n| (t.clone(), Some(n.clone()))).collect())
+        }
+        _ => args
+            .iter()
+            .map(|a| match a.split_once('/') {
+                Some((t, n)) => Ok((t.to_string(), Some(n.to_string()))),
+                None => anyhow::bail!(
+                    "there is no need to specify a resource type as a separate argument when passing arguments in resource/name form (e.g. 'kubectl get resource/<resource_name>' instead of 'kubectl get resource resource/<resource_name>'"
+                ),
+            })
+            .collect(),
+    }
+}
+
+/// `RolloutStatusOptions.Run` over every resource the builder yields
+/// (rollout_status.go:160-200): named args, `-l` listing, and `-f` files.
+pub async fn rollout_status_run(
+    client: &ApiClient,
+    args: &[String],
+    filenames: &[String],
+    selector: Option<&str>,
+    namespace: &str,
+    opts: &RolloutStatusOptions,
+) -> Result<()> {
+    validate_status_args(args, filenames, opts.revision)?;
+    // (resource type, name, namespace)
+    let mut targets: Vec<(String, String, String)> = Vec::new();
+    for (t, n) in split_status_args(args)? {
+        match n {
+            Some(n) => targets.push((t, n, namespace.to_string())),
+            None => {
+                let (probe, _) = get_resource_api_path(&t, namespace, "x")?;
+                let coll = probe.rsplit_once('/').map(|(c, _)| c).unwrap_or_default();
+                let q = crate::ops::label_selector_query(selector);
+                let list: Value = client
+                    .get(&format!("{coll}{q}"))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to list {t}: {e}"))?;
+                for item in list
+                    .get("items")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    targets.push((
+                        t.clone(),
+                        str_at(item, &["metadata", "name"]).to_string(),
+                        namespace.to_string(),
+                    ));
+                }
+            }
+        }
+    }
+    for f in filenames {
+        for doc in crate::manifest::read_documents(f)? {
+            let doc: Value = serde_json::to_value(doc)?;
+            let kind = str_at(&doc, &["kind"]).to_string();
+            let ns = match str_at(&doc, &["metadata", "namespace"]) {
+                "" => namespace,
+                n => n,
+            };
+            targets.push((
+                kind.to_lowercase(),
+                str_at(&doc, &["metadata", "name"]).to_string(),
+                ns.to_string(),
+            ));
+        }
+    }
+    if targets.is_empty() {
+        eprintln!("No resources found in {namespace} namespace.");
+        return Ok(());
+    }
+    for (t, n, ns) in targets {
+        rollout_status_with(client, &t, &n, &ns, opts).await?;
+    }
+    Ok(())
 }
 
 pub async fn rollout_status(
