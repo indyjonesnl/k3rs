@@ -9,9 +9,12 @@
 //! Also `provider.go` `NewDefaultDockerKeyring`: the node-level keyring read
 //! from `config.json` / `.dockercfg` (`config.go` `ReadDockerConfigFile`).
 //!
-//! Not ported: `TrackedAuthConfig` source/hash tracking (only used with the
-//! `KubeletEnsureSecretPulledImages` gate) and the external credential
-//! provider plugins.
+//! `TrackedAuthConfig` / `CredentialSource` (`keyring.go:58-104`) carry the
+//! source and hash of each credential for the `KubeletEnsureSecretPulledImages`
+//! gate. Secrets record their coordinates (`secrets.go:52-69`); the node
+//! keyring has no source. The external credential provider plugins live in
+//! `credentialprovider_plugin.rs` and do not yet record service account
+//! coordinates.
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
@@ -40,6 +43,99 @@ struct EntryWithAuth {
     email: String,
     #[serde(default)]
     auth: String,
+}
+
+/// `credentialprovider.SecretCoordinates` (`keyring.go:94`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretCoordinates {
+    pub uid: String,
+    pub namespace: String,
+    pub name: String,
+}
+
+/// `credentialprovider.ServiceAccountCoordinates` (`keyring.go:100`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceAccountCoordinates {
+    pub uid: String,
+    pub namespace: String,
+    pub name: String,
+}
+
+/// `credentialprovider.CredentialSource` (`keyring.go:89`): where a credential
+/// comes from; `None` where used means node-global.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CredentialSource {
+    Secret(SecretCoordinates),
+    ServiceAccount(ServiceAccountCoordinates),
+}
+
+/// `credentialprovider.TrackedAuthConfig` (`keyring.go:60`): an `AuthConfig`
+/// plus its hash and source. Both are empty unless
+/// `KubeletEnsureSecretPulledImages` is enabled (`NewTrackedAuthConfig`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackedAuthConfig {
+    pub auth: AuthConfig,
+    pub auth_config_hash: String,
+    pub source: Option<CredentialSource>,
+}
+
+impl TrackedAuthConfig {
+    /// `NewTrackedAuthConfig` (`keyring.go:73-87`).
+    pub fn new(auth: &AuthConfig, source: Option<CredentialSource>) -> Self {
+        let mut tracked = Self {
+            auth: auth.clone(),
+            auth_config_hash: String::new(),
+            source: None,
+        };
+        if kubernetes_rs_common::feature_gates::enabled(
+            kubernetes_rs_common::feature_gates::Feature::KubeletEnsureSecretPulledImages,
+        ) {
+            tracked.source = source;
+            tracked.auth_config_hash = hash_auth_config(auth);
+        }
+        tracked
+    }
+}
+
+/// `hashAuthConfig` (`keyring.go:363-372`): hex SHA-256 of `json.Marshal` of
+/// the `AuthConfig`. Go's struct order and `omitempty` apply
+/// (`username`, `password`, `auth`, `email`, ...); `Add` only fills username,
+/// password and email. `json.Marshal` escapes `<`, `>`, `&`, U+2028 and U+2029.
+pub fn hash_auth_config(creds: &AuthConfig) -> String {
+    use sha2::{Digest, Sha256};
+    let mut fields = serde_json::Map::new();
+    for (key, value) in [
+        ("username", &creds.username),
+        ("password", &creds.password),
+        ("email", &creds.email),
+    ] {
+        if !value.is_empty() {
+            fields.insert(key.to_string(), serde_json::Value::String(value.clone()));
+        }
+    }
+    // serde_json's Map sorts keys; build the string in Go's field order.
+    let mut json = String::from("{");
+    for (i, key) in ["username", "password", "email"]
+        .iter()
+        .filter(|k| fields.contains_key(**k))
+        .enumerate()
+    {
+        if i > 0 {
+            json.push(',');
+        }
+        json.push_str(&format!("\"{key}\":{}", fields[*key]));
+    }
+    json.push('}');
+    let json = json
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029");
+    Sha256::digest(json.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// `DockerConfigEntry.UnmarshalJSON`: a non-empty `auth` field
@@ -165,12 +261,18 @@ fn is_default_registry_match(image: &str) -> bool {
 pub struct BasicDockerKeyring {
     /// Reverse-sorted so more specific paths match first.
     index: Vec<String>,
-    creds: HashMap<String, Vec<AuthConfig>>,
+    creds: HashMap<String, Vec<TrackedAuthConfig>>,
 }
 
 impl BasicDockerKeyring {
-    /// `BasicDockerKeyring.Add`.
+    /// `BasicDockerKeyring.Add(nil, cfg)`: node-global credentials.
     pub fn add(&mut self, cfg: DockerConfig) {
+        self.add_with_source(None, cfg);
+    }
+
+    /// `BasicDockerKeyring.Add` (`keyring.go:131`): `src` describes where `cfg`
+    /// comes from, `None` for a config that is globally available on the node.
+    pub fn add_with_source(&mut self, src: Option<CredentialSource>, cfg: DockerConfig) {
         let mut keys: BTreeSet<String> = self.index.iter().cloned().collect();
         for (loc, creds) in cfg {
             let stripped = loc
@@ -189,7 +291,8 @@ impl BasicDockerKeyring {
             } else {
                 host.to_string()
             };
-            self.creds.entry(key.clone()).or_default().push(creds);
+            let tracked = TrackedAuthConfig::new(&creds, src.clone());
+            self.creds.entry(key.clone()).or_default().push(tracked);
             keys.insert(key);
         }
         self.index = keys.into_iter().rev().collect();
@@ -198,7 +301,15 @@ impl BasicDockerKeyring {
     /// `BasicDockerKeyring.Lookup`: every matching credential, most specific
     /// registry first; DockerHub credentials for unqualified images.
     pub fn lookup(&self, image: &str) -> Vec<AuthConfig> {
-        let ret: Vec<AuthConfig> = self
+        self.lookup_tracked(image)
+            .into_iter()
+            .map(|t| t.auth)
+            .collect()
+    }
+
+    /// `BasicDockerKeyring.Lookup` with each credential's source and hash.
+    pub fn lookup_tracked(&self, image: &str) -> Vec<TrackedAuthConfig> {
+        let ret: Vec<TrackedAuthConfig> = self
             .index
             .iter()
             .filter(|k| urls_match_str(k, image))
@@ -216,6 +327,15 @@ impl BasicDockerKeyring {
     }
 }
 
+/// `SecretCoordinates` of a pull secret (`secrets.go:52-56`).
+fn secret_source(s: &Secret) -> Option<CredentialSource> {
+    Some(CredentialSource::Secret(SecretCoordinates {
+        uid: s.metadata.uid.clone(),
+        namespace: s.metadata.namespace.clone().unwrap_or_default(),
+        name: s.metadata.name.clone(),
+    }))
+}
+
 /// `secretsToTrackedDockerConfigs` + `MakeDockerKeyring` (no node keyring):
 /// `None` when no secret carries a docker config.
 pub fn make_docker_keyring(secrets: &[Secret]) -> Result<Option<BasicDockerKeyring>> {
@@ -230,10 +350,10 @@ pub fn make_docker_keyring(secrets: &[Secret]) -> Result<Option<BasicDockerKeyri
         };
         let ty = s.secret_type.as_deref();
         if let (Some("kubernetes.io/dockerconfigjson"), Some(b)) = (ty, data(".dockerconfigjson")) {
-            keyring.add(parse_docker_config_json(b)?);
+            keyring.add_with_source(secret_source(s), parse_docker_config_json(b)?);
             found += 1;
         } else if let (Some("kubernetes.io/dockercfg"), Some(b)) = (ty, data(".dockercfg")) {
-            keyring.add(parse_dockercfg(b)?);
+            keyring.add_with_source(secret_source(s), parse_dockercfg(b)?);
             found += 1;
         }
     }
@@ -377,9 +497,18 @@ impl NodeKeyring {
 
     /// `providersDockerKeyring.Lookup`.
     pub fn lookup(&self, image: &str) -> Vec<AuthConfig> {
+        self.lookup_tracked(image)
+            .into_iter()
+            .map(|t| t.auth)
+            .collect()
+    }
+
+    /// `providersDockerKeyring.Lookup` with hashes; node credentials have no
+    /// source (`keyring.Add(nil, p.Provide(image))`, `keyring.go:326`).
+    pub fn lookup_tracked(&self, image: &str) -> Vec<TrackedAuthConfig> {
         let mut kr = BasicDockerKeyring::default();
         kr.add(self.provide());
-        kr.lookup(image)
+        kr.lookup_tracked(image)
     }
 }
 
@@ -392,12 +521,37 @@ pub async fn lookup_pull_credentials(
     external: &crate::credentialprovider_plugin::ExternalCredentialProviderKeyring,
     image: &str,
 ) -> Result<Vec<AuthConfig>> {
+    Ok(
+        lookup_pull_credentials_tracked(secrets, node, external, image)
+            .await?
+            .into_iter()
+            .map(|t| t.auth)
+            .collect(),
+    )
+}
+
+/// [`lookup_pull_credentials`] with each credential's source and hash, the
+/// `[]TrackedAuthConfig` `keyring.Lookup(repoToPull)` returns
+/// (`images/image_manager.go:312`). Credentials from the external providers
+/// carry no source yet (service account coordinates are not plumbed).
+pub async fn lookup_pull_credentials_tracked(
+    secrets: &[Secret],
+    node: &NodeKeyring,
+    external: &crate::credentialprovider_plugin::ExternalCredentialProviderKeyring,
+    image: &str,
+) -> Result<Vec<TrackedAuthConfig>> {
     let repo = parse_image_repo(image)?;
     let mut out = match make_docker_keyring(secrets)? {
-        Some(kr) => kr.lookup(&repo),
+        Some(kr) => kr.lookup_tracked(&repo),
         None => Vec::new(),
     };
-    out.extend(node.lookup(&repo));
-    out.extend(external.lookup(&repo).await);
+    out.extend(node.lookup_tracked(&repo));
+    out.extend(
+        external
+            .lookup(&repo)
+            .await
+            .iter()
+            .map(|a| TrackedAuthConfig::new(a, None)),
+    );
     Ok(out)
 }
