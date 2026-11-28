@@ -537,4 +537,47 @@ mod tests {
         u.groups = vec![ALL_AUTHENTICATED.into()];
         assert!(!is_anonymous_user(&u));
     }
+
+    #[tokio::test]
+    async fn failed_authn_audit_hook_decorates_the_401() {
+        use kubernetes_rs_middleware::secure_serving::filters::{
+            audit_failed_authentication, install_failed_authentication_audit,
+        };
+        fn hook<'a>(
+            _: &'a Method,
+            _: &'a axum::http::Uri,
+            _: &'a axum::http::HeaderMap,
+            peer: bool,
+            _: Option<&'a kubernetes_rs_common::types::Status>,
+            mut r: Response,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+            Box::pin(async move {
+                r.headers_mut().insert(
+                    "x-audited",
+                    if peer { "peer" } else { "none" }.parse().unwrap(),
+                );
+                r
+            })
+        }
+        let status: kubernetes_rs_common::types::Status = serde_json::from_value(
+            kubernetes_rs_middleware::secure_serving::filters::unauthorized_status(),
+        )
+        .unwrap();
+        let uri: axum::http::Uri = "/x".parse().unwrap();
+        let h = axum::http::HeaderMap::new();
+        let plain = || {
+            let mut r = Response::new(Body::empty());
+            *r.status_mut() = StatusCode::UNAUTHORIZED;
+            r
+        };
+        // No audit installed: the 401 is untouched (authn_audit.go:34-36).
+        let r = audit_failed_authentication(&Method::GET, &uri, &h, false, Some(&status), plain())
+            .await;
+        assert!(!r.headers().contains_key("x-audited"));
+        install_failed_authentication_audit(hook);
+        let r =
+            audit_failed_authentication(&Method::GET, &uri, &h, true, Some(&status), plain()).await;
+        assert_eq!(r.headers()["x-audited"], "peer");
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    }
 }

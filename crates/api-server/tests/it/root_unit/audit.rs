@@ -1015,6 +1015,75 @@ rules:
         assert_eq!(rs.reason.as_deref(), Some("BadRequest"));
         assert_eq!(ev[0].user.username, "");
     }
+    // TestGetAuthMethods (authn_audit_test.go): which credentials were attempted.
+    #[test]
+    fn failed_authn_audit_get_auth_methods() {
+        use kubernetes_rs_api_server::audit::get_auth_methods;
+        let mut h = axum::http::HeaderMap::new();
+        assert_eq!(
+            get_auth_methods(&h, None, false),
+            "Authentication failed, no credentials provided"
+        );
+        h.insert("Authorization", "Bearer abc".parse().unwrap());
+        assert_eq!(
+            get_auth_methods(&h, None, false),
+            "Authentication failed, attempted: bearer"
+        );
+        // base64("u:p")
+        h.insert("Authorization", "Basic dTpw".parse().unwrap());
+        assert_eq!(
+            get_auth_methods(&h, Some("access_token=t"), true),
+            "Authentication failed, attempted: basic, access_token, x509"
+        );
+        // Basic without a user:pass pair, empty access_token: not counted.
+        h.insert("Authorization", "Basic dXA=".parse().unwrap());
+        assert_eq!(
+            get_auth_methods(&h, Some("access_token="), false),
+            "Authentication failed, no credentials provided"
+        );
+    }
+
+    // TestWithFailedAuthenticationAudit (authn_audit_test.go): one
+    // ResponseStarted event, code 401, message = the attempted methods.
+    #[tokio::test]
+    async fn failed_authn_audit_writes_one_response_started_event() {
+        use kubernetes_rs_api_server::audit::with_failed_authentication_audit;
+        let cap = Arc::new(Capture(Default::default()));
+        let cfg = AuditConfig {
+            policy: Policy::from_yaml(POLICY).unwrap(),
+            sink: cap.clone(),
+        };
+        // `http.Error(w, "", 401)` as in authn_audit_test.go: no Status body.
+        let failed = || {
+            let mut r = Response::new(Body::empty());
+            *r.status_mut() = axum::http::StatusCode::UNAUTHORIZED;
+            r
+        };
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("Authorization", "Bearer abc".parse().unwrap());
+        let uri: axum::http::Uri = "/api/v1/namespaces/ns/secrets/s".parse().unwrap();
+        let resp =
+            with_failed_authentication_audit(&cfg, &Method::GET, &uri, &h, false, None, failed())
+                .await;
+        assert!(resp.headers().contains_key("Audit-ID"));
+        // Not audited by policy: untouched.
+        let uri: axum::http::Uri = "/api/v1/namespaces/ns/pods/p".parse().unwrap();
+        let resp =
+            with_failed_authentication_audit(&cfg, &Method::GET, &uri, &h, false, None, failed())
+                .await;
+        assert!(!resp.headers().contains_key("Audit-ID"));
+        let ev = cap.0.lock().await;
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].stage, AuditStage::ResponseStarted);
+        let rs = ev[0].response_status.as_ref().unwrap();
+        assert_eq!(rs.code, 401);
+        assert_eq!(
+            rs.message.as_deref(),
+            Some("Authentication failed, attempted: bearer")
+        );
+        assert_eq!(ev[0].user.username, "");
+    }
+
     // #2933: every response object is recorded where it is serialized
     // (`WriteObjectNegotiated` -> `audit.LogResponseObject`,
     // responsewriters/writers.go:346), lists included. The typed list handlers

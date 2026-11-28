@@ -131,6 +131,44 @@ pub fn forbidden_status(attrs: &RequestAttributes, reason: &str) -> serde_json::
     })
 }
 
+/// The failed-authentication audit decorator
+/// (`WithFailedAuthenticationAudit`, filters/authn_audit.go:33; wired at
+/// `server/config.go:1046-1047` around `Unauthorized`). The audit pipeline lives
+/// in the api-server crate, which installs it here at startup; with none
+/// installed the 401 is returned undecorated (authn_audit.go:34-36).
+pub type FailedAuthenticationAuditFn = for<'a> fn(
+    &'a axum::http::Method,
+    &'a axum::http::Uri,
+    &'a axum::http::HeaderMap,
+    bool,
+    Option<&'a kubernetes_rs_common::types::Status>,
+    axum::response::Response,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = axum::response::Response> + Send + 'a>,
+>;
+
+static FAILED_AUTHN_AUDIT: std::sync::OnceLock<FailedAuthenticationAuditFn> =
+    std::sync::OnceLock::new();
+
+pub fn install_failed_authentication_audit(f: FailedAuthenticationAuditFn) {
+    let _ = FAILED_AUTHN_AUDIT.set(f);
+}
+
+/// Run the installed failed-authentication audit over the 401 `failed`.
+pub async fn audit_failed_authentication(
+    method: &axum::http::Method,
+    uri: &axum::http::Uri,
+    headers: &axum::http::HeaderMap,
+    has_peer_certs: bool,
+    status: Option<&kubernetes_rs_common::types::Status>,
+    failed: axum::response::Response,
+) -> axum::response::Response {
+    match FAILED_AUTHN_AUDIT.get() {
+        Some(f) => f(method, uri, headers, has_peer_certs, status, failed).await,
+        None => failed,
+    }
+}
+
 /// `apierrors.NewUnauthorized("Unauthorized")` rendered by `ErrorToAPIStatus`.
 pub fn unauthorized_status() -> serde_json::Value {
     serde_json::json!({

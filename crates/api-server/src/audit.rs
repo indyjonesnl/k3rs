@@ -911,6 +911,10 @@ static AUDIT: OnceLock<Arc<AuditConfig>> = OnceLock::new();
 /// `--audit-policy-file` and `--audit-log-path`.
 pub fn install_audit(config: AuditConfig) {
     let _ = AUDIT.set(Arc::new(config));
+    // `WithFailedAuthenticationAudit` (config.go:1047) around the 401 handler.
+    kubernetes_rs_middleware::secure_serving::filters::install_failed_authentication_audit(
+        audit_failed_authentication,
+    );
 }
 
 /// The filter wired into the router: [`with_audit`] against the installed
@@ -1247,6 +1251,125 @@ pub async fn with_failed_request_audit(
     uri: &axum::http::Uri,
     headers: &axum::http::HeaderMap,
     status: &kubernetes_rs_common::types::Status,
+    failed: Response,
+) -> Response {
+    // `respStatus.Message = statusErr.Error()` (:123-127).
+    failed_audit(
+        cfg,
+        method,
+        uri,
+        headers,
+        Some(status),
+        status.message.clone(),
+        failed,
+    )
+    .await
+}
+
+/// `getAuthMethods` (filters/authn_audit.go:61-91): which credentials a failed
+/// request presented. `has_peer_certs` is `req.TLS != nil &&
+/// len(req.TLS.PeerCertificates) > 0`.
+pub fn get_auth_methods(
+    headers: &axum::http::HeaderMap,
+    query: Option<&str>,
+    has_peer_certs: bool,
+) -> String {
+    use base64::Engine;
+    let mut methods: Vec<&str> = Vec::new();
+    let auth_header = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    // `req.BasicAuth()` (net/http request.go parseBasicAuth).
+    let basic = auth_header
+        .get(..6)
+        .filter(|p| p.eq_ignore_ascii_case("Basic "))
+        .and_then(|_| {
+            base64::engine::general_purpose::STANDARD
+                .decode(&auth_header[6..])
+                .ok()
+        })
+        .and_then(|b| String::from_utf8(b).ok())
+        .is_some_and(|s| s.contains(':'));
+    if basic {
+        methods.push("basic");
+    }
+    // `strings.Split(strings.TrimSpace(auth), " ")`.
+    let parts: Vec<&str> = auth_header.trim().split(' ').collect();
+    if parts.len() > 1 && parts[0].eq_ignore_ascii_case("bearer") {
+        methods.push("bearer");
+    }
+    let has_access_token = query
+        .into_iter()
+        .flat_map(|q| q.split('&'))
+        .filter_map(|kv| kv.split_once('=').or(Some((kv, ""))))
+        .any(|(k, v)| k == "access_token" && !v.trim().is_empty());
+    if has_access_token {
+        methods.push("access_token");
+    }
+    if has_peer_certs {
+        methods.push("x509");
+    }
+    if methods.is_empty() {
+        "Authentication failed, no credentials provided".to_string()
+    } else {
+        format!("Authentication failed, attempted: {}", methods.join(", "))
+    }
+}
+
+/// `WithFailedAuthenticationAudit` (filters/authn_audit.go:33-59), wired at
+/// `server/config.go:1046-1047` around `Unauthorized`. Same event as
+/// `withFailedRequestAudit` (an unauthenticated request, one ResponseStarted
+/// event) but `ResponseStatus.Message` is [`get_auth_methods`] (:51-53).
+pub async fn with_failed_authentication_audit(
+    cfg: &AuditConfig,
+    method: &Method,
+    uri: &axum::http::Uri,
+    headers: &axum::http::HeaderMap,
+    has_peer_certs: bool,
+    status: Option<&kubernetes_rs_common::types::Status>,
+    failed: Response,
+) -> Response {
+    let message = Some(get_auth_methods(headers, uri.query(), has_peer_certs));
+    failed_audit(cfg, method, uri, headers, status, message, failed).await
+}
+
+/// [`with_failed_authentication_audit`] against the installed pipeline; no
+/// pipeline returns the handler undecorated (authn_audit.go:34-36).
+pub fn audit_failed_authentication<'a>(
+    method: &'a Method,
+    uri: &'a axum::http::Uri,
+    headers: &'a axum::http::HeaderMap,
+    has_peer_certs: bool,
+    status: Option<&'a kubernetes_rs_common::types::Status>,
+    failed: Response,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+    Box::pin(async move {
+        match AUDIT.get() {
+            Some(cfg) => {
+                with_failed_authentication_audit(
+                    cfg,
+                    method,
+                    uri,
+                    headers,
+                    has_peer_certs,
+                    status,
+                    failed,
+                )
+                .await
+            }
+            None => failed,
+        }
+    })
+}
+
+async fn failed_audit(
+    cfg: &AuditConfig,
+    method: &Method,
+    uri: &axum::http::Uri,
+    headers: &axum::http::HeaderMap,
+    status: Option<&kubernetes_rs_common::types::Status>,
+    message: Option<String>,
     mut failed: Response,
 ) -> Response {
     let mut attrs = request_info(method, uri.path(), uri.query());
@@ -1264,10 +1387,9 @@ pub async fn with_failed_request_audit(
         return failed;
     }
     let ac = new_audit_context(cfg, uri, headers, &attrs, user_info, rac);
-    // `respStatus.Message = statusErr.Error()` (:123-127).
     if let Ok(mut g) = ac.inner.lock() {
         g.event.response_status = Some(ResponseStatus {
-            message: status.message.clone(),
+            message,
             ..Default::default()
         });
     }
@@ -1275,7 +1397,9 @@ pub async fn with_failed_request_audit(
     // (responsewriters/writers.go:346), then the audit writer's `processCode`
     // on the header write (filters/audit.go:205-211) with
     // `processResponseStartedStage` = true (:130).
-    if let Ok(obj) = serde_json::to_value(status) {
+    // A failed handler that writes no Status (`http.Error`, as in
+    // authn_audit_test.go) logs no response object.
+    if let Some(obj) = status.and_then(|s| serde_json::to_value(s).ok()) {
         ac.log_response_object(&obj);
     }
     ac.set_response_status(failed.status().as_u16());
