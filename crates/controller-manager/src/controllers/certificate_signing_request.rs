@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use super::cert_authority::CertificateAuthority;
+use super::csr_signer_verify::{csr_verification_func_for_signer_name, parse_csr};
 
 /// Workers draining this controller's queue: upstream runs the signers and the
 /// approver with `Run(ctx, 5)` (cmd/kube-controller-manager/app/certificates.go:81,94,107,120,206).
@@ -341,10 +342,42 @@ impl<S: Storage + 'static> CertificateSigningRequestController<S> {
             return Ok(());
         };
 
-        let request_pem = match decode_request_pem(&csr.spec.request) {
-            Ok(pem) => pem,
-            Err(e) => return self.fail_csr(csr, &format!("invalid request: {e}")).await,
+        // signer.go `handle` (:157): a controller exists only for the four
+        // built-in signers; a CSR for any other signerName (example.com/foo,
+        // an unknown kubernetes.io name) is not ours to sign.
+        let Ok(verify) = csr_verification_func_for_signer_name(&csr.spec.signer_name) else {
+            debug!(
+                "CSR {} is for signer {:?}, not a built-in signer",
+                csr.metadata.name, csr.spec.signer_name
+            );
+            return Ok(());
         };
+
+        let request_pem = decode_request_pem(&csr.spec.request)
+            .map_err(|e| anyhow::anyhow!("unable to parse csr {:?}: {e}", csr.metadata.name))?;
+        // `capihelper.ParseCSR`; upstream returns "unable to parse csr" so the
+        // key is retried, it does not fail the CSR.
+        let parsed = parse_csr(request_pem.as_bytes())
+            .map_err(|e| anyhow::anyhow!("unable to parse csr {:?}: {e}", csr.metadata.name))?;
+        let usages: Vec<String> = csr
+            .spec
+            .usages
+            .iter()
+            .filter_map(|u| serde_json::to_value(u).ok())
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        // `isRequestForSignerFn`: a verification error marks the CSR Failed
+        // with reason SignerValidationFailure and leaves it unsigned (:174-190);
+        // an unrecognized request is ignored.
+        let (recognized, verdict) = verify(&parsed, &usages, &csr.spec.signer_name);
+        if let Err(msg) = verdict {
+            return self
+                .fail_csr_with_reason(csr, "SignerValidationFailure", &msg)
+                .await;
+        }
+        if !recognized {
+            return Ok(());
+        }
 
         let cert_pem = match ca.sign(&request_pem, &csr.spec.usages, csr.spec.expiration_seconds) {
             Ok(pem) => pem,
@@ -379,11 +412,21 @@ impl<S: Storage + 'static> CertificateSigningRequestController<S> {
 
     /// Mark a CSR `Failed` (terminal) — used when signing cannot proceed.
     async fn fail_csr(&self, csr: &CertificateSigningRequest, reason: &str) -> Result<()> {
+        self.fail_csr_with_reason(csr, "SignerFailure", reason)
+            .await
+    }
+
+    async fn fail_csr_with_reason(
+        &self,
+        csr: &CertificateSigningRequest,
+        condition_reason: &str,
+        reason: &str,
+    ) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         let condition = CertificateSigningRequestCondition {
             type_: "Failed".to_string(),
             status: "True".to_string(),
-            reason: Some("SignerFailure".to_string()),
+            reason: Some(condition_reason.to_string()),
             message: Some(reason.to_string()),
             last_update_time: Some(now.clone()),
             last_transition_time: Some(now),
