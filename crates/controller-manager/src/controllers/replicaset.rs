@@ -1,3 +1,7 @@
+use super::controller_ref_manager::{
+    get_controller_of, recheck_deletion_timestamp, ControllerKind, ControllerRefManager,
+    StoragePatchControl,
+};
 use super::controller_utils::{
     find_min_next_pod_availability_check, is_pod_available, is_pod_ready, is_pod_terminating,
     node_of, pod_key, pods_on_node_counts, sort_active_pods_with_ranks, RankGates,
@@ -638,116 +642,91 @@ impl<S: Storage + 'static> ReplicaSetController<S> {
             .unwrap_or(false)
     }
 
-    /// Check if a pod has any controller ownerReference at all
-    fn has_controller_owner(&self, pod: &Pod) -> bool {
-        pod.metadata
-            .owner_references
-            .as_ref()
-            .map(|refs| refs.iter().any(|r| r.controller == Some(true)))
-            .unwrap_or(false)
-    }
-
-    /// Adopt orphan pods that match the selector and release owned pods that no longer match.
-    /// Returns the updated list of all pods (with ownerReferences modified as needed).
+    /// `claimPods` (replica_set.go:792-806): adopt orphans the selector
+    /// matches and release owned pods it no longer matches, through
+    /// `PodControllerRefManager.ClaimPods` with `RecheckDeletionTimestamp` as
+    /// the `canAdopt` check. Returns the pods this ReplicaSet now owns
+    /// (adopted ones carry the new controller reference); an adopt/release
+    /// error is returned after the rest were reconciled, as upstream
+    /// `syncReplicaSet` returns it (:714-717).
     async fn adopt_and_release(
         &self,
         replicaset: &ReplicaSet,
         selector: &Selector,
-        mut all_pods: Vec<Pod>,
+        all_pods: Vec<Pod>,
         namespace: &str,
     ) -> kubernetes_rs_common::Result<Vec<Pod>> {
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..all_pods.len() {
-            let pod = &all_pods[i];
-
-            // Skip terminated or deleting pods
-            if let Some(ref status) = pod.status {
-                if let Some(ref phase) = status.phase {
-                    if matches!(phase, Phase::Failed | Phase::Succeeded) {
-                        continue;
-                    }
+        // "If any adoptions are attempted, we should first recheck for
+        // deletion with an uncached quorum read sometime after listing Pods
+        // (see #42639)."
+        let (storage, rs_key) = (
+            self.storage.clone(),
+            build_key("replicasets", Some(namespace), &replicaset.metadata.name),
+        );
+        let (rs_uid, rs_ns, rs_name) = (
+            replicaset.metadata.uid.clone(),
+            namespace.to_string(),
+            replicaset.metadata.name.clone(),
+        );
+        let can_adopt = recheck_deletion_timestamp(move || {
+            let (storage, rs_key, rs_uid, rs_ns, rs_name) = (
+                storage.clone(),
+                rs_key.clone(),
+                rs_uid.clone(),
+                rs_ns.clone(),
+                rs_name.clone(),
+            );
+            async move {
+                let fresh: ReplicaSet = storage.get(&rs_key).await?;
+                if fresh.metadata.uid != rs_uid {
+                    return Err(kubernetes_rs_common::Error::Internal(format!(
+                        "original ReplicaSet {rs_ns}/{rs_name} is gone: got uid {}, wanted {rs_uid}",
+                        fresh.metadata.uid
+                    )));
                 }
+                Ok(fresh.metadata)
             }
-            if pod.metadata.deletion_timestamp.is_some() {
-                continue;
-            }
-
-            let labels_match = selector.matches(pod.metadata.labels.as_ref());
-            let owned = self.is_owned_by(pod, replicaset);
-
-            if labels_match && !owned && !self.has_controller_owner(pod) {
-                // Adopt orphan pod: labels match, no controller owner
-                let mut adopted_pod = pod.clone();
-                let owner_ref = kubernetes_rs_common::types::OwnerReference {
-                    api_version: "apps/v1".to_string(),
-                    kind: "ReplicaSet".to_string(),
-                    name: replicaset.metadata.name.clone(),
-                    uid: replicaset.metadata.uid.clone(),
-                    controller: Some(true),
-                    block_owner_deletion: Some(true),
-                };
-                adopted_pod
-                    .metadata
-                    .owner_references
-                    .get_or_insert_with(Vec::new)
-                    .push(owner_ref);
-
-                let pod_key = build_key("pods", Some(namespace), &pod.metadata.name);
-                match self.storage.update(&pod_key, &adopted_pod).await {
-                    Ok(_) => {
-                        info!(
-                            "Adopted orphan pod {} for replicaset {}/{}",
-                            pod.metadata.name, namespace, replicaset.metadata.name
-                        );
-                        all_pods[i] = adopted_pod;
-                    }
-                    Err(e) => {
-                        debug!("Failed to adopt pod {}: {}", pod.metadata.name, e);
-                    }
+        });
+        let manager = ControllerRefManager::new(
+            Arc::new(StoragePatchControl::<S, Pod>::new(
+                self.storage.clone(),
+                "pods",
+            )),
+            replicaset.metadata.clone(),
+            selector.clone(),
+            ControllerKind {
+                api_version: "apps/v1".to_string(),
+                kind: "ReplicaSet".to_string(),
+            },
+            Some(can_adopt),
+            Vec::new(),
+        );
+        let (claimed, err) = manager.claim_objects(&all_pods, |p| &p.metadata, &[]).await;
+        let claimed: Vec<Pod> = claimed
+            .into_iter()
+            .map(|p| {
+                let mut p = p.clone();
+                if get_controller_of(&p.metadata).is_none() {
+                    // Adopted: reflect the patch the manager sent.
+                    p.metadata
+                        .owner_references
+                        .get_or_insert_with(Vec::new)
+                        .push(kubernetes_rs_common::types::OwnerReference {
+                            api_version: "apps/v1".to_string(),
+                            kind: "ReplicaSet".to_string(),
+                            name: replicaset.metadata.name.clone(),
+                            uid: replicaset.metadata.uid.clone(),
+                            controller: Some(true),
+                            block_owner_deletion: Some(true),
+                        });
                 }
-            } else if !labels_match && owned {
-                // Release owned pod: labels no longer match.
-                // Mirror `is_owned_by` and remove ALL controller refs whose
-                // UID matches this RS (with name fallback for tests without
-                // a UID). Upstream `release()` in `controllerRefManager.go`
-                // uses UID matching exclusively.
-                let mut released_pod = pod.clone();
-                if let Some(refs) = &mut released_pod.metadata.owner_references {
-                    let rs_uid = replicaset.metadata.uid.clone();
-                    let rs_name = replicaset.metadata.name.clone();
-                    refs.retain(|r| {
-                        if r.controller != Some(true) {
-                            return true;
-                        }
-                        let points_at_us = if !rs_uid.is_empty() {
-                            r.uid == rs_uid
-                        } else {
-                            r.kind == "ReplicaSet" && r.name == rs_name
-                        };
-                        !points_at_us
-                    });
-                    if refs.is_empty() {
-                        released_pod.metadata.owner_references = None;
-                    }
-                }
-
-                let pod_key = build_key("pods", Some(namespace), &pod.metadata.name);
-                match self.storage.update(&pod_key, &released_pod).await {
-                    Ok(_) => {
-                        info!(
-                            "Released pod {} from replicaset {}/{}",
-                            pod.metadata.name, namespace, replicaset.metadata.name
-                        );
-                        all_pods[i] = released_pod;
-                    }
-                    Err(e) => {
-                        debug!("Failed to release pod {}: {}", pod.metadata.name, e);
-                    }
-                }
-            }
+                p
+            })
+            .collect();
+        match err {
+            Some(e) => Err(e),
+            None => Ok(claimed),
         }
-
-        Ok(all_pods)
     }
 
     fn matches_selector(&self, pod: &Pod, replicaset: &ReplicaSet, selector: &Selector) -> bool {

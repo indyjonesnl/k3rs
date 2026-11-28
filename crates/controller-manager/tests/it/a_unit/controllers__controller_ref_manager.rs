@@ -89,7 +89,9 @@ fn mgr(
 async fn controller_ref_manager_claim_orphan_matching_adopts() {
     let rec = Arc::new(Rec::default());
     let objs = [obj("a", "bar", None), obj("b", "other", None)];
-    let (claimed, err) = mgr(&rec, false, None, &[]).claim_objects(&objs, &[]).await;
+    let (claimed, err) = mgr(&rec, false, None, &[])
+        .claim_objects(&objs, |o| o, &[])
+        .await;
     assert!(err.is_none());
     assert_eq!(claimed.len(), 1);
     let p = rec.patches.lock().unwrap();
@@ -109,7 +111,9 @@ async fn controller_ref_manager_claim_ignores_foreign_and_owned_matching() {
         obj("a", "bar", Some("rc-uid")),
         obj("b", "bar", Some("someone-else")),
     ];
-    let (claimed, err) = mgr(&rec, false, None, &[]).claim_objects(&objs, &[]).await;
+    let (claimed, err) = mgr(&rec, false, None, &[])
+        .claim_objects(&objs, |o| o, &[])
+        .await;
     assert!(err.is_none());
     assert_eq!(claimed.len(), 1);
     assert_eq!(claimed[0].name, "a");
@@ -121,7 +125,7 @@ async fn controller_ref_manager_claim_owned_mismatch_releases() {
     let rec = Arc::new(Rec::default());
     let objs = [obj("a", "other", Some("rc-uid"))];
     let (claimed, err) = mgr(&rec, false, None, &["fin"])
-        .claim_objects(&objs, &[])
+        .claim_objects(&objs, |o| o, &[])
         .await;
     assert!(err.is_none() && claimed.is_empty());
     assert_eq!(
@@ -140,7 +144,9 @@ async fn controller_ref_manager_deleting_controller_neither_adopts_nor_releases(
         obj("owned-mismatch", "other", Some("rc-uid")),
         obj("owned-match", "bar", Some("rc-uid")),
     ];
-    let (claimed, err) = mgr(&rec, true, None, &[]).claim_objects(&objs, &[]).await;
+    let (claimed, err) = mgr(&rec, true, None, &[])
+        .claim_objects(&objs, |o| o, &[])
+        .await;
     assert!(err.is_none());
     assert_eq!(claimed.len(), 1);
     assert_eq!(claimed[0].name, "owned-match");
@@ -155,7 +161,9 @@ async fn controller_ref_manager_deleting_object_and_other_namespace_not_adopted(
     let mut other_ns = obj("n", "bar", None);
     other_ns.namespace = Some("other".into());
     let objs = [deleting, other_ns];
-    let (claimed, err) = mgr(&rec, false, None, &[]).claim_objects(&objs, &[]).await;
+    let (claimed, err) = mgr(&rec, false, None, &[])
+        .claim_objects(&objs, |o| o, &[])
+        .await;
     assert!(err.is_none() && claimed.is_empty());
     assert!(rec.patches.lock().unwrap().is_empty());
 }
@@ -166,7 +174,7 @@ async fn controller_ref_manager_filters_run_after_selector() {
     let objs = [obj("a", "bar", None), obj("b", "bar", None)];
     let only_b = |o: &ObjectMeta| o.name == "b";
     let (claimed, _) = mgr(&rec, false, None, &[])
-        .claim_objects(&objs, &[&only_b])
+        .claim_objects(&objs, |o| o, &[&only_b])
         .await;
     assert_eq!(claimed.len(), 1);
     assert_eq!(claimed[0].name, "b");
@@ -183,7 +191,7 @@ async fn controller_ref_manager_can_adopt_runs_once_and_blocks_adoption() {
     });
     let objs = [obj("a", "bar", None), obj("b", "bar", None)];
     let m = mgr(&rec, false, Some(can_adopt), &[]).with_controllee_kind("ReplicaSet");
-    let (claimed, err) = m.claim_objects(&objs, &[]).await;
+    let (claimed, err) = m.claim_objects(&objs, |o| o, &[]).await;
     assert!(claimed.is_empty());
     assert_eq!(*calls.lock().unwrap(), 1);
     let msg = err.unwrap().to_string();
@@ -206,13 +214,17 @@ async fn controller_ref_manager_release_ignores_not_found_and_invalid() {
         let rec = Arc::new(Rec::default());
         *rec.fail.lock().unwrap() = Some(f);
         let objs = [obj("a", "other", Some("rc-uid"))];
-        let (claimed, err) = mgr(&rec, false, None, &[]).claim_objects(&objs, &[]).await;
+        let (claimed, err) = mgr(&rec, false, None, &[])
+            .claim_objects(&objs, |o| o, &[])
+            .await;
         assert!(err.is_none() && claimed.is_empty());
     }
     let rec = Arc::new(Rec::default());
     *rec.fail.lock().unwrap() = Some(|| Error::Conflict("c".into()));
     let objs = [obj("a", "other", Some("rc-uid"))];
-    let (_, err) = mgr(&rec, false, None, &[]).claim_objects(&objs, &[]).await;
+    let (_, err) = mgr(&rec, false, None, &[])
+        .claim_objects(&objs, |o| o, &[])
+        .await;
     assert!(err.is_some());
 }
 
@@ -221,7 +233,9 @@ async fn controller_ref_manager_adopt_not_found_is_not_an_error() {
     let rec = Arc::new(Rec::default());
     *rec.fail.lock().unwrap() = Some(|| Error::NotFound("gone".into()));
     let objs = [obj("a", "bar", None)];
-    let (claimed, err) = mgr(&rec, false, None, &[]).claim_objects(&objs, &[]).await;
+    let (claimed, err) = mgr(&rec, false, None, &[])
+        .claim_objects(&objs, |o| o, &[])
+        .await;
     assert!(err.is_none() && claimed.is_empty());
 }
 
@@ -238,4 +252,33 @@ async fn controller_ref_manager_recheck_deletion_timestamp() {
         .unwrap_err()
         .to_string()
         .contains("can't recheck DeletionTimestamp"));
+}
+
+/// `StoragePatchControl`: the adopt patch lands, and its `metadata.uid` is a
+/// precondition (a recreated object is not patched).
+#[tokio::test]
+async fn controller_ref_manager_storage_patch_control_uid_precondition() {
+    use kubernetes_rs_common::resources::Pod;
+    use kubernetes_rs_storage::{build_key, MemoryStorage, Storage};
+    let storage = Arc::new(MemoryStorage::new());
+    let mut pod = Pod::new("p", Default::default());
+    pod.metadata = obj("p", "bar", None);
+    let key = build_key("pods", Some("default"), "p");
+    storage.create(&key, &pod).await.unwrap();
+    let stored: Pod = storage.get(&key).await.unwrap();
+    let uid = stored.metadata.uid.clone();
+
+    let ctl = StoragePatchControl::<_, Pod>::new(storage.clone(), "pods");
+    let ok = owner_ref_controller_patch(&controller(false), &kind(), &uid, &[]);
+    ctl.patch("default", "p", &ok).await.unwrap();
+    let after: Pod = storage.get(&key).await.unwrap();
+    assert_eq!(
+        after.metadata.owner_references.as_ref().unwrap()[0].uid,
+        "rc-uid"
+    );
+
+    let stale = generate_delete_owner_ref_strategic_merge_bytes("other-uid", &["rc-uid"], &[]);
+    assert!(ctl.patch("default", "p", &stale).await.is_err());
+    let still: Pod = storage.get(&key).await.unwrap();
+    assert_eq!(still.metadata.owner_references.as_ref().unwrap().len(), 1);
 }
