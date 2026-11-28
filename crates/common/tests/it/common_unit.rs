@@ -33,6 +33,7 @@ mod field_selector;
 mod fieldmanager;
 mod fieldmanager__apply;
 mod fieldmanager__filter;
+mod fieldmanager__last_applied;
 mod fieldmanager__schema;
 mod fieldmanager__versionconverter;
 mod flagz;
