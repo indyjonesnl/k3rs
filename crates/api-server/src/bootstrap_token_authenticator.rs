@@ -15,7 +15,8 @@
 //! returns `Ok(None)` ("not authenticated"); only a storage error other than
 //! NotFound is surfaced as `Err`, as upstream returns the lister error.
 //!
-//! Not wired into the authentication chain here (separate task).
+//! Wired into the chain by `main` with `--enable-bootstrap-token-auth`
+//! (`kubernetes_rs_middleware::set_bootstrap_token_authenticator`).
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -245,5 +246,21 @@ impl<'a, S: Storage> BootstrapTokenAuthenticator<'a, S> {
             groups,
             extra: HashMap::new(),
         }))
+    }
+}
+
+/// Adapter installed in the middleware's authentication chain.
+pub struct ChainBootstrapTokenAuthenticator;
+
+#[async_trait::async_trait]
+impl kubernetes_rs_middleware::BootstrapTokenAuthenticate for ChainBootstrapTokenAuthenticator {
+    async fn authenticate_token(
+        &self,
+        storage: &kubernetes_rs_storage::StorageBackend,
+        token: &str,
+    ) -> Result<Option<UserInfo>, Error> {
+        BootstrapTokenAuthenticator::new(storage)
+            .authenticate_token(token)
+            .await
     }
 }

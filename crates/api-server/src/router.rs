@@ -3190,7 +3190,6 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
                 crate::apiserver_request_metrics::with_latency_trackers_filter,
             ))
             .layer(Extension(state.token_manager.clone()))
-            .layer(Extension(state.bootstrap_token_manager.clone()))
             .layer(Extension(state.storage.clone()))
             .layer(Extension(state.unfiltered_authorizer.clone()));
     }

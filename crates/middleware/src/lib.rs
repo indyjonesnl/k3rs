@@ -21,7 +21,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension,
 };
-use kubernetes_rs_common::auth::{BootstrapTokenManager, TokenManager, UserInfo};
+use kubernetes_rs_common::auth::{TokenManager, UserInfo};
 use kubernetes_rs_common::authz::{Authorizer, Decision, RequestAttributes};
 use kubernetes_rs_storage::{build_key, Storage, StorageBackend};
 use std::collections::HashMap;
@@ -245,6 +245,38 @@ pub fn user_from_client_cert_der(der_chain: &[Vec<u8>]) -> Option<UserInfo> {
 /// (staging/src/k8s.io/apiserver/pkg/authentication/group/authenticated_group_adder.go:41-63):
 /// append `system:authenticated` unless the user is `system:anonymous` or
 /// already carries `system:authenticated` / `system:unauthenticated`.
+/// The bootstrap-token authenticator the api-server installs when
+/// `--enable-bootstrap-token-auth` is set (`BootstrapTokenAuthenticator`,
+/// plugin/pkg/auth/authenticator/token/bootstrap/bootstrap.go:41).
+#[async_trait::async_trait]
+pub trait BootstrapTokenAuthenticate: Send + Sync {
+    /// `AuthenticateToken`: `Ok(None)` is "not authenticated".
+    async fn authenticate_token(
+        &self,
+        storage: &StorageBackend,
+        token: &str,
+    ) -> Result<Option<UserInfo>, kubernetes_rs_common::Error>;
+}
+
+static BOOTSTRAP_TOKEN_AUTHENTICATOR: std::sync::OnceLock<Arc<dyn BootstrapTokenAuthenticate>> =
+    std::sync::OnceLock::new();
+
+/// Add the bootstrap-token authenticator to the chain (set once at startup).
+pub fn set_bootstrap_token_authenticator(a: Arc<dyn BootstrapTokenAuthenticate>) {
+    let _ = BOOTSTRAP_TOKEN_AUTHENTICATOR.set(a);
+}
+
+async fn authenticate_bootstrap_token(storage: &StorageBackend, token: &str) -> Option<UserInfo> {
+    let a = BOOTSTRAP_TOKEN_AUTHENTICATOR.get()?;
+    match a.authenticate_token(storage, token).await {
+        Ok(user) => user,
+        Err(e) => {
+            warn!("bootstrap token authenticator error: {e}");
+            None
+        }
+    }
+}
+
 fn add_authenticated_group(mut user: UserInfo) -> UserInfo {
     if user.username == "system:anonymous"
         || user
@@ -1048,7 +1080,6 @@ fn unauthorized(request: &Request) -> Response {
 )]
 pub async fn auth_middleware(
     Extension(token_manager): Extension<Arc<TokenManager>>,
-    Extension(bootstrap_token_manager): Extension<Arc<BootstrapTokenManager>>,
     Extension(storage): Extension<Arc<StorageBackend>>,
     Extension(authorizer): Extension<Arc<dyn Authorizer>>,
     mut request: Request,
@@ -1153,14 +1184,12 @@ pub async fn auth_middleware(
             );
             user_info
         }
-        // Try to validate as a bootstrap token
-        else if let Ok(bootstrap_token) = bootstrap_token_manager.validate_token(token) {
-            let user_info = UserInfo::from_bootstrap_token(&bootstrap_token);
-            debug!(
-                "Authenticated user (bootstrap token): {}",
-                user_info.username
-            );
-            user_info
+        // Bootstrap token (`config.BootstrapToken`, pkg/kubeapiserver/authenticator/config.go:156):
+        // present in the chain only with `--enable-bootstrap-token-auth`, after
+        // the service account tokens. Fails closed: a miss or an error is a 401.
+        else if let Some(user) = authenticate_bootstrap_token(&storage, token).await {
+            debug!("Authenticated user (bootstrap token): {}", user.username);
+            add_authenticated_group(user)
         }
         // Invalid token
         else {

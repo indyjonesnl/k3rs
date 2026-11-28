@@ -33,6 +33,7 @@ mod authz_attribute_equality_test;
 mod authz_query_first_value_test;
 mod autoscaling_decode_when_absent_test;
 mod bootstrap_token_authn_test;
+mod bootstrap_token_wiring;
 mod cel_matchcondition_eval_test;
 mod cel_vap_end_to_end_test;
 mod chunking_podtemplate_ordering_test;

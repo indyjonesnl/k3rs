@@ -667,6 +667,14 @@ async fn main() -> Result<()> {
     // The audit metrics register at init upstream (audit/metrics.go).
     kubernetes_rs_api_server::audit_metrics::register_metrics();
     kubernetes_rs_common::dump::install_panic_hook("api-server");
+    // `--enable-bootstrap-token-auth` (authentication.go:367): adds the
+    // bootstrap-token authenticator to the chain (config.go:156).
+    if args.upstream.enable_bootstrap_token_auth == Some(true) {
+        kubernetes_rs_middleware::set_bootstrap_token_authenticator(std::sync::Arc::new(
+            kubernetes_rs_api_server::bootstrap_token_authenticator::ChainBootstrapTokenAuthenticator,
+        ));
+    }
+
     for msg in args.upstream.ignored_flags() {
         warn!("{msg}");
     }
