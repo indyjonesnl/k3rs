@@ -1,5 +1,8 @@
+use crate::commands::create_common::{
+    get_dry_run_strategy, get_validation_directive, CreateSubcommandOptions, DryRunStrategy,
+};
 use crate::discovery::RestMapper;
-use crate::types::{CreateCommands, SecretCommands, ServiceCommands};
+use crate::types::{CreateCommands, CreateFlags, SecretCommands, ServiceCommands};
 use anyhow::{Context, Result};
 use base64::Engine;
 use kubernetes_rs_client::http::ApiClient;
@@ -10,13 +13,48 @@ use std::path::Path;
 
 // ── Subcommand dispatch ─────────────────────────────────────────────────────
 
+/// `CreateSubcommandOptions.Complete` + `.Run` (create_subcommand.go /
+/// create.go:372-460) for a generated object: honour `--dry-run`, `-o`,
+/// `--save-config`, `--validate` and `--field-manager`, then print.
+async fn finish(
+    client: &ApiClient,
+    flags: &CreateFlags,
+    namespace: &str,
+    obj: &Value,
+) -> Result<()> {
+    let opts = complete_options(flags, namespace)?;
+    // Discovery is only needed to POST; a client dry run never leaves the process.
+    let mapper = if opts.dry_run == DryRunStrategy::Client {
+        RestMapper::new(Vec::new())
+    } else {
+        RestMapper::from_server(client).await?
+    };
+    print!("{}", opts.run(client, &mapper, obj.clone()).await?);
+    Ok(())
+}
+
+/// `CreateSubcommandOptions.Complete` (create.go:372).
+pub fn complete_options(flags: &CreateFlags, namespace: &str) -> Result<CreateSubcommandOptions> {
+    Ok(CreateSubcommandOptions {
+        dry_run: get_dry_run_strategy(&flags.dry_run)?,
+        create_annotation: flags.save_config,
+        field_manager: flags.field_manager.clone(),
+        validation_directive: get_validation_directive(&flags.validate)?.to_string(),
+        output: flags.output.clone().unwrap_or_default(),
+        namespace: namespace.to_string(),
+        enforce_namespace: false,
+    })
+}
+
 pub async fn execute_subcommand(
     client: &ApiClient,
     cmd: &CreateCommands,
     default_namespace: &str,
 ) -> Result<()> {
+    // `Token` is a subresource request, not an object create.
     match cmd {
         CreateCommands::ClusterRole {
+            flags,
             name,
             verb,
             resource,
@@ -32,12 +70,10 @@ pub async fn execute_subcommand(
                 non_resource_url,
                 aggregation_rule,
             )?;
-            let _: Value = client
-                .post("/apis/rbac.authorization.k8s.io/v1/clusterroles", &body)
-                .await?;
-            println!("clusterrole/{} created", name);
+            finish(client, flags, default_namespace, &body).await?;
         }
         CreateCommands::ClusterRoleBinding {
+            flags,
             name,
             clusterrole,
             user,
@@ -45,15 +81,10 @@ pub async fn execute_subcommand(
             serviceaccount,
         } => {
             let body = build_cluster_role_binding(name, clusterrole, user, group, serviceaccount)?;
-            let _: Value = client
-                .post(
-                    "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings",
-                    &body,
-                )
-                .await?;
-            println!("clusterrolebinding/{} created", name);
+            finish(client, flags, default_namespace, &body).await?;
         }
         CreateCommands::ConfigMap {
+            flags,
             name,
             from_literal,
             from_file,
@@ -61,12 +92,10 @@ pub async fn execute_subcommand(
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_configmap(name, ns, from_literal, from_file)?;
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/configmaps", ns), &body)
-                .await?;
-            println!("configmap/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         CreateCommands::CronJob {
+            flags,
             name,
             image,
             schedule,
@@ -76,12 +105,10 @@ pub async fn execute_subcommand(
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_cronjob(name, ns, image, schedule, restart, command);
-            let _: Value = client
-                .post(&format!("/apis/batch/v1/namespaces/{}/cronjobs", ns), &body)
-                .await?;
-            println!("cronjob.batch/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         CreateCommands::Ingress {
+            flags,
             name,
             ingress_class,
             rule,
@@ -98,15 +125,10 @@ pub async fn execute_subcommand(
                 default_backend.as_deref(),
                 annotation,
             )?;
-            let _: Value = client
-                .post(
-                    &format!("/apis/networking.k8s.io/v1/namespaces/{}/ingresses", ns),
-                    &body,
-                )
-                .await?;
-            println!("ingress.networking.k8s.io/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         CreateCommands::Job {
+            flags,
             name,
             image,
             from,
@@ -115,12 +137,10 @@ pub async fn execute_subcommand(
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_job(name, ns, image.as_deref(), from.as_deref(), command)?;
-            let _: Value = client
-                .post(&format!("/apis/batch/v1/namespaces/{}/jobs", ns), &body)
-                .await?;
-            println!("job.batch/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         CreateCommands::Pdb {
+            flags,
             name,
             selector,
             min_available,
@@ -135,15 +155,10 @@ pub async fn execute_subcommand(
                 min_available.as_deref(),
                 max_unavailable.as_deref(),
             )?;
-            let _: Value = client
-                .post(
-                    &format!("/apis/policy/v1/namespaces/{}/poddisruptionbudgets", ns),
-                    &body,
-                )
-                .await?;
-            println!("poddisruptionbudget.policy/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         CreateCommands::Role {
+            flags,
             name,
             verb,
             resource,
@@ -152,15 +167,10 @@ pub async fn execute_subcommand(
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_role(name, ns, verb, resource, resource_name)?;
-            let _: Value = client
-                .post(
-                    &format!("/apis/rbac.authorization.k8s.io/v1/namespaces/{}/roles", ns),
-                    &body,
-                )
-                .await?;
-            println!("role.rbac.authorization.k8s.io/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         CreateCommands::RoleBinding {
+            flags,
             name,
             clusterrole,
             role,
@@ -179,27 +189,19 @@ pub async fn execute_subcommand(
                 group,
                 serviceaccount,
             )?;
-            let _: Value = client
-                .post(
-                    &format!(
-                        "/apis/rbac.authorization.k8s.io/v1/namespaces/{}/rolebindings",
-                        ns
-                    ),
-                    &body,
-                )
-                .await?;
-            println!("rolebinding.rbac.authorization.k8s.io/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         CreateCommands::Secret { subcommand } => {
             execute_secret_subcommand(client, subcommand, default_namespace).await?;
         }
-        CreateCommands::ServiceAccount { name, namespace } => {
+        CreateCommands::ServiceAccount {
+            flags,
+            name,
+            namespace,
+        } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_service_account(name, ns);
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/serviceaccounts", ns), &body)
-                .await?;
-            println!("serviceaccount/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         CreateCommands::Token {
             name,
@@ -234,12 +236,12 @@ pub async fn execute_subcommand(
                 anyhow::bail!("No token in server response");
             }
         }
-        CreateCommands::Namespace { name } => {
+        CreateCommands::Namespace { flags, name } => {
             let body = build_namespace(name);
-            let _: Value = client.post("/api/v1/namespaces", &body).await?;
-            println!("namespace/{} created", name);
+            finish(client, flags, default_namespace, &body).await?;
         }
         CreateCommands::Deployment {
+            flags,
             name,
             image,
             replicas,
@@ -248,18 +250,13 @@ pub async fn execute_subcommand(
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_deployment(name, ns, image, *replicas, *port);
-            let _: Value = client
-                .post(
-                    &format!("/apis/apps/v1/namespaces/{}/deployments", ns),
-                    &body,
-                )
-                .await?;
-            println!("deployment.apps/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         CreateCommands::Service { subcommand } => {
             execute_service_subcommand(client, subcommand, default_namespace).await?;
         }
         CreateCommands::PriorityClass {
+            flags,
             name,
             value,
             global_default,
@@ -273,22 +270,17 @@ pub async fn execute_subcommand(
                 preemption_policy,
                 description.as_deref(),
             );
-            let _: Value = client
-                .post("/apis/scheduling.k8s.io/v1/priorityclasses", &body)
-                .await?;
-            println!("priorityclass.scheduling.k8s.io/{} created", name);
+            finish(client, flags, default_namespace, &body).await?;
         }
         CreateCommands::Quota {
+            flags,
             name,
             hard,
             namespace,
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_quota(name, ns, hard.as_deref())?;
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/resourcequotas", ns), &body)
-                .await?;
-            println!("resourcequota/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
     }
     Ok(())
@@ -301,6 +293,7 @@ async fn execute_secret_subcommand(
 ) -> Result<()> {
     match cmd {
         SecretCommands::Generic {
+            flags,
             name,
             from_literal,
             from_file,
@@ -310,12 +303,10 @@ async fn execute_secret_subcommand(
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body =
                 build_secret_generic(name, ns, from_literal, from_file, secret_type.as_deref())?;
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/secrets", ns), &body)
-                .await?;
-            println!("secret/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         SecretCommands::DockerRegistry {
+            flags,
             name,
             docker_server,
             docker_username,
@@ -332,12 +323,10 @@ async fn execute_secret_subcommand(
                 docker_password.as_deref(),
                 docker_email.as_deref(),
             )?;
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/secrets", ns), &body)
-                .await?;
-            println!("secret/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         SecretCommands::Tls {
+            flags,
             name,
             cert,
             key,
@@ -345,10 +334,7 @@ async fn execute_secret_subcommand(
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_secret_tls(name, ns, cert, key)?;
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/secrets", ns), &body)
-                .await?;
-            println!("secret/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
     }
     Ok(())
@@ -990,52 +976,44 @@ async fn execute_service_subcommand(
 ) -> Result<()> {
     match cmd {
         ServiceCommands::ClusterIP {
+            flags,
             name,
             tcp,
             namespace,
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_service(name, ns, "ClusterIP", tcp, None)?;
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/services", ns), &body)
-                .await?;
-            println!("service/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         ServiceCommands::NodePort {
+            flags,
             name,
             tcp,
             namespace,
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_service(name, ns, "NodePort", tcp, None)?;
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/services", ns), &body)
-                .await?;
-            println!("service/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         ServiceCommands::LoadBalancer {
+            flags,
             name,
             tcp,
             namespace,
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_service(name, ns, "LoadBalancer", tcp, None)?;
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/services", ns), &body)
-                .await?;
-            println!("service/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
         ServiceCommands::ExternalName {
+            flags,
             name,
             external_name,
             namespace,
         } => {
             let ns = namespace.as_deref().unwrap_or(default_namespace);
             let body = build_service_external_name(name, ns, external_name);
-            let _: Value = client
-                .post(&format!("/api/v1/namespaces/{}/services", ns), &body)
-                .await?;
-            println!("service/{} created", name);
+            finish(client, flags, ns, &body).await?;
         }
     }
     Ok(())
@@ -1397,7 +1375,10 @@ pub fn inline_to_subcommand(args: &[String]) -> Result<CreateCommands> {
             // NameFromCommandArgs (kubectl/pkg/cmd/util/helpers.go)
             match &args[1..] {
                 [] => anyhow::bail!("NAME is required"),
-                [name] => Ok(CreateCommands::Namespace { name: name.clone() }),
+                [name] => Ok(CreateCommands::Namespace {
+                    name: name.clone(),
+                    flags: CreateFlags::default(),
+                }),
                 rest => anyhow::bail!("exactly one NAME is required, got {}", rest.len()),
             }
         }

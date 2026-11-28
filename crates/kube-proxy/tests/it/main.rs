@@ -8,6 +8,7 @@
 //! below. A stray `tests/<name>.rs` still compiles -- it just silently
 //! reintroduces a separate binary, which is what this layout avoids.
 mod bounded_frequency_runner;
+mod categorize_endpoints;
 mod configz_registry;
 mod conformance_network_dns;
 mod conformance_network_endpointslices_dns_headless;
@@ -15,6 +16,7 @@ mod conformance_network_hostport_protocols;
 mod conformance_network_services_proxy;
 mod conntrack_cleanup;
 mod conntrack_sysctl;
+mod endpoints_change_tracker;
 mod endpointslice_cache_test;
 mod hostport_test;
 mod kubeproxy_config;

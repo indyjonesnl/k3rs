@@ -108,7 +108,7 @@ pub struct EndpointSliceCache {
 }
 
 /// `endpointSliceCacheKeys`: the service and slice name, or upstream's error.
-fn cache_keys(es: &EndpointSlice) -> Result<(NamespacedName, String), String> {
+pub fn cache_keys(es: &EndpointSlice) -> Result<(NamespacedName, String), String> {
     let service = es
         .metadata
         .labels
