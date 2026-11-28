@@ -2683,6 +2683,7 @@ dependencies = [
  "clap",
  "crc",
  "futures",
+ "inotify",
  "kubernetes-rs-client",
  "kubernetes-rs-common",
  "kubernetes-rs-controller-manager",
