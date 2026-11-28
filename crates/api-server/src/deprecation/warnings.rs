@@ -2,7 +2,8 @@
 //! `staging/src/k8s.io/apiserver/pkg/endpoints/installer.go:781-797,814`
 //! (`deprecation.WarningMessage` per route, `utilwarning.AddWarningsHandler`)
 //! over the deduplicating, truncating recorder of
-//! `staging/src/k8s.io/apiserver/pkg/endpoints/filters/warning.go`.
+//! `staging/src/k8s.io/apiserver/pkg/endpoints/filters/warning.go`, which is
+//! the central [`kubernetes_rs_middleware::warning::WarningRecorder`].
 //!
 //! Deviation (structural): upstream installs the warning on each route and the
 //! per-request recorder is shared with every later `warning.AddWarning`. Here
@@ -20,14 +21,11 @@ use axum::extract::Request;
 use axum::http::{header, HeaderValue};
 use axum::middleware::Next;
 use axum::response::Response;
+use kubernetes_rs_middleware::warning::WarningRecorder;
 
 use super::{
     is_deprecated, lookup, should_serve_for_version, warning_message, CURRENT_MAJOR_MINOR,
 };
-
-/// `truncateAtTotalRunes` / `truncateItemRunes` (filters/warning.go:38-41).
-const TRUNCATE_AT_TOTAL_RUNES: usize = 4 * 1024;
-const TRUNCATE_ITEM_RUNES: usize = 256;
 
 /// The route's accumulated warnings (installer.go:781-797): the deprecation
 /// message when the kind is deprecated and still served.
@@ -48,119 +46,6 @@ pub fn endpoint_warnings(
         vec![warning_message(obj)]
     } else {
         Vec::new()
-    }
-}
-
-/// The request's deduplicating `warning.Recorder` (filters/warning.go:46-117),
-/// with the response writer's `Warning` header values collected in `headers`.
-#[derive(Default)]
-pub struct Recorder {
-    recorded: std::collections::HashSet<String>,
-    ordered: Vec<(String, String)>,
-    written: usize,
-    truncating: bool,
-    headers: Vec<String>,
-    total_runes: Option<usize>,
-    item_runes: Option<usize>,
-}
-
-/// `net.NewWarningHeader(299, agent, text)` (apimachinery util/net/http.go:655):
-/// `None` for an invalid agent or text.
-fn new_warning_header(agent: &str, text: &str) -> Option<String> {
-    let agent = if agent.is_empty() {
-        "-"
-    } else if agent
-        .chars()
-        .any(|c| c == '\\' || c == '"' || c.is_whitespace() || c.is_control())
-    {
-        return None;
-    } else {
-        agent
-    };
-    if text.chars().any(char::is_control) {
-        return None;
-    }
-    let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-    Some(format!("299 {agent} \"{escaped}\""))
-}
-
-impl Recorder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_limits(total: usize, item: usize) -> Self {
-        Self {
-            total_runes: Some(total),
-            item_runes: Some(item),
-            ..Self::default()
-        }
-    }
-
-    fn total(&self) -> usize {
-        self.total_runes.unwrap_or(TRUNCATE_AT_TOTAL_RUNES)
-    }
-
-    fn item(&self) -> usize {
-        self.item_runes.unwrap_or(TRUNCATE_ITEM_RUNES)
-    }
-
-    fn truncate(text: &str, runes: usize) -> String {
-        text.chars().take(runes).collect()
-    }
-
-    /// `AddWarning(agent, text)`.
-    pub fn add_warning(&mut self, agent: &str, text: &str) {
-        if text.is_empty() {
-            return;
-        }
-        // already exceeded the limit and truncating
-        if self.written >= self.total() && self.truncating {
-            return;
-        }
-        // dedupe if already warned
-        if !self.recorded.insert(text.to_string()) {
-            return;
-        }
-        self.ordered.push((agent.to_string(), text.to_string()));
-
-        let mut text = text.to_string();
-        let mut len = text.chars().count();
-        if self.truncating && len > self.item() {
-            text = Self::truncate(&text, self.item());
-            len = self.item();
-        }
-        let Some(header) = new_warning_header(agent, &text) else {
-            return;
-        };
-        if self.written + len <= self.total() || self.truncating {
-            self.written += len;
-            self.headers.push(header);
-            return;
-        }
-        // enable truncation, reset, and replay the existing items truncated
-        self.truncating = true;
-        self.written = 0;
-        self.headers.clear();
-        tracing::error!("exceeded max warning header size, truncating");
-        let item = self.item();
-        for (agent, text) in &self.ordered {
-            let mut text = text.clone();
-            let mut len = text.chars().count();
-            if len > item {
-                text = Self::truncate(&text, item);
-                len = item;
-            }
-            if let Some(h) = new_warning_header(agent, &text) {
-                self.written += len;
-                self.headers.push(h);
-            }
-        }
-    }
-
-    /// The `Warning` header values written so far.
-    pub fn headers(&self) -> &[String] {
-        &self.headers
     }
 }
 
@@ -199,7 +84,7 @@ pub async fn add_endpoint_warnings(req: Request, next: Next) -> Response {
     if warnings.is_empty() {
         return resp;
     }
-    let mut recorder = Recorder::new();
+    let recorder = WarningRecorder::default();
     for w in &warnings {
         recorder.add_warning("", w);
     }
@@ -210,7 +95,7 @@ pub async fn add_endpoint_warnings(req: Request, next: Next) -> Response {
     }
     resp.headers_mut().remove(header::WARNING);
     for h in recorder.headers() {
-        if let Ok(v) = HeaderValue::from_str(h) {
+        if let Ok(v) = HeaderValue::from_str(&h) {
             resp.headers_mut().append(header::WARNING, v);
         }
     }

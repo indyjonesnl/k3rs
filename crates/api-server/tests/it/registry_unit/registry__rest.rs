@@ -81,6 +81,27 @@ mod tests {
         );
     }
 
+    /// `RequestContext` warnings go out through the central recorder
+    /// (filters/warning.go): de-duplicated, quoted, and capped at 4096 runes
+    /// (then truncated to 256 runes each).
+    #[test]
+    fn warning_headers_use_the_central_recorder() {
+        let ctx = RequestContext::new(None);
+        ctx.add_warning(r#"say "hi""#.to_string());
+        ctx.add_warning(r#"say "hi""#.to_string());
+        assert_eq!(ctx.warning_headers(), [r#"299 - "say \"hi\"""#]);
+
+        let ctx = RequestContext::new(None);
+        for i in 0..20 {
+            ctx.add_warning(format!("{i:02}{}", "x".repeat(498)));
+        }
+        let headers = ctx.warning_headers();
+        // 8 full warnings (8*500 <= 4096) then the cap is hit and everything is
+        // replayed truncated to 256 runes.
+        assert!(headers.len() > 8, "{}", headers.len());
+        assert!(headers.iter().all(|h| h.chars().count() <= 256 + 8));
+    }
+
     /// The namespace comes from the request; a conflicting one in the body is
     /// a 400 (upstream `TestBeforeCreate`-style cases in meta_test.go).
     #[tokio::test]

@@ -129,11 +129,27 @@ impl RequestContext {
         }
     }
 
-    /// The warnings recorded so far, for the handler to emit as
-    /// `Warning: 299 - "..."` headers.
+    /// The warnings recorded so far.
     pub fn warnings(&self) -> Vec<String> {
         self.warnings.lock().map(|w| w.clone()).unwrap_or_default()
     }
+
+    /// The `Warning: 299 - "..."` header values for the recorded warnings, in
+    /// order, as the central recorder writes them
+    /// (`kubernetes_rs_middleware::warning::WarningRecorder`, filters/warning.go:
+    /// de-duplicated, 4096-rune total cap, 256-rune items once truncating).
+    pub fn warning_headers(&self) -> Vec<String> {
+        headers_for_warnings(&self.warnings())
+    }
+}
+
+/// Run `warnings` through a fresh central recorder and return its header values.
+pub fn headers_for_warnings(warnings: &[String]) -> Vec<String> {
+    let recorder = kubernetes_rs_middleware::warning::WarningRecorder::default();
+    for w in warnings {
+        recorder.add_warning("", w);
+    }
+    recorder.headers()
 }
 
 // ---------------------------------------------------------------------------

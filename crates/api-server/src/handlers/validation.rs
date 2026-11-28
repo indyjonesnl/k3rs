@@ -753,10 +753,9 @@ where
 /// Warning: 299 - "unknown field \"spec.foo\""
 /// ```
 pub fn format_warning_header(warning_text: &str) -> String {
-    // `299 <agent> "<quoted-string>"` — agent token `-` is used when no
-    // host:port identifier is available, matching upstream.
-    let escaped = warning_text.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("299 - \"{}\"", escaped)
+    // `net.NewWarningHeader(299, "", text)` (the central recorder's formatter):
+    // agent token `-` when none, text quoted; empty when the text is invalid.
+    kubernetes_rs_middleware::warning::new_warning_header(299, "", warning_text).unwrap_or_default()
 }
 
 // Server-side name generation (metadata.generateName) is applied centrally by

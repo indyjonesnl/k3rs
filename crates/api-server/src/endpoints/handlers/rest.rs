@@ -439,9 +439,8 @@ pub fn check_name<T: Object>(obj: &T, name: &str, namespace: Option<&str>) -> Re
 /// as `Warning: 299` headers (endpoints/filters/warning.go).
 pub fn respond<B: Serialize>(status: StatusCode, body: &B, ctx: &RequestContext) -> Response {
     let mut headers = HeaderMap::new();
-    for warning in ctx.warnings() {
-        let value = crate::handlers::validation::format_warning_header(&warning);
-        if let Ok(v) = HeaderValue::from_str(&value) {
+    for value in ctx.warning_headers() {
+        if let Ok(v) = HeaderValue::from_bytes(value.as_bytes()) {
             headers.append(header::WARNING, v);
         }
     }
