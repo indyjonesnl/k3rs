@@ -4,6 +4,7 @@
 pub mod api_status;
 pub mod config;
 pub mod events;
+pub mod exec_auth;
 pub mod http;
 pub mod kubeconfig;
 pub mod pager;
