@@ -54,6 +54,9 @@ pub struct ApiStatusError {
     pub retry_after_seconds: Option<i32>,
     /// `Status.Details.Causes[].Type` (JSON `reason`), for `HasStatusCause`.
     pub causes: Vec<String>,
+    /// `Status.Details.Causes[].Message`, index-aligned with `causes`, for the
+    /// legacy-server fallback of `isTooLargeResourceVersionError`.
+    pub cause_messages: Vec<String>,
 }
 
 impl fmt::Display for ApiStatusError {
@@ -195,12 +198,53 @@ pub fn has_status_cause(err: &anyhow::Error, name: &str) -> bool {
         .is_some_and(|s| s.causes.iter().any(|c| c == name))
 }
 
-/// `isTooLargeResourceVersionError` (tools/cache/reflector.go:1060-1083),
-/// first branch: `HasStatusCause(err, CauseTypeResourceVersionTooLarge)`.
-/// Not ported: the fallback for servers 1.17.0-1.18.5, which matches the
-/// cause *message* "Too large resource version" (causes keep only their type).
+/// `Status.Details.Causes[]` as (types, messages), index-aligned. A cause with
+/// no `reason` keeps an empty type: servers 1.17.0-1.18.5 send only a message.
+pub fn parse_causes(status: &serde_json::Value) -> (Vec<String>, Vec<String>) {
+    let mut types = Vec::new();
+    let mut messages = Vec::new();
+    for c in status
+        .pointer("/details/causes")
+        .and_then(|c| c.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let get = |k: &str| c.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        types.push(get("reason"));
+        messages.push(get("message"));
+    }
+    (types, messages)
+}
+
+/// `isTooLargeResourceVersionError` (tools/cache/reflector.go:1060-1089).
+/// `HasStatusCause(err, CauseTypeResourceVersionTooLarge)` first; then, for
+/// servers before 1.18.5 that do not set that cause, a Timeout error whose
+/// cause message (1.17.0-1.18.5) or status message (before 1.17.0) contains
+/// "Too large resource version".
 pub fn is_too_large_resource_version(err: &anyhow::Error) -> bool {
-    has_status_cause(err, "ResourceVersionTooLarge")
+    if has_status_cause(err, "ResourceVersionTooLarge") {
+        return true;
+    }
+    if !is_timeout(err) {
+        return false;
+    }
+    let Some(s) = err.chain().find_map(|c| c.downcast_ref::<ApiStatusError>()) else {
+        return false;
+    };
+    // `apierr.Status().Details == nil` returns false (`None` is "no details").
+    if s.retry_after_seconds.is_none() {
+        return false;
+    }
+    s.cause_messages
+        .iter()
+        .any(|m| m == "Too large resource version")
+        || s.message.contains("Too large resource version")
+}
+
+/// `isExpiredError` (tools/cache/reflector.go:1051-1057): Expired, or Gone for
+/// the servers of 1.17 and earlier that return both reasons for HTTP 410.
+pub fn is_expired_error(err: &anyhow::Error) -> bool {
+    is_resource_expired(err) || is_gone(err)
 }
 
 /// `apierrors.FromObject` for a `Status` object (errors.go:~60): the typed
@@ -216,6 +260,7 @@ pub fn from_status_object(obj: &serde_json::Value) -> anyhow::Result<ApiStatusEr
             .unwrap_or("")
             .to_string()
     };
+    let (causes, cause_messages) = parse_causes(obj);
     Ok(ApiStatusError {
         code: obj
             .get("code")
@@ -230,16 +275,8 @@ pub fn from_status_object(obj: &serde_json::Value) -> anyhow::Result<ApiStatusEr
                 .and_then(|r| i32::try_from(r).ok())
                 .unwrap_or(0)
         }),
-        causes: obj
-            .pointer("/details/causes")
-            .and_then(|c| c.as_array())
-            .map(|cs| {
-                cs.iter()
-                    .filter_map(|c| c.get("reason").and_then(|r| r.as_str()))
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default(),
+        causes,
+        cause_messages,
     })
 }
 
@@ -259,6 +296,7 @@ mod tests {
             message: "m".into(),
             retry_after_seconds: None,
             causes: Vec::new(),
+            cause_messages: Vec::new(),
         })
         .context("outer")
     }
@@ -328,6 +366,7 @@ mod tests {
             message: "m".into(),
             retry_after_seconds: secs,
             causes: Vec::new(),
+            cause_messages: Vec::new(),
         })
         .context("outer")
     }

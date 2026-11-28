@@ -43,6 +43,7 @@ mod tests {
                 message: "m".into(),
                 retry_after_seconds: secs,
                 causes: Vec::new(),
+                cause_messages: Vec::new(),
             })
         };
         // SuggestsClientDelay: Retry-After on an otherwise non-retriable code.
@@ -98,6 +99,7 @@ mod tests {
                         message: "boom".into(),
                         retry_after_seconds: None,
                         causes: Vec::new(),
+                        cause_messages: Vec::new(),
                     })),
                 );
             }
@@ -160,6 +162,7 @@ mod tests {
                         message: "sar forbidden".into(),
                         retry_after_seconds: None,
                         causes: Vec::new(),
+                        cause_messages: Vec::new(),
                     })),
                 );
             }
@@ -549,6 +552,7 @@ mod tests {
                         message: "boom".into(),
                         retry_after_seconds: None,
                         causes: Vec::new(),
+                        cause_messages: Vec::new(),
                     })),
                 ),
             }

@@ -372,6 +372,7 @@ mod tests {
                 message: "x".into(),
                 retry_after_seconds: None,
                 causes: vec![],
+                cause_messages: Vec::new(),
             },
         ));
         assert_eq!(err.to_string(), "Resource not found");

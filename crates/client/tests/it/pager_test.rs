@@ -13,6 +13,7 @@ fn expired() -> anyhow::Error {
         message: "too old resource version".into(),
         retry_after_seconds: None,
         causes: vec![],
+        cause_messages: Vec::new(),
     }
     .into()
 }
