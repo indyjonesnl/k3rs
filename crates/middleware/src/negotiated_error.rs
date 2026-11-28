@@ -320,12 +320,19 @@ fn write_object_negotiated(
         },
         _ => {
             let json = serde_json::to_string(status).unwrap_or_default();
-            let bytes = crate::response::encode_native_or_wrapped(
-                json.as_bytes(),
-                &status.api_version,
-                &status.kind,
-            );
-            response(status_code, PROTOBUF, bytes)
+            // Native protobuf or nothing: JSON-in-`raw` under a protobuf
+            // Content-Type fails client-go with `proto: illegal wireType`
+            // (protobuf.go:200-236 `doEncode`). Without a registered schema
+            // the Status goes out as JSON with a JSON Content-Type.
+            match crate::response::encode_native(json.as_bytes(), &status.api_version, &status.kind)
+            {
+                Some(bytes) => response(status_code, PROTOBUF, bytes),
+                None => {
+                    let mut s = go_html_escape(json);
+                    s.push('\n');
+                    response(status_code, JSON, s.into_bytes())
+                }
+            }
         }
     };
     if let Some(a) = audit_response {

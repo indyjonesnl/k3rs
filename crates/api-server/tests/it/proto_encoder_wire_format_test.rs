@@ -412,10 +412,10 @@ fn encode_decode_through_unknown_envelope() {
     let tm = unknown.type_meta.expect("typeMeta");
     assert_eq!(tm.api_version, "v1");
     assert_eq!(tm.kind, "Pod");
-    // contentType must advertise proto, NOT application/json — otherwise
-    // any Unknown-aware decoder (and client-go's typed path) thinks the
-    // raw payload is JSON.
-    assert_eq!(unknown.content_type, "application/vnd.kubernetes.protobuf");
+    // protobuf.go:200-236 `doEncode`: contentType and contentEncoding stay
+    // empty for a native payload; "application/json" would mark `raw` as JSON.
+    assert_eq!(unknown.content_type, "");
+    assert_eq!(unknown.content_encoding, "");
 
     // Raw payload must be native proto bytes — first byte is a proto
     // tag, NOT a JSON `{` (0x7B).

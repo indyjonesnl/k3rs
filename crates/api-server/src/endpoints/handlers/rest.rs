@@ -509,7 +509,7 @@ pub(crate) fn respond_object<T: Object>(
 /// envelope instead of JSON. Only successful responses are re-encoded; an
 /// error Status stays JSON, as every kubernetes-rs error does today.
 pub async fn negotiate(headers: &HeaderMap, response: Response) -> Response {
-    use crate::response::{encode_native_or_wrapped, negotiate_content_type, ContentType};
+    use crate::response::{encode_native, negotiate_content_type, ContentType};
 
     if negotiate_content_type(headers) != ContentType::Protobuf || !response.status().is_success() {
         return response;
@@ -527,8 +527,16 @@ pub async fn negotiate(headers: &HeaderMap, response: Response) -> Response {
     let kind = type_meta["kind"].as_str().unwrap_or_default();
     let bytes =
         kubernetes_rs_common::latency_trackers::track_serialize_response_object_latency_sync(
-            || encode_native_or_wrapped(&json, api_version, kind),
+            || encode_native(&json, api_version, kind),
         );
+    // A kind with no registered protobuf schema is not marshalable
+    // (protobuf.go:50-62 `errNotMarshalable`); such a kind is never offered
+    // protobuf (handlers/rest.go:126-156 `AllowsMediaTypeTransform`), so the
+    // client gets JSON under a JSON Content-Type. JSON is never sent under a
+    // protobuf Content-Type: client-go proto-decodes `Unknown.raw` directly.
+    let Some(bytes) = bytes else {
+        return Response::from_parts(parts, axum::body::Body::from(json));
+    };
     parts.headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static(ContentType::Protobuf.mime_type()),
