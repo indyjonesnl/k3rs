@@ -354,6 +354,31 @@ mod tests {
         );
     }
 
+    /// `unschedulable_reasons{plugin,profile}` goes up when a pod is requeued
+    /// rejected by a plugin (`scheduling_queue.go:907`) and down when it is
+    /// popped again (`active_queue.go:326-329`).
+    #[tokio::test]
+    async fn scheduler_metrics_unschedulable_reason() {
+        let m = kubernetes_rs_scheduler::metrics::metrics();
+        let q = new_test_queue(HashMap::new(), Arc::new(RealClock));
+        let pod = mk_pod_prio("up", "ns1", "upns1", 0);
+        let profile = kubernetes_rs_scheduler::profile::pod_scheduler_name(&pod).to_string();
+        let reason = m.unschedulable_reason("metrics-plugin", &profile);
+        let r0 = reason.get();
+        q.add(pod.clone());
+        q.pop().await.unwrap();
+        q.add_unschedulable_if_not_present(
+            QueuedPodInfo::for_lookup(pod.clone(), &["metrics-plugin"]),
+            q.scheduling_cycle(),
+        )
+        .unwrap();
+        assert_eq!(reason.get(), r0 + 1.0);
+        q.activate(std::slice::from_ref(&pod));
+        let p = q.pop().await.unwrap();
+        assert_eq!(p.pod.metadata.name, "up");
+        assert_eq!(reason.get(), r0);
+    }
+
     /// `TestPriorityQueue_AddUnschedulableIfNotPresent_Backoff` (`:979-1037`).
     #[tokio::test]
     async fn add_unschedulable_if_not_present_backoff() {
