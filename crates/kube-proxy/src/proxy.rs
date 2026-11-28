@@ -328,6 +328,16 @@ impl<S: Storage> KubeProxy<S> {
             return Err(e);
         }
 
+        // The filter-table REJECT rules for services without endpoints
+        // (proxier.go:1056-1160), restored right after the nat table.
+        let filter_rules = self
+            .iptables
+            .build_filter_rules(&services, &endpointslice_map);
+        if let Err(e) = self.iptables.apply_filter_rules_atomic(&filter_rules) {
+            error!("Failed filter-table iptables-restore: {}", e);
+            return Err(e);
+        }
+
         // Upstream returns before Healthz.Updated on restore failure
         // (iptables/proxier.go:1497-1506,1521-1522). Cache only successful
         // state, so a failed retry cannot masquerade as a successful no-op.
