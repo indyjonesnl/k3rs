@@ -2,10 +2,9 @@
 //!
 //! Port of `staging/src/k8s.io/client-go/tools/pager/pager.go`:
 //! `ListPager` (:50), `New` (:61), `List` (:84) / `list` (:100) and
-//! `eachListChunk` (:285). Differences from Go, by design: no `context`
-//! argument (cancel by dropping the future), no `ListWithAlloc`, and the
-//! buffered `EachListItem` (`eachListChunkBuffered`, :237) is not ported
-//! (sequential `each_list_chunk` only).
+//! `eachListChunk` (:285) and `eachListChunkBuffered` (:237). Differences from
+//! Go, by design: no `context` argument (cancel by dropping the future) and no
+//! `ListWithAlloc`.
 
 use std::future::Future;
 
@@ -15,6 +14,9 @@ use crate::api_status::is_resource_expired;
 
 /// `defaultPageSize` (pager.go:30).
 pub const DEFAULT_PAGE_SIZE: i64 = 500;
+
+/// `defaultPageBufferSize` (pager.go:31).
+pub const DEFAULT_PAGE_BUFFER_SIZE: i32 = 10;
 
 /// The subset of `metav1.ListOptions` the pager reads and rewrites.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -38,6 +40,8 @@ pub struct ListPager<F> {
     pub page_size: i64,
     pub page_fn: F,
     pub full_list_if_expired: bool,
+    /// Number of pages to buffer (`PageBufferSize`).
+    pub page_buffer_size: i32,
 }
 
 impl<T, Fut, F> ListPager<F>
@@ -51,6 +55,7 @@ where
             page_size: DEFAULT_PAGE_SIZE,
             page_fn,
             full_list_if_expired: true,
+            page_buffer_size: DEFAULT_PAGE_BUFFER_SIZE,
         }
     }
 
@@ -137,5 +142,58 @@ where
             }
             options.continue_token = next;
         }
+    }
+
+    /// `eachListChunkBuffered` (pager.go:237-283): fetch pages ahead of the
+    /// consumer through a channel of `page_buffer_size` (min 1) pages so
+    /// fetching the next chunk overlaps with processing the current one. An
+    /// `f` error is returned at once (the fetcher then stops); otherwise the
+    /// fetch error, if any, is returned after the buffered pages were
+    /// processed.
+    pub async fn each_list_chunk_buffered<G>(&self, options: ListOptions, mut f: G) -> Result<()>
+    where
+        G: FnMut(ListPage<T>) -> Result<()>,
+    {
+        // "Ensure that the buffer size is at least 1" (pager.go:238-241).
+        let buffer = self.page_buffer_size.max(1) as usize;
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ListPage<T>>(buffer);
+        let mut options = options;
+        if options.limit == 0 {
+            options.limit = self.page_size;
+        }
+        let producer = async move {
+            loop {
+                let page = (self.page_fn)(options.clone()).await?;
+                let next = page.continue_token.clone();
+                // "buffer the chunk, this can block"; a closed channel means
+                // the consumer returned early.
+                if tx.send(page).await.is_err() {
+                    return Ok(());
+                }
+                if next.is_empty() {
+                    return Ok(());
+                }
+                options.continue_token = next;
+            }
+        };
+        let consumer = async move {
+            while let Some(chunk) = rx.recv().await {
+                f(chunk)?; // any fn error is returned immediately
+            }
+            Ok::<(), anyhow::Error>(())
+        };
+        let (produced, consumed) = futures::future::join(producer, consumer).await;
+        consumed?;
+        produced
+    }
+
+    /// `EachListItem` (pager.go:183-187): `f` on every item, via the buffered
+    /// chunk reader.
+    pub async fn each_list_item<G>(&self, options: ListOptions, mut f: G) -> Result<()>
+    where
+        G: FnMut(T) -> Result<()>,
+    {
+        self.each_list_chunk_buffered(options, |page| page.items.into_iter().try_for_each(&mut f))
+            .await
     }
 }

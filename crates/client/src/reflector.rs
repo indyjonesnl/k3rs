@@ -18,6 +18,7 @@ use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 
+use crate::api_status::{is_resource_expired, is_too_large_resource_version};
 use crate::http::{ApiClient, GetError, KubernetesList};
 use crate::pager::{ListOptions, ListPage, ListPager};
 use crate::watch::{watch_stream, WatchEvent};
@@ -40,6 +41,21 @@ pub type WatchItem<T> = Result<(WatchEvent<T>, Option<String>)>;
 #[async_trait::async_trait]
 pub trait ListWatch<T>: Send + Sync {
     async fn list(&self) -> Result<(Vec<T>, String)>;
+
+    /// The reflector's `list` (reflector.go:587-): list at `resource_version`
+    /// ("" = consistent read, "0" = any, else not older than) paging with
+    /// `page_size` (`None` = the pager default, `Some(0)` = no paging).
+    /// Returns the items, the list resourceVersion and whether the result was
+    /// paginated. The default ignores the request and calls
+    /// [`ListWatch::list`], for list-watchers that do not page.
+    async fn list_from(
+        &self,
+        _resource_version: &str,
+        _page_size: Option<i64>,
+    ) -> Result<(Vec<T>, String, bool)> {
+        let (items, rv) = self.list().await?;
+        Ok((items, rv, false))
+    }
     async fn watch<'a>(&'a self, rv: Option<String>) -> Result<BoxStream<'a, WatchItem<T>>>;
 }
 
@@ -84,6 +100,13 @@ pub struct Reflector<T, K: Fn(&T) -> String> {
     /// Set once the initial list has populated the store
     /// (`sharedIndexInformer.HasSynced`).
     synced: AtomicBool,
+    /// `lastSyncResourceVersion`: the rv of the last list or watch event. Not
+    /// cleared by a re-list, unlike `last_rv` (which gates whether to list).
+    last_sync_rv: RwLock<String>,
+    /// `isLastSyncResourceVersionUnavailable`.
+    last_sync_rv_unavailable: AtomicBool,
+    /// `paginatedResult`: the initial RV="0" list came back paginated.
+    paginated_result: AtomicBool,
 }
 
 impl<T, K> Reflector<T, K>
@@ -100,7 +123,44 @@ where
             tx,
             last_rv: RwLock::new(None),
             synced: AtomicBool::new(false),
+            last_sync_rv: RwLock::new(String::new()),
+            last_sync_rv_unavailable: AtomicBool::new(false),
+            paginated_result: AtomicBool::new(false),
         }
+    }
+
+    /// `relistResourceVersion` (reflector.go:1014-1030).
+    fn relist_resource_version(&self) -> String {
+        if self.last_sync_rv_unavailable.load(Ordering::SeqCst) {
+            // Paginated list requests skip the watch cache at an unavailable
+            // rv, so ask for a consistent read from the latest.
+            return String::new();
+        }
+        let rv = self.last_sync_rv.read().unwrap();
+        if rv.is_empty() {
+            // The initial list uses "0" so the watch cache can serve it.
+            return "0".to_string();
+        }
+        rv.clone()
+    }
+
+    /// The page-size selection of `list` (reflector.go:610-633).
+    fn list_page_size(&self, resource_version: &str) -> Option<i64> {
+        if self.paginated_result.load(Ordering::SeqCst) {
+            // Paged initially: this resource and server honour paging
+            // (watch cache probably off); keep the pager default.
+            None
+        } else if !resource_version.is_empty() && resource_version != "0" {
+            // Not asked to paginate: with an rv we can list from the watch
+            // cache, which it only does when Limit is unset.
+            Some(0)
+        } else {
+            None
+        }
+    }
+
+    fn set_last_sync_resource_version(&self, rv: &str) {
+        *self.last_sync_rv.write().unwrap() = rv.to_string();
     }
 
     /// `HasSynced` (client-go `shared_informer.go:588`): true once the initial
@@ -131,6 +191,32 @@ where
         self.tx.subscribe()
     }
 
+    /// `Reflector.list` (reflector.go:587-): list at `relistResourceVersion`
+    /// with the selected page size; an Expired / too-large-rv failure marks
+    /// the last sync rv unavailable and retries at rv="".
+    async fn list(&self) -> Result<(Vec<T>, String)> {
+        let rv = self.relist_resource_version();
+        let page_size = self.list_page_size(&rv);
+        let mut result = self.lw.list_from(&rv, page_size).await;
+        if let Err(e) = &result {
+            if is_resource_expired(e) || is_too_large_resource_version(e) {
+                self.last_sync_rv_unavailable.store(true, Ordering::SeqCst);
+                result = self
+                    .lw
+                    .list_from(&self.relist_resource_version(), page_size)
+                    .await;
+            }
+        }
+        let (items, list_rv, paginated) = result?;
+        // Only the initial list (rv="0") says whether the watch cache is on
+        // (reflector.go:658-672).
+        if rv == "0" && paginated {
+            self.paginated_result.store(true, Ordering::SeqCst);
+        }
+        self.last_sync_rv_unavailable.store(false, Ordering::SeqCst);
+        Ok((items, list_rv))
+    }
+
     /// One list (only when no resourceVersion is held yet) + one watch
     /// session, applying every event to the store **as it streams in**. Returns
     /// when the watch stream ends (server timeout / disconnect); the caller's
@@ -138,13 +224,14 @@ where
     /// `Expired` envelope) propagates so `run` can decide to re-list.
     pub async fn sync_once(&self) -> Result<()> {
         if self.last_rv.read().unwrap().is_none() {
-            let (items, rv) = self.lw.list().await.context("reflector list")?;
+            let (items, rv) = self.list().await.context("reflector list")?;
             let mut store = self.store.write().unwrap();
             store.clear();
             for item in items {
                 store.insert((self.key_fn)(&item), item);
             }
             drop(store);
+            self.set_last_sync_resource_version(&rv);
             *self.last_rv.write().unwrap() = Some(rv);
             self.synced.store(true, Ordering::SeqCst);
         }
@@ -177,11 +264,21 @@ where
             }
             // Advance the held rv after every event so a reconnect resumes
             // from the last thing we actually applied.
+            if let Some(rv) = &obj_rv {
+                self.set_last_sync_resource_version(rv);
+            }
             if obj_rv.is_some() {
                 *self.last_rv.write().unwrap() = obj_rv;
             }
         }
         Ok(())
+    }
+
+    /// Forget the held watch rv so the next [`Reflector::sync_once`] lists
+    /// again (what `run` does after any error). The last sync rv is kept: the
+    /// relist uses it (`relistResourceVersion`).
+    pub fn reset_for_relist(&self) {
+        *self.last_rv.write().unwrap() = None;
     }
 
     /// Run forever: list+watch with exponential backoff (1s → 30s, reset on
@@ -216,7 +313,7 @@ where
                     // Clear the held rv so the next cycle re-lists and refreshes
                     // the store, rather than resuming a watch that may never
                     // deliver the objects created since the last good list.
-                    *self.last_rv.write().unwrap() = None;
+                    self.reset_for_relist();
                     tokio::time::sleep(backoff).await;
                     backoff = (backoff * 2).min(Duration::from_secs(30));
                 }
@@ -252,6 +349,12 @@ fn page_path(path: &str, opts: &ListOptions) -> String {
     if !opts.continue_token.is_empty() {
         params.push(format!("continue={}", encode_query(&opts.continue_token)));
     }
+    if !opts.resource_version.is_empty() {
+        params.push(format!(
+            "resourceVersion={}",
+            encode_query(&opts.resource_version)
+        ));
+    }
     if params.is_empty() {
         return path.to_string();
     }
@@ -273,10 +376,19 @@ fn encode_query(v: &str) -> String {
 #[async_trait::async_trait]
 impl<T: DeserializeOwned + Send + Sync + 'static> ListWatch<T> for ApiListWatch {
     async fn list(&self) -> Result<(Vec<T>, String)> {
+        let (items, rv, _) = self.list_from("", None).await?;
+        Ok((items, rv))
+    }
+
+    async fn list_from(
+        &self,
+        resource_version: &str,
+        page_size: Option<i64>,
+    ) -> Result<(Vec<T>, String, bool)> {
         // reflector.go list(): `pager.New(...)` over the list-watcher, so the
         // initial list is fetched in `limit`/`continue` chunks (default page
         // size 500, Expired continuation falls back to a full list).
-        let pager = ListPager::new(|opts: ListOptions| async move {
+        let mut pager = ListPager::new(|opts: ListOptions| async move {
             let list: KubernetesList<T> = self
                 .client
                 .get(&page_path(&self.path, &opts))
@@ -296,8 +408,14 @@ impl<T: DeserializeOwned + Send + Sync + 'static> ListWatch<T> for ApiListWatch 
                 continue_token: meta.and_then(|m| m.continue_token).unwrap_or_default(),
             })
         });
-        let (list, _paginated) = pager
-            .list(ListOptions::default())
+        if let Some(size) = page_size {
+            pager.page_size = size;
+        }
+        let (list, paginated) = pager
+            .list(ListOptions {
+                resource_version: resource_version.to_string(),
+                ..Default::default()
+            })
             .await
             .with_context(|| format!("list {} failed", self.path))?;
         let rv = if list.resource_version.is_empty() {
@@ -305,7 +423,7 @@ impl<T: DeserializeOwned + Send + Sync + 'static> ListWatch<T> for ApiListWatch 
         } else {
             list.resource_version
         };
-        Ok((list.items, rv))
+        Ok((list.items, rv, paginated))
     }
 
     async fn watch<'a>(&'a self, rv: Option<String>) -> Result<BoxStream<'a, WatchItem<T>>> {
@@ -381,5 +499,16 @@ mod pager_wiring_tests {
             "/api/v1/pods?labelSelector=a%3Db&limit=1"
         );
         assert_eq!(page_path("/x", &ListOptions::default()), "/x");
+        assert_eq!(
+            page_path(
+                "/x",
+                &ListOptions {
+                    resource_version: "0".into(),
+                    limit: 5,
+                    ..Default::default()
+                }
+            ),
+            "/x?limit=5&resourceVersion=0"
+        );
     }
 }

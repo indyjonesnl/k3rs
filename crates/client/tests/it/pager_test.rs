@@ -166,3 +166,87 @@ async fn pager_each_list_chunk_visits_pages_in_order() {
         .unwrap_err();
     assert_eq!(e.to_string(), "stop");
 }
+
+/// `TestListPagerEachListItem`-style: the buffered reader yields every item
+/// in order and fetches pages ahead of the consumer (pager.go:237-283).
+#[tokio::test]
+async fn pager_each_list_item_buffered_yields_all_in_order() {
+    let mut p = ListPager::new(|o: ListOptions| async move { serve(25, &o) });
+    p.page_size = 10;
+    let mut got = Vec::new();
+    p.each_list_item(ListOptions::default(), |i| {
+        got.push(i);
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(got, (0..25).collect::<Vec<_>>());
+}
+
+#[tokio::test]
+async fn pager_each_list_chunk_buffered_fetches_ahead() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let fetched = AtomicUsize::new(0);
+    let mut p = ListPager::new(|o: ListOptions| {
+        fetched.fetch_add(1, Ordering::SeqCst);
+        async move { serve(50, &o) }
+    });
+    p.page_size = 10;
+    p.page_buffer_size = 10;
+    let mut at_first_chunk = 0;
+    p.each_list_chunk_buffered(ListOptions::default(), |_| {
+        if at_first_chunk == 0 {
+            at_first_chunk = 1;
+        }
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(fetched.load(Ordering::SeqCst), 5);
+}
+
+/// An `f` error is returned immediately; a fetch error surfaces after the
+/// pages before it were processed; a buffer size below 1 still works.
+#[tokio::test]
+async fn pager_each_list_chunk_buffered_errors() {
+    let mut p = ListPager::new(|o: ListOptions| async move { serve(30, &o) });
+    p.page_size = 10;
+    p.page_buffer_size = 0;
+    let mut n = 0;
+    let err = p
+        .each_list_chunk_buffered(ListOptions::default(), |_| {
+            n += 1;
+            if n == 2 {
+                Err(anyhow!("stop"))
+            } else {
+                Ok(())
+            }
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.to_string(), "stop");
+
+    let p = ListPager::new(|o: ListOptions| async move {
+        if o.continue_token.is_empty() {
+            serve(30, &o)
+        } else {
+            Err(anyhow!("boom"))
+        }
+    });
+    let mut pages = 0;
+    let err = p
+        .each_list_chunk_buffered(
+            ListOptions {
+                limit: 10,
+                ..Default::default()
+            },
+            |_| {
+                pages += 1;
+                Ok(())
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.to_string(), "boom");
+    assert_eq!(pages, 1);
+}
