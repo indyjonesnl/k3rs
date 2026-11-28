@@ -1,3 +1,4 @@
+use crate::controllers::csi_provisioner::resolve_template;
 use crate::controllers::worker_pool::spawn_workers;
 use anyhow::{Context, Result};
 use kubernetes_rs_common::resources::service_account::ObjectReference;
@@ -5,12 +6,13 @@ use kubernetes_rs_common::resources::volume::PersistentVolumeClaimPhase;
 use kubernetes_rs_common::resources::volume::VolumeSnapshotContentSource;
 use kubernetes_rs_common::resources::volume::VolumeSnapshotError;
 use kubernetes_rs_common::resources::{
-    DeletionPolicy, EventSource, EventType, PersistentVolume, PersistentVolumeClaim,
+    DeletionPolicy, EventSource, EventType, PersistentVolume, PersistentVolumeClaim, Secret,
     VolumeSnapshot, VolumeSnapshotClass, VolumeSnapshotContent, VolumeSnapshotContentSpec,
     VolumeSnapshotContentStatus, VolumeSnapshotStatus,
 };
 use kubernetes_rs_common::types::{ObjectMeta, TypeMeta};
-use kubernetes_rs_csi::controller_client::CsiControllerClient;
+use kubernetes_rs_common::validation::metav1::{is_dns1123_label, is_dns1123_subdomain};
+use kubernetes_rs_csi::controller_client::{ControllerError, CsiControllerClient};
 use kubernetes_rs_csi::proto::{CreateSnapshotRequest, DeleteSnapshotRequest};
 use kubernetes_rs_storage::{
     build_key, build_prefix, extract_key, EventRecorder, Storage, WorkQueue,
@@ -49,6 +51,98 @@ const KNOWN_PREFIXED_PARAMETERS: &[&str] = &[
 
 /// `--snapshot-name-prefix` default (`cmd/csi-snapshotter/main.go`).
 const SNAPSHOT_NAME_PREFIX: &str = "snapshot";
+
+/// `AnnDeletionSecretRefName` / `AnnDeletionSecretRefNamespace`
+/// (external-snapshotter `pkg/utils/util.go:141-142`).
+const ANN_DELETION_SECRET_NAME: &str = "snapshot.storage.kubernetes.io/deletion-secret-name";
+const ANN_DELETION_SECRET_NAMESPACE: &str =
+    "snapshot.storage.kubernetes.io/deletion-secret-namespace";
+/// `AnnVolumeSnapshotBeingCreated` (`util.go:116`): set while a CreateSnapshot
+/// RPC has not answered with success or a final error.
+pub const ANN_VOLUME_SNAPSHOT_BEING_CREATED: &str =
+    "snapshot.storage.kubernetes.io/volumesnapshot-being-created";
+
+/// `GetSecretReference` with `SnapshotterSecretParams` (`util.go:307-409`): the
+/// secret named by the class parameters `csi.storage.k8s.io/snapshotter-secret-
+/// {name,namespace}`, templates resolved against the content and snapshot. No
+/// lookup of the secret itself is performed.
+///
+/// Name tokens: `${volumesnapshotcontent.name}`, `${volumesnapshot.namespace}`,
+/// `${volumesnapshot.name}`; namespace tokens: the first two.
+pub fn get_snapshotter_secret_reference(
+    class_params: &HashMap<String, String>,
+    content_name: &str,
+    snapshot: Option<&VolumeSnapshot>,
+) -> std::result::Result<Option<(String, String)>, String> {
+    // verifyAndGetSecretNameAndNamespaceTemplate (`util.go:307-337`).
+    let name_t = class_params.get("csi.storage.k8s.io/snapshotter-secret-name");
+    let ns_t = class_params.get("csi.storage.k8s.io/snapshotter-secret-namespace");
+    let (name_t, ns_t) = match (name_t, ns_t) {
+        (None, None) => return Ok(None),
+        (Some(n), Some(ns)) => {
+            if n.is_empty() || ns.is_empty() {
+                return Err("failed to get name and namespace template from params: snapshotter secrets specified in parameters but value of either namespace or name is empty".to_string());
+            }
+            (n, ns)
+        }
+        _ => {
+            return Err("failed to get name and namespace template from params: either name and namespace for snapshotter secrets specified, Both must be specified".to_string());
+        }
+    };
+
+    let mut ns_params = HashMap::from([(
+        "volumesnapshotcontent.name".to_string(),
+        content_name.to_string(),
+    )]);
+    if let Some(vs) = snapshot {
+        ns_params.insert(
+            "volumesnapshot.namespace".to_string(),
+            vs.metadata.namespace.clone().unwrap_or_default(),
+        );
+    }
+    let namespace = resolve_template(ns_t, &ns_params)
+        .map_err(|e| format!("error resolving value {ns_t:?}: {e}"))?;
+    if !is_dns1123_label(&namespace).is_empty() {
+        return Err(if *ns_t != namespace {
+            format!("{ns_t:?} resolved to {namespace:?} which is not a valid namespace name")
+        } else {
+            format!("{ns_t:?} is not a valid namespace name")
+        });
+    }
+
+    let mut name_params = ns_params;
+    if let Some(vs) = snapshot {
+        name_params.insert("volumesnapshot.name".to_string(), vs.metadata.name.clone());
+    }
+    let name = resolve_template(name_t, &name_params)
+        .map_err(|e| format!("error resolving value {name_t:?}: {e}"))?;
+    if !is_dns1123_subdomain(&name).is_empty() {
+        return Err(if *name_t != name {
+            format!("{name_t:?} resolved to {name:?} which is not a valid secret name")
+        } else {
+            format!("{name_t:?} is not a valid secret name")
+        });
+    }
+    Ok(Some((namespace, name)))
+}
+
+/// `isCSIFinalError` (`snapshot_controller.go:889-911`): is the answer proof
+/// that no CreateSnapshot is still in progress. Only a gRPC status can say so;
+/// anything else is "be on the safe side".
+pub fn is_csi_final_error(err: &ControllerError) -> bool {
+    use tonic::Code;
+    match err.status() {
+        None => false,
+        Some(st) => !matches!(
+            st.code(),
+            Code::Cancelled
+                | Code::DeadlineExceeded
+                | Code::Unavailable
+                | Code::ResourceExhausted
+                | Code::Aborted
+        ),
+    }
+}
 
 /// `RemovePrefixedParameters` (`pkg/utils/util.go:553`): drop the controller's
 /// own well-known `csi.storage.k8s.io/` keys, reject unknown reserved keys, and
@@ -632,7 +726,114 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
             }),
         };
 
+        let mut content = content;
+        // `getCreateSnapshotInput` (`:850`) resolves the snapshotter secret and
+        // `createSnapshotContent` (`:781-788`) records it in the deletion-secret
+        // annotations, which the sidecar reads back for every later RPC.
+        let class_params = vsc.parameters.clone().unwrap_or_default();
+        if let Some((ns, name)) =
+            get_snapshotter_secret_reference(&class_params, content_name, Some(vs))
+                .map_err(|e| anyhow::anyhow!(e))?
+        {
+            let ann = content
+                .metadata
+                .annotations
+                .get_or_insert_with(HashMap::new);
+            ann.insert(ANN_DELETION_SECRET_NAME.to_string(), name);
+            ann.insert(ANN_DELETION_SECRET_NAMESPACE.to_string(), ns);
+        }
         Ok(content)
+    }
+
+    /// `GetCredentialsFromAnnotation` (`snapshot_controller.go:728-758`).
+    async fn credentials_from_annotation(
+        &self,
+        content: &VolumeSnapshotContent,
+    ) -> Result<HashMap<String, String>> {
+        let ann = content.metadata.annotations.as_ref();
+        let (Some(name), Some(namespace)) = (
+            ann.and_then(|a| a.get(ANN_DELETION_SECRET_NAME)),
+            ann.and_then(|a| a.get(ANN_DELETION_SECRET_NAMESPACE)),
+        ) else {
+            return Ok(HashMap::new());
+        };
+        if name.is_empty() || namespace.is_empty() {
+            anyhow::bail!(
+                "cannot retrieve secrets for snapshot content {:?}, err: secret name or namespace not specified",
+                content.metadata.name
+            );
+        }
+        // `GetCredentials` (`util.go:483`).
+        let secret: Secret = self
+            .storage
+            .get(&build_key("secrets", Some(namespace), name))
+            .await
+            .map_err(|e| {
+                error!(
+                    "Failed to get credentials for snapshot {}: error getting secret {name} in namespace {namespace}: {e}",
+                    content.metadata.name
+                );
+                anyhow::anyhow!("cannot get credentials for snapshot content {:?}", content.metadata.name)
+            })?;
+        Ok(secret
+            .data
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, String::from_utf8_lossy(&v).into_owned()))
+            .collect())
+    }
+
+    /// `setAnnVolumeSnapshotBeingCreated` (`:820`).
+    async fn set_being_created(
+        &self,
+        content: VolumeSnapshotContent,
+    ) -> Result<VolumeSnapshotContent> {
+        if content
+            .metadata
+            .annotations
+            .as_ref()
+            .is_some_and(|a| a.contains_key(ANN_VOLUME_SNAPSHOT_BEING_CREATED))
+        {
+            return Ok(content);
+        }
+        let mut updated = content.clone();
+        updated
+            .metadata
+            .annotations
+            .get_or_insert_with(HashMap::new)
+            .insert(
+                ANN_VOLUME_SNAPSHOT_BEING_CREATED.to_string(),
+                "yes".to_string(),
+            );
+        let key = build_key("volumesnapshotcontents", None, &content.metadata.name);
+        self.storage
+            .update(&key, &updated)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to update content {}: {e}", content.metadata.name))
+    }
+
+    /// `removeAnnVolumeSnapshotBeingCreated` (`:861`).
+    async fn remove_being_created(
+        &self,
+        content: VolumeSnapshotContent,
+    ) -> Result<VolumeSnapshotContent> {
+        if !content
+            .metadata
+            .annotations
+            .as_ref()
+            .is_some_and(|a| a.contains_key(ANN_VOLUME_SNAPSHOT_BEING_CREATED))
+        {
+            return Ok(content);
+        }
+        let mut updated = content.clone();
+        if let Some(a) = updated.metadata.annotations.as_mut() {
+            a.remove(ANN_VOLUME_SNAPSHOT_BEING_CREATED);
+        }
+        let key = build_key("volumesnapshotcontents", None, &content.metadata.name);
+        self.storage
+            .update(&key, &updated)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to update content {}: {e}", content.metadata.name))
     }
 
     /// The external-snapshotter flow for a driver-backed class: the common
@@ -694,13 +895,14 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
                 // The driver, not the controller, reports the handle.
                 c.spec.source.snapshot_handle = None;
                 c.status = None;
+                // Keep the stored copy: it carries the resourceVersion the
+                // annotation updates below are checked against.
                 self.storage
                     .create(&content_key, &c)
                     .await
                     .with_context(|| {
                         format!("Failed to create VolumeSnapshotContent {content_name}")
-                    })?;
-                c
+                    })?
             }
         };
 
@@ -727,8 +929,7 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
     /// `createSnapshotWrapper` (`pkg/sidecar-controller/snapshot_controller.go:341`)
     /// and `csiHandler.CreateSnapshot` (`csi_handler.go:75`): returns the
     /// content with the driver's answer recorded in `status`
-    /// (`updateSnapshotContentStatus`, `:622`). Not ported: snapshotter
-    /// credentials, the BeingCreated annotation, topology.
+    /// (`updateSnapshotContentStatus`, `:622`). Not ported: topology.
     async fn create_snapshot_on_driver(
         &self,
         client: &CsiControllerClient,
@@ -753,17 +954,49 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
             );
         };
         let name = make_snapshot_name(r.uid.as_deref().unwrap_or(""))?;
-        let snap = client
+        // `getCSISnapshotInput` (`:229`): credentials from the annotation.
+        let secrets = self
+            .credentials_from_annotation(content)
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to get input parameters to create snapshot for content {}: {e:?}",
+                    content.metadata.name
+                )
+            })?;
+        // Leak protection: the annotation stays on the content if the request
+        // times out (`:351-359`).
+        let content = &self.set_being_created(content.clone()).await.map_err(|e| {
+            anyhow::anyhow!(
+                "failed to add VolumeSnapshotBeingCreated annotation on the content {}: {e:?}",
+                content.metadata.name
+            )
+        })?;
+        let snap = match client
             .create_snapshot(CreateSnapshotRequest {
                 source_volume_id: volume_handle.to_string(),
                 name,
                 parameters,
-                ..Default::default()
+                secrets,
             })
             .await
-            .map_err(|e| {
-                anyhow::anyhow!("failed to take snapshot of the volume {volume_handle}: \"{e}\"")
-            })?;
+        {
+            Ok(s) => s,
+            Err(e) => {
+                // A final error proves no snapshot is in progress.
+                if is_csi_final_error(&e) {
+                    self.remove_being_created(content.clone()).await.map_err(|re| {
+                        anyhow::anyhow!(
+                            "failed to remove VolumeSnapshotBeingCreated annotation from the content {}: {re}",
+                            content.metadata.name
+                        )
+                    })?;
+                }
+                return Err(anyhow::anyhow!(
+                    "failed to take snapshot of the volume {volume_handle}: \"{e}\""
+                ));
+            }
+        };
 
         // `if creationTime.IsZero() { creationTime = time.Now() }` (`:404`).
         let created_ns = snap
@@ -783,7 +1016,8 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
             error: None,
         });
         let key = build_key("volumesnapshotcontents", None, &content.metadata.name);
-        self.storage
+        let updated = self
+            .storage
             .update_status(&key, &updated)
             .await
             .with_context(|| {
@@ -791,7 +1025,14 @@ impl<S: Storage + 'static> VolumeSnapshotController<S> {
                     "error updating status for volume snapshot content {}",
                     content.metadata.name
                 )
-            })
+            })?;
+        // The storage system answered: the request is no longer in flight.
+        self.remove_being_created(updated).await.map_err(|e| {
+            anyhow::anyhow!(
+                "failed to remove VolumeSnapshotBeingCreated annotation on the content {}: {e}",
+                content.metadata.name
+            )
+        })
     }
 
     /// `updateContentErrorStatusWithEvent`: record the failure on
