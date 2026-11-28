@@ -3,9 +3,11 @@
 //! the fields the last-applied annotation does not excuse.
 
 use kubernetes_rs_common::fieldmanager::lastapplied::LAST_APPLIED_CONFIG_ANNOTATION;
+use kubernetes_rs_common::fieldmanager::schema::Type;
 use kubernetes_rs_common::fieldmanager::versionconverter::UpdateFailure;
 use kubernetes_rs_common::fieldmanager::{FieldManager, Managed, ResetFields};
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 fn deployment(
     replicas: i64,
@@ -159,4 +161,196 @@ fn last_applied_manager_unusable_annotation_keeps_conflicts() {
         let l = live(&original, Some(last));
         expect_conflicts(&l, &applied, "kubectl", &[REPLICAS]);
     }
+}
+
+// ---- TestServiceApply (:568), TestReplicationControllerApply (:679),
+// ---- TestPodApply (:742): core/v1 kinds through testConflicts (:920).
+
+/// `testConflicts` for one case: `original` is Updated by
+/// `test_client_side_apply` with itself as last-applied, then `applied` is
+/// applied by `manager`. `want == None` expects no error.
+fn core_case(original: Value, applied: Value, manager: &str, want: Option<&[&str]>) {
+    let kind = original["kind"].as_str().unwrap().to_string();
+    let f = FieldManager::new("v1", None, ResetFields::new()).with_schema(core_schema(&kind));
+    let mut obj = original.clone();
+    obj["metadata"]["annotations"] =
+        json!({ LAST_APPLIED_CONFIG_ANNOTATION: serde_json::to_string(&original).unwrap() });
+    let managed = f
+        .update_managed(
+            &json!({}),
+            &obj,
+            Managed::default(),
+            "test_client_side_apply",
+            true,
+        )
+        .unwrap();
+    obj["metadata"]["managedFields"] = serde_json::to_value(managed.encode().unwrap()).unwrap();
+    match want {
+        None => {
+            f.apply_value(Some(&obj), &applied, manager, false).unwrap();
+        }
+        Some(want) => {
+            let err = f
+                .apply_value(Some(&obj), &applied, manager, false)
+                .unwrap_err();
+            let mut want: Vec<&str> = want.to_vec();
+            want.sort();
+            assert_eq!(conflict_paths(err), want);
+            f.apply_value(Some(&obj), &applied, manager, true).unwrap();
+        }
+    }
+}
+
+/// The typed schema the upstream fake type converter (testdata OpenAPI)
+/// gives the kind: Service `ports` is a list map keyed by `port`+`protocol`
+/// (protocol defaults to TCP) and `selector` is an atomic map; RC `selector`
+/// is atomic; Pod `containers` is keyed by `name` and `nodeSelector` is an
+/// atomic map (`x-kubernetes-map-type: atomic`).
+fn core_schema(kind: &str) -> Option<Arc<Type>> {
+    let spec = match kind {
+        "Service" => json!({"type": "object", "properties": {
+            "ports": {"type": "array", "items": {"type": "object", "properties": {
+                "name": {"type": "string"}, "port": {"type": "integer"},
+                "protocol": {"type": "string", "default": "TCP"},
+                "targetPort": {"type": "integer"}}},
+                "x-kubernetes-list-type": "map",
+                "x-kubernetes-list-map-keys": ["port", "protocol"]},
+            "selector": {"type": "object", "additionalProperties": {"type": "string"},
+                         "x-kubernetes-map-type": "atomic"}}}),
+        "ReplicationController" => json!({"type": "object", "properties": {
+            "replicas": {"type": "integer"},
+            "selector": {"type": "object", "additionalProperties": {"type": "string"},
+                         "x-kubernetes-map-type": "atomic"}}}),
+        _ => json!({"type": "object", "properties": {
+            "containers": {"type": "array", "items": {"type": "object", "properties": {
+                "name": {"type": "string"}, "image": {"type": "string"},
+                "args": {"type": "array", "items": {"type": "string"}},
+                "command": {"type": "array", "items": {"type": "string"}}}},
+                "x-kubernetes-list-type": "map",
+                "x-kubernetes-list-map-keys": ["name"]},
+            "nodeName": {"type": "string"},
+            "nodeSelector": {"type": "object", "additionalProperties": {"type": "string"},
+                             "x-kubernetes-map-type": "atomic"}}}),
+    };
+    let schemas = json!({"Root": {"type": "object", "properties": {
+        "apiVersion": {"type": "string"}, "kind": {"type": "string"},
+        "metadata": {"type": "object"}, "spec": spec}}});
+    Type::from_openapi(schemas.as_object().unwrap(), "Root").map(Arc::new)
+}
+
+fn service(port_target: i64, selector: Value) -> Value {
+    json!({"apiVersion": "v1", "kind": "Service", "metadata": {"name": "test"},
+           "spec": {"ports": [{"name": "https", "port": 443, "protocol": "TCP",
+                               "targetPort": port_target}],
+                    "selector": selector}})
+}
+
+#[test]
+fn last_applied_manager_service_same_manager_accepts_all() {
+    core_case(
+        service(8443, json!({"old": "test"})),
+        service(8444, json!({"new": "test"})),
+        "kubectl",
+        None,
+    );
+}
+
+#[test]
+fn last_applied_manager_service_same_manager_may_remove_selector() {
+    core_case(
+        service(8443, json!({"old": "test"})),
+        service(8444, json!({})),
+        "kubectl",
+        None,
+    );
+}
+
+#[test]
+fn last_applied_manager_service_other_manager_conflicts() {
+    core_case(
+        service(8443, json!({"old": "test"})),
+        service(8444, json!({"new": "test"})),
+        "not_kubectl",
+        Some(&[
+            ".spec.selector",
+            ".spec.ports[port=443,protocol=\"TCP\"].targetPort",
+        ]),
+    );
+}
+
+fn rc(replicas: i64, selector: &str) -> Value {
+    json!({"apiVersion": "v1", "kind": "ReplicationController",
+           "metadata": {"name": "test"},
+           "spec": {"replicas": replicas, "selector": {selector: "test"}}})
+}
+
+#[test]
+fn last_applied_manager_replication_controller_same_manager_accepts_all() {
+    core_case(rc(0, "old"), rc(3, "new"), "kubectl", None);
+}
+
+#[test]
+fn last_applied_manager_replication_controller_other_manager_conflicts() {
+    core_case(
+        rc(0, "old"),
+        rc(3, "new"),
+        "not_kubectl",
+        Some(&[".spec.selector", ".spec.replicas"]),
+    );
+}
+
+fn pod(node_name: Option<&str>, selector: Value) -> Value {
+    let mut spec = json!({"containers": [{"args": ["-v=2"], "command": ["controller"],
+                                         "image": "some.registry/app:latest", "name": "doJob"}],
+                          "nodeSelector": selector});
+    if let Some(n) = node_name {
+        spec["nodeName"] = json!(n);
+    }
+    json!({"apiVersion": "v1", "kind": "Pod",
+           "metadata": {"name": "test", "namespace": "test"}, "spec": spec})
+}
+
+const MASTER: &str = "node-role.kubernetes.io/master";
+
+#[test]
+fn last_applied_manager_pod_same_manager_accepts_all() {
+    core_case(
+        pod(Some("definetlyControlPlane"), json!({MASTER: ""})),
+        pod(None, json!({"node-role.kubernetes.io/worker": ""})),
+        "kubectl",
+        None,
+    );
+}
+
+#[test]
+fn last_applied_manager_pod_other_manager_selector_conflicts() {
+    core_case(
+        pod(Some("definetlyControlPlane"), json!({MASTER: ""})),
+        pod(
+            Some("definetlyControlPlane"),
+            json!({MASTER: "", "otherNodeType": ""}),
+        ),
+        "not_kubectl",
+        Some(&[".spec.nodeSelector"]),
+    );
+}
+
+#[test]
+fn last_applied_manager_pod_other_manager_cannot_purge_selector() {
+    core_case(
+        pod(Some("definetlyControlPlane"), json!({MASTER: ""})),
+        pod(Some("another"), json!({})),
+        "not_kubectl",
+        Some(&[".spec.nodeSelector", ".spec.nodeName"]),
+    );
+}
+
+#[test]
+fn last_applied_manager_pod_same_manager_may_purge_selector() {
+    core_case(
+        pod(Some("definetlyControlPlane"), json!({MASTER: ""})),
+        pod(Some("another"), json!({})),
+        "kubectl",
+        None,
+    );
 }
