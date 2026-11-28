@@ -616,8 +616,10 @@ pub async fn skip_auth_middleware(
 
     // Honor inbound impersonation headers even in skip-auth mode so that
     // SubjectReview / SelfSubjectReview reflect the impersonated identity.
+    let impersonation_started = std::time::Instant::now();
     let (user, impersonator) =
         apply_impersonation(request.headers(), admin_user, &authorizer).await?;
+    filter_latency::track_impersonation_completed(&request, impersonation_started);
 
     // Insert AuthContext into request extensions
     request.extensions_mut().insert(AuthContext { user });
@@ -1139,7 +1141,10 @@ pub async fn auth_middleware(
             {
                 warn!("Rejecting service account token: {}", reason);
                 record_failure(true);
-                return Err(unauthorized(&request));
+                {
+                    filter_latency::track_failed(&request);
+                    return Err(unauthorized(&request));
+                }
             }
             let user_info = UserInfo::from_service_account_claims(&claims);
             debug!(
@@ -1161,12 +1166,18 @@ pub async fn auth_middleware(
         else {
             warn!("Invalid token");
             record_failure(false);
-            return Err(unauthorized(&request));
+            {
+                filter_latency::track_failed(&request);
+                return Err(unauthorized(&request));
+            }
         }
     } else if let Some(err) = authn_error {
         warn!("Rejecting request: {}", err);
         record_failure(true);
-        return Err(unauthorized(&request));
+        {
+            filter_latency::track_failed(&request);
+            return Err(unauthorized(&request));
+        }
     } else {
         // Anonymous user
         debug!("Anonymous request");
@@ -1196,7 +1207,9 @@ pub async fn auth_middleware(
     // Apply inbound impersonation headers. The authenticated caller must hold
     // the `impersonate` verb on each requested subject; on success the
     // effective user becomes the impersonated identity.
+    let impersonation_started = std::time::Instant::now();
     let (user, impersonator) = apply_impersonation(request.headers(), user, &authorizer).await?;
+    filter_latency::track_impersonation_completed(&request, impersonation_started);
 
     // Insert UserInfo into request extensions
     request.extensions_mut().insert(AuthContext { user });
