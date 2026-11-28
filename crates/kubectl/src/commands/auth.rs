@@ -1,3 +1,4 @@
+use crate::discovery::RestMapper;
 use crate::types::AuthCommands;
 use anyhow::{Context, Result};
 use kubernetes_rs_client::http::ApiClient;
@@ -28,16 +29,281 @@ pub struct ResourceAttributes {
     pub name: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct SelfSubjectAccessReviewStatus {
-    allowed: bool,
-    #[serde(default)]
-    reason: Option<String>,
+/// Verbs known for resource requests, upstream `resourceVerbs`
+/// (kubectl/pkg/cmd/auth/cani.go).
+const RESOURCE_VERBS: &[&str] = &[
+    "get",
+    "list",
+    "watch",
+    "create",
+    "update",
+    "patch",
+    "delete",
+    "deletecollection",
+    "use",
+    "bind",
+    "impersonate",
+    "*",
+    "approve",
+    "sign",
+    "escalate",
+    "attest",
+];
+
+/// Verbs known for non-resource URLs, upstream `nonResourceURLVerbs`.
+const NON_RESOURCE_URL_VERBS: &[&str] = &[
+    "get", "put", "post", "head", "options", "delete", "patch", "*",
+];
+
+/// Resources the server supports but discovery cannot list, upstream
+/// `nonStandardResourceNames`.
+const NON_STANDARD_RESOURCE_NAMES: &[&str] = &["users", "groups"];
+
+/// Group/version/resource triple, upstream `schema.GroupVersionResource`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Gvr {
+    pub group: String,
+    pub version: String,
+    pub resource: String,
 }
 
-#[derive(Deserialize)]
-struct SelfSubjectAccessReviewResponse {
-    status: SelfSubjectAccessReviewStatus,
+impl Gvr {
+    /// Whether the GVR is the zero value (`gvr == GroupVersionResource{}`).
+    pub fn is_zero(&self) -> bool {
+        self.group.is_empty() && self.version.is_empty() && self.resource.is_empty()
+    }
+}
+
+/// Options of `kubectl auth can-i`, upstream `CanIOptions` (cani.go).
+#[derive(Debug, Default)]
+pub struct CanIOptions {
+    pub all_namespaces: bool,
+    pub quiet: bool,
+    pub no_headers: bool,
+    pub list: bool,
+    pub namespace: String,
+    pub verb: String,
+    pub resource: Gvr,
+    pub non_resource_url: String,
+    pub subresource: String,
+    pub resource_name: String,
+    /// Warnings collected for stderr, each printed as `Warning: <msg>`.
+    pub warnings: Vec<String>,
+}
+
+/// `o.resourceFor` (cani.go): resolve a resource argument through the REST
+/// mapper, warning when the server does not know it.
+pub fn resource_for(mapper: &RestMapper, arg: &str, warnings: &mut Vec<String>) -> Gvr {
+    if arg == "*" {
+        return Gvr {
+            resource: arg.to_string(),
+            ..Default::default()
+        };
+    }
+    // schema.ParseResourceArg: "resource.version.group" or "resource.group".
+    let lower = arg.to_lowercase();
+    let (resource, group) = match lower.split_once('.') {
+        Some((r, g)) => (r.to_string(), g.to_string()),
+        None => (lower.clone(), String::new()),
+    };
+    let fully_specified = lower.splitn(3, '.').collect::<Vec<_>>();
+    let mut found = None;
+    if fully_specified.len() == 3 {
+        let (r, v, g) = (fully_specified[0], fully_specified[1], fully_specified[2]);
+        found = mapper
+            .resolve(r)
+            .filter(|m| m.group == g && (m.version == v))
+            .cloned();
+    }
+    if found.is_none() {
+        found = mapper
+            .resolve(&resource)
+            .filter(|m| group.is_empty() || m.group == group)
+            .cloned();
+    }
+    match found {
+        Some(m) => Gvr {
+            group: m.group,
+            version: m.version,
+            resource: m.plural,
+        },
+        None => {
+            let group_resource = if group.is_empty() {
+                resource.clone()
+            } else {
+                format!("{resource}.{group}")
+            };
+            if !NON_STANDARD_RESOURCE_NAMES.contains(&group_resource.as_str()) {
+                if group.is_empty() {
+                    warnings.push(format!(
+                        "the server doesn't have a resource type '{resource}'\n"
+                    ));
+                } else {
+                    warnings.push(format!(
+                        "the server doesn't have a resource type '{resource}' in group '{group}'\n"
+                    ));
+                }
+            }
+            Gvr {
+                resource: arg.to_string(),
+                ..Default::default()
+            }
+        }
+    }
+}
+
+impl CanIOptions {
+    /// `Complete` (cani.go) for the argument handling.
+    pub fn complete(
+        &mut self,
+        args: &[String],
+        default_namespace: &str,
+        mapper: Option<&RestMapper>,
+    ) -> Result<()> {
+        if self.list {
+            if !args.is_empty() {
+                anyhow::bail!("list option must be specified with no arguments");
+            }
+        } else {
+            if args.len() != 2 {
+                anyhow::bail!(
+                    "you must specify two arguments: verb resource or verb resource/resourceName.\nSee 'kubectl auth can-i -h' for help and examples."
+                );
+            }
+            self.verb = args[0].clone();
+            if args[1].starts_with('/') {
+                self.non_resource_url = args[1].clone();
+            } else {
+                let (resource, name) = match args[1].split_once('/') {
+                    Some((r, n)) => (r, Some(n)),
+                    None => (args[1].as_str(), None),
+                };
+                let empty = RestMapper::new(Vec::new());
+                self.resource =
+                    resource_for(mapper.unwrap_or(&empty), resource, &mut self.warnings);
+                if let Some(n) = name {
+                    self.resource_name = n.to_string();
+                }
+            }
+        }
+        self.namespace = if self.all_namespaces {
+            String::new()
+        } else {
+            default_namespace.to_string()
+        };
+        Ok(())
+    }
+
+    /// `Validate` (cani.go).
+    pub fn validate(&mut self, mapper: Option<&RestMapper>) -> Result<()> {
+        if self.list {
+            if self.quiet || self.all_namespaces || !self.subresource.is_empty() {
+                anyhow::bail!(
+                    "list option can't be specified with neither quiet, all-namespaces nor subresource options"
+                );
+            }
+            return Ok(());
+        }
+
+        if !self.non_resource_url.is_empty() {
+            if !self.subresource.is_empty() {
+                anyhow::bail!("--subresource can not be used with NonResourceURL");
+            }
+            if !self.resource.is_zero() || !self.resource_name.is_empty() {
+                anyhow::bail!("NonResourceURL and ResourceName can not specified together");
+            }
+            if !NON_RESOURCE_URL_VERBS.contains(&self.verb.as_str()) {
+                self.warnings
+                    .push(format!("verb '{}' is not a known verb\n", self.verb));
+            }
+        } else if !self.resource.is_zero() && !self.all_namespaces && mapper.is_some() {
+            // isNamespaced: "*" is namespaced; an unknown resource yields an
+            // error, which upstream ignores.
+            let namespaced = if self.resource.resource == "*" {
+                Some(true)
+            } else {
+                mapper
+                    .and_then(|m| m.resolve(&self.resource.resource))
+                    .filter(|m| m.group == self.resource.group)
+                    .map(|m| m.namespaced)
+            };
+            if namespaced == Some(false) {
+                if self.resource.group.is_empty() {
+                    self.warnings.push(format!(
+                        "resource '{}' is not namespace scoped\n",
+                        self.resource.resource
+                    ));
+                } else {
+                    self.warnings.push(format!(
+                        "resource '{}' is not namespace scoped in group '{}'\n",
+                        self.resource.resource, self.resource.group
+                    ));
+                }
+            }
+            if !RESOURCE_VERBS.contains(&self.verb.as_str()) {
+                self.warnings
+                    .push(format!("verb '{}' is not a known verb\n", self.verb));
+            }
+        }
+
+        if self.no_headers {
+            anyhow::bail!("--no-headers cannot be set without --list specified");
+        }
+        Ok(())
+    }
+
+    /// The `SelfSubjectAccessReview` that `RunAccessCheck` (cani.go) posts.
+    pub fn access_review(&self) -> Value {
+        let spec = if self.non_resource_url.is_empty() {
+            let mut attrs = serde_json::Map::new();
+            if !self.namespace.is_empty() {
+                attrs.insert("namespace".into(), json!(self.namespace));
+            }
+            attrs.insert("verb".into(), json!(self.verb));
+            for (k, v) in [
+                ("group", &self.resource.group),
+                ("resource", &self.resource.resource),
+                ("subresource", &self.subresource),
+                ("name", &self.resource_name),
+            ] {
+                if !v.is_empty() {
+                    attrs.insert(k.into(), json!(v));
+                }
+            }
+            json!({ "resourceAttributes": attrs })
+        } else {
+            json!({ "nonResourceAttributes": {
+                "verb": self.verb,
+                "path": self.non_resource_url,
+            }})
+        };
+        json!({
+            "apiVersion": "authorization.k8s.io/v1",
+            "kind": "SelfSubjectAccessReview",
+            "spec": spec,
+        })
+    }
+}
+
+/// Text printed by `RunAccessCheck` (cani.go) for a review result.
+pub fn format_access_result(status: &Value) -> String {
+    if status
+        .get("allowed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return "yes\n".to_string();
+    }
+    let mut out = String::from("no");
+    for key in ["reason", "evaluationError"] {
+        if let Some(v) = status.get(key).and_then(Value::as_str) {
+            if !v.is_empty() {
+                out.push_str(&format!(" - {v}"));
+            }
+        }
+    }
+    out.push('\n');
+    out
 }
 
 /// Execute auth commands
@@ -48,54 +314,53 @@ pub async fn execute(
 ) -> Result<()> {
     match command {
         AuthCommands::CanI {
-            verb,
-            resource,
-            name,
+            args,
             namespace,
             all_namespaces,
+            quiet,
+            subresource,
+            list,
+            no_headers,
         } => {
-            let ns = if all_namespaces {
+            let mut o = CanIOptions {
+                all_namespaces,
+                quiet,
+                no_headers,
+                list,
+                subresource,
+                ..Default::default()
+            };
+            let ns = namespace.as_deref().unwrap_or(default_namespace);
+            let mapper = if list {
                 None
             } else {
-                Some(
-                    namespace
-                        .as_deref()
-                        .unwrap_or(default_namespace)
-                        .to_string(),
-                )
+                RestMapper::from_server(client).await.ok()
             };
-
-            let review = SelfSubjectAccessReview {
-                api_version: "authorization.k8s.io/v1".to_string(),
-                kind: "SelfSubjectAccessReview".to_string(),
-                spec: SelfSubjectAccessReviewSpec {
-                    resource_attributes: Some(ResourceAttributes {
-                        namespace: ns,
-                        verb,
-                        resource,
-                        name,
-                    }),
-                },
-            };
-
-            let response: SelfSubjectAccessReviewResponse = client
+            o.complete(&args, ns, mapper.as_ref())?;
+            o.validate(mapper.as_ref())?;
+            for w in &o.warnings {
+                eprintln!("Warning: {w}");
+            }
+            if o.list {
+                anyhow::bail!("--list is not supported yet");
+            }
+            let response: Value = client
                 .post(
                     "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
-                    &review,
+                    &o.access_review(),
                 )
                 .await
                 .context("Failed to check authorization")?;
-
-            if response.status.allowed {
-                println!("yes");
-                if let Some(reason) = response.status.reason {
-                    println!("Reason: {}", reason);
-                }
-            } else {
-                println!("no");
-                if let Some(reason) = response.status.reason {
-                    println!("Reason: {}", reason);
-                }
+            let status = response.get("status").cloned().unwrap_or(Value::Null);
+            if !o.quiet {
+                print!("{}", format_access_result(&status));
+            }
+            if !status
+                .get("allowed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                std::process::exit(1);
             }
         }
         AuthCommands::Whoami { output } => {
