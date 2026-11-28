@@ -1,3 +1,4 @@
+pub mod core_a;
 pub mod events;
 
 use anyhow::Result;
