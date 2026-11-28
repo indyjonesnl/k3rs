@@ -434,7 +434,7 @@ mod tests {
         for kind in ["namespace", "ns"] {
             let args = vec![kind.to_string(), "test-ns".to_string()];
             match inline_to_subcommand(&args).unwrap() {
-                CreateCommands::Namespace { name } => assert_eq!(name, "test-ns"),
+                CreateCommands::Namespace { name, .. } => assert_eq!(name, "test-ns"),
                 _ => panic!("expected Namespace subcommand"),
             }
         }
