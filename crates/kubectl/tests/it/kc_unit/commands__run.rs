@@ -138,3 +138,142 @@ mod tests {
         assert_eq!(query, "/api/v1/namespaces/default/pods?dryRun=All");
     }
 }
+
+/// Ports of `pkg/generate/versioned/run_test.go` / `pkg/cmd/run/run_test.go`
+/// behaviours for the pod generator.
+mod run_generator {
+    use kubernetes_rs_kubectl::commands::run::*;
+    use serde_json::json;
+
+    fn base() -> RunPodParams {
+        RunPodParams {
+            name: "foo".into(),
+            image: "nginx".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn run_generate_pod_defaults() {
+        let pod = generate_pod(&base()).unwrap();
+        assert_eq!(pod["metadata"]["labels"], json!({"run": "foo"}));
+        assert_eq!(pod["spec"]["restartPolicy"], "Always");
+        assert_eq!(pod["spec"]["dnsPolicy"], "ClusterFirst");
+        assert_eq!(pod["spec"]["containers"][0]["name"], "foo");
+    }
+
+    // getLabels: explicit labels REPLACE the default run=<name>.
+    #[test]
+    fn run_labels_replace_default() {
+        let mut p = base();
+        p.labels = Some("a=b,c=d".into());
+        let pod = generate_pod(&p).unwrap();
+        assert_eq!(pod["metadata"]["labels"], json!({"a": "b", "c": "d"}));
+        p.labels = Some("a".into());
+        assert_eq!(
+            generate_pod(&p).unwrap_err().to_string(),
+            "unexpected label spec: a"
+        );
+        p.labels = Some("=b".into());
+        assert_eq!(
+            generate_pod(&p).unwrap_err().to_string(),
+            "unexpected empty label key"
+        );
+    }
+
+    #[test]
+    fn run_env_validation_and_value_with_equals() {
+        let mut p = base();
+        p.env = vec!["A=b=c".into()];
+        let pod = generate_pod(&p).unwrap();
+        assert_eq!(
+            pod["spec"]["containers"][0]["env"],
+            json!([{"name":"A","value":"b=c"}])
+        );
+        for bad in ["noequals", "=v", "1A=v"] {
+            p.env = vec![bad.into()];
+            assert_eq!(
+                generate_pod(&p).unwrap_err().to_string(),
+                format!("invalid env: {bad}")
+            );
+        }
+    }
+
+    #[test]
+    fn run_annotations_pairs() {
+        let mut p = base();
+        p.annotations = vec!["k=v".into()];
+        assert_eq!(
+            generate_pod(&p).unwrap()["metadata"]["annotations"],
+            json!({"k":"v"})
+        );
+        p.annotations = vec!["k".into(), "=x".into()];
+        assert_eq!(
+            generate_pod(&p).unwrap_err().to_string(),
+            "invalid annotations format: k, =x"
+        );
+    }
+
+    #[test]
+    fn run_restart_policy_and_pull_policy_validation() {
+        assert_eq!(get_restart_policy("", false).unwrap(), "Always");
+        assert_eq!(get_restart_policy("", true).unwrap(), "OnFailure");
+        assert_eq!(get_restart_policy("Never", false).unwrap(), "Never");
+        assert_eq!(
+            get_restart_policy("bogus", false).unwrap_err().to_string(),
+            "invalid restart policy: bogus"
+        );
+        assert!(verify_image_pull_policy("IfNotPresent").is_ok());
+        assert_eq!(
+            verify_image_pull_policy("x").unwrap_err().to_string(),
+            "invalid image pull policy: x"
+        );
+    }
+
+    #[test]
+    fn run_validate_requires_image_and_stdin_for_tty() {
+        let mut p = base();
+        p.image = String::new();
+        assert_eq!(
+            validate_run(&p).unwrap_err().to_string(),
+            "--image is required"
+        );
+        p.image = "nginx".into();
+        p.tty = true;
+        assert_eq!(
+            validate_run(&p).unwrap_err().to_string(),
+            "-i/--stdin is required for containers with -t/--tty=true"
+        );
+    }
+
+    #[test]
+    fn run_privileged_pullpolicy_port_command() {
+        let mut p = base();
+        p.privileged = true;
+        p.image_pull_policy = "Never".into();
+        p.port = Some(80);
+        p.command = true;
+        p.args = vec!["sleep".into(), "1".into()];
+        let c = &generate_pod(&p).unwrap()["spec"]["containers"][0];
+        assert_eq!(c["securityContext"], json!({"privileged": true}));
+        assert_eq!(c["imagePullPolicy"], "Never");
+        assert_eq!(c["ports"], json!([{"containerPort": 80}]));
+        assert_eq!(c["command"], json!(["sleep", "1"]));
+        assert!(c.get("args").is_none());
+    }
+
+    #[test]
+    fn run_resource_requirements() {
+        let mut p = base();
+        p.limits = "cpu=1,memory=1Gi".into();
+        p.requests = "cpu=500m".into();
+        let r = &generate_pod(&p).unwrap()["spec"]["containers"][0]["resources"];
+        assert_eq!(r["limits"]["memory"], "1Gi");
+        assert_eq!(r["requests"]["cpu"], "500m");
+        p.limits = "cpu".into();
+        assert_eq!(
+            generate_pod(&p).unwrap_err().to_string(),
+            "Invalid argument syntax cpu, expected <resource>=<value>"
+        );
+    }
+}
