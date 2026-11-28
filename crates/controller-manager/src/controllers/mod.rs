@@ -37,6 +37,7 @@ pub mod expectations;
 pub mod garbage_collector;
 pub mod gc_graph;
 pub mod gc_monitors;
+pub mod gc_workers;
 pub mod hpa;
 pub mod hpa_behavior;
 pub mod hpa_metrics_client;
