@@ -13,6 +13,7 @@ pub mod serve_metrics;
 pub mod service_health;
 pub mod service_map;
 pub mod svc_maps;
+pub mod topology;
 
 use futures::StreamExt;
 use kubernetes_rs_client::http::ApiClient;

@@ -8,6 +8,7 @@
 //! below. A stray `tests/<name>.rs` still compiles -- it just silently
 //! reintroduces a separate binary, which is what this layout avoids.
 mod bounded_frequency_runner;
+mod categorize_endpoints;
 mod configz_registry;
 mod conformance_network_dns;
 mod conformance_network_endpointslices_dns_headless;
