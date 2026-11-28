@@ -142,6 +142,67 @@ mod tests {
         );
     }
 
+    /// signer.go `handle`: a CSR for a signerName without a built-in signing
+    /// controller (custom or unknown kubernetes.io name) is never signed or
+    /// failed by us.
+    #[tokio::test]
+    async fn csr_signing_ignores_signers_without_a_controller() {
+        for signer in ["example.com/foo", "kubernetes.io/unknown-thing"] {
+            let (ca, request_b64) = ca_and_request("system:node:n1");
+            let storage = Arc::new(MemoryStorage::new());
+            let controller = CertificateSigningRequestController::new(storage.clone())
+                .with_certificate_authority(ca);
+            let mut csr = approved_csr("custom", request_b64);
+            csr.spec.signer_name = signer.to_string();
+            let key = "/registry/certificatesigningrequests/custom";
+            storage.create(key, &csr).await.unwrap();
+
+            controller.reconcile_csr(&csr).await.unwrap();
+
+            let after: CertificateSigningRequest = storage.get(key).await.unwrap();
+            let st = after.status.unwrap();
+            assert!(st.certificate.is_none(), "{signer} must stay unsigned");
+            assert_eq!(st.conditions.unwrap().len(), 1, "{signer}: no Failed added");
+        }
+    }
+
+    /// signer.go `handle` :174-190: a request failing the signer's verification
+    /// stays unsigned and gets Failed / SignerValidationFailure (fail closed).
+    #[tokio::test]
+    async fn csr_signing_validation_failure_marks_failed_and_does_not_sign() {
+        let (ca, request_b64) = ca_and_request("not-a-node");
+        let storage = Arc::new(MemoryStorage::new());
+        let controller = CertificateSigningRequestController::new(storage.clone())
+            .with_certificate_authority(ca);
+        let mut csr = approved_csr("bad-serving", request_b64);
+        csr.spec.signer_name = "kubernetes.io/kubelet-serving".to_string();
+        csr.spec.usages = vec![
+            KeyUsage::DigitalSignature,
+            KeyUsage::KeyEncipherment,
+            KeyUsage::ServerAuth,
+        ];
+        let key = "/registry/certificatesigningrequests/bad-serving";
+        storage.create(key, &csr).await.unwrap();
+
+        controller.reconcile_csr(&csr).await.unwrap();
+
+        let after: CertificateSigningRequest = storage.get(key).await.unwrap();
+        let st = after.status.unwrap();
+        assert!(st.certificate.is_none());
+        let failed = st
+            .conditions
+            .unwrap()
+            .into_iter()
+            .find(|c| c.type_ == "Failed")
+            .expect("Failed condition");
+        assert_eq!(failed.status, "True");
+        assert_eq!(failed.reason.as_deref(), Some("SignerValidationFailure"));
+        assert_eq!(
+            failed.message.as_deref(),
+            Some("subject organization is not system:nodes")
+        );
+    }
+
     #[tokio::test]
     async fn reconcile_leaves_certificate_empty_when_no_ca_configured() {
         // Without a configured signer the controller must not invent a cert —
