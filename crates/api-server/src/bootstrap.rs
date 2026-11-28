@@ -2100,17 +2100,35 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<()>>,
 {
-    let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        match attempt().await {
-            Ok(()) => return Ok(()),
-            Err(e) if tokio::time::Instant::now() >= deadline => {
-                return Err(anyhow::anyhow!("{prefix}: {e}"))
+    // `wait.Poll(interval, timeout, cond)`: a non-immediate poll whose
+    // condition logs a failure and returns `(false, nil)` so it is retried. The
+    // caller's error is `wait.ErrWaitTimeout` ("timed out waiting for the
+    // condition"), not the last failure (storage_scheduling.go:104-143,
+    // storage_rbac.go:162-179).
+    use kubernetes_rs_common::wait::{poll, WaitError};
+    poll::<std::convert::Infallible, _>(
+        std::future::pending::<()>(),
+        false,
+        interval,
+        timeout,
+        || {
+            let fut = attempt();
+            async move {
+                match fut.await {
+                    Ok(()) => Ok(true),
+                    Err(e) => {
+                        warn!("unable to create system priority classes: {e}. Retrying...");
+                        Ok(false)
+                    }
+                }
             }
-            Err(e) => warn!("unable to create system priority classes: {e}. Retrying..."),
-        }
-        tokio::time::sleep(interval).await;
-    }
+        },
+    )
+    .await
+    .map_err(|e| match e {
+        WaitError::WaitTimeout => anyhow::anyhow!("{prefix}: timed out waiting for the condition"),
+        other => anyhow::anyhow!("{prefix}: {other:?}"),
+    })
 }
 
 /// The `scheduling/bootstrap-system-priority-classes` PostStartHook

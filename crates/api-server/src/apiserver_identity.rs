@@ -224,13 +224,18 @@ impl LeaseController {
         }
     }
 
-    /// `Run`: `wait.JitterUntilWithContext(ctx, c.sync, renewInterval, 0.04, true)`.
-    pub async fn run(mut self) {
-        loop {
-            self.sync(Utc::now).await;
-            let jitter = 1.0 + rand::random::<f64>() * 0.04;
-            tokio::time::sleep(IDENTITY_LEASE_RENEW_INTERVAL.mul_f64(jitter)).await;
-        }
+    /// `Run`: `wait.JitterUntilWithContext(ctx, c.sync, renewInterval, 0.04, true)`
+    /// (controller.go:140-146); the context is never cancelled here.
+    pub async fn run(self) {
+        let this = tokio::sync::Mutex::new(self);
+        kubernetes_rs_common::wait::jitter_until(
+            || async { this.lock().await.sync(Utc::now).await },
+            IDENTITY_LEASE_RENEW_INTERVAL,
+            0.04,
+            true,
+            std::future::pending::<()>(),
+        )
+        .await
     }
 }
 

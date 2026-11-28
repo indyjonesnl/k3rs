@@ -138,27 +138,27 @@ pub const COUNT_METRIC_POLL_PERIOD: Duration = Duration::from_secs(60);
 /// `resourceCountPollPeriodJitter` (store.go:263).
 const RESOURCE_COUNT_POLL_PERIOD_JITTER: f64 = 1.2;
 
-/// `wait.JitterUntil(f, period, 1.2, sliding=true, stopCh)`: runs `f`
-/// immediately, then after `period + rand*1.2*period`, until stopped.
+/// `wait.JitterUntil(f, period, 1.2, sliding=true, stopCh)` (store.go:263):
+/// runs `f` immediately, then after `period + rand*1.2*period`, until stopped.
 pub async fn run<S: Storage>(
     storage: Arc<S>,
     tracker: Arc<ObjectCountTracker>,
     period: Duration,
     mut stop: tokio::sync::watch::Receiver<bool>,
 ) {
-    loop {
-        if *stop.borrow() {
-            return;
-        }
-        poll_once(storage.as_ref(), &tracker).await;
-        let wait = period.mul_f64(1.0 + rand::random::<f64>() * RESOURCE_COUNT_POLL_PERIOD_JITTER);
-        tokio::select! {
-            _ = tokio::time::sleep(wait) => {}
-            r = stop.changed() => {
-                if r.is_err() || *stop.borrow() {
-                    return;
-                }
+    let stopped = async move {
+        loop {
+            if *stop.borrow() || stop.changed().await.is_err() {
+                return;
             }
         }
-    }
+    };
+    kubernetes_rs_common::wait::jitter_until(
+        || poll_once(storage.as_ref(), &tracker),
+        period,
+        RESOURCE_COUNT_POLL_PERIOD_JITTER,
+        true,
+        stopped,
+    )
+    .await
 }
