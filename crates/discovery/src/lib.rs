@@ -116,6 +116,28 @@ fn wants_aggregated_discovery(headers: &HeaderMap) -> bool {
     aggregated_discovery_version(headers).is_some()
 }
 
+/// Serve an `APIGroupDiscoveryList` with the ETag / `Vary: Accept` /
+/// `Cache-Control: public` headers and `If-None-Match` -> 304.
+///
+/// Port of `ServeHTTPWithETag` over `calculateETag(resources)`
+/// (apiserver/pkg/endpoints/discovery/aggregated/handler.go `ServeHTTP`,
+/// etag.go:41-97): the tag hashes the group list, here its `items`.
+fn serve_aggregated_discovery(
+    headers: &HeaderMap,
+    discovery: &serde_json::Value,
+    content_type: String,
+) -> Response {
+    let hash = etag::calculate_etag(&discovery["items"]).unwrap_or_default();
+    etag::serve_with_etag(&hash, headers, || {
+        let json_bytes = serde_json::to_vec(discovery).unwrap_or_default();
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type)
+            .body(Body::from(json_bytes))
+            .unwrap()
+    })
+}
+
 /// GET /api
 /// Returns the list of API versions available at /api/v1
 pub async fn get_core_api(headers: HeaderMap) -> Response {
@@ -146,12 +168,7 @@ pub async fn get_core_api(headers: HeaderMap) -> Response {
             "application/json;g=apidiscovery.k8s.io;v={};as=APIGroupDiscoveryList",
             disc_version
         );
-        let json_bytes = serde_json::to_vec(&discovery).unwrap_or_default();
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, ct)
-            .body(Body::from(json_bytes))
-            .unwrap();
+        return serve_aggregated_discovery(&headers, &discovery, ct);
     }
 
     let api_versions = APIVersions {
@@ -478,12 +495,7 @@ pub async fn get_api_groups(
             "application/json;g=apidiscovery.k8s.io;v={};as=APIGroupDiscoveryList",
             disc_version
         );
-        let json_bytes = serde_json::to_vec(&discovery).unwrap_or_default();
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, ct)
-            .body(Body::from(json_bytes))
-            .unwrap();
+        return serve_aggregated_discovery(&headers, &discovery, ct);
     }
 
     let mut groups = vec![
@@ -6277,6 +6289,60 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `TestBasicResponse` / `TestEtagConsistency` at the handler: aggregated
+    /// discovery carries ETag + `Vary: Accept` + `Cache-Control: public`, and
+    /// replaying the tag in `If-None-Match` answers 304.
+    #[tokio::test]
+    async fn discovery_etag_core_api_200_then_304() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "accept",
+            HeaderValue::from_static(
+                "application/json;g=apidiscovery.k8s.io;v=v2;as=APIGroupDiscoveryList",
+            ),
+        );
+        let first = get_core_api(headers.clone()).await;
+        assert_eq!(first.status(), StatusCode::OK);
+        let etag = first.headers()[header::ETAG].to_str().unwrap().to_string();
+        assert!(etag.starts_with('"') && etag.ends_with('"') && etag.len() == 130);
+        assert_eq!(first.headers()[header::VARY], "Accept");
+        assert_eq!(first.headers()[header::CACHE_CONTROL], "public");
+
+        // Deterministic across requests.
+        let again = get_core_api(headers.clone()).await;
+        assert_eq!(again.headers()[header::ETAG].to_str().unwrap(), etag);
+
+        headers.insert(header::IF_NONE_MATCH, HeaderValue::from_str(&etag).unwrap());
+        let replay = get_core_api(headers).await;
+        assert_eq!(replay.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(replay.headers()[header::ETAG].to_str().unwrap(), etag);
+        let body = axum::body::to_bytes(replay.into_body(), 1024)
+            .await
+            .unwrap();
+        assert!(body.is_empty());
+    }
+
+    #[tokio::test]
+    async fn discovery_etag_apis_200_then_304_and_plain_json_has_no_etag() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "accept",
+            HeaderValue::from_static(
+                "application/json;g=apidiscovery.k8s.io;v=v2;as=APIGroupDiscoveryList",
+            ),
+        );
+        let first = get_api_groups(None, headers.clone()).await;
+        assert_eq!(first.status(), StatusCode::OK);
+        let etag = first.headers()[header::ETAG].to_str().unwrap().to_string();
+        headers.insert(header::IF_NONE_MATCH, HeaderValue::from_str(&etag).unwrap());
+        let replay = get_api_groups(None, headers).await;
+        assert_eq!(replay.status(), StatusCode::NOT_MODIFIED);
+
+        // The legacy (non-aggregated) response is untouched.
+        let plain = get_api_groups(None, HeaderMap::new()).await;
+        assert!(plain.headers().get(header::ETAG).is_none());
     }
 
     #[tokio::test]
