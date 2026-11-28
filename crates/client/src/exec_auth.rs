@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
@@ -316,6 +316,73 @@ pub struct Authenticator {
     stdin_unavailable: bool,
     stdin_unavailable_message: String,
     is_terminal: Box<dyn Fn() -> bool + Send + Sync>,
+    /// `now` (stubbable for testing).
+    now: Box<dyn Fn() -> DateTime<Utc> + Send + Sync>,
+    /// `mu`, `cachedCreds`, `exp`: the mutex also guards calling the plugin,
+    /// so an interactive plugin is only run once at a time.
+    state: Mutex<CredsState>,
+}
+
+/// `credentials` (exec.go:243): what the last plugin run produced.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Credentials {
+    pub token: String,
+    /// The parsed client certificate/key pair, if the plugin returned one.
+    pub cert: Option<ClientCert>,
+}
+
+/// `tls.Certificate` with `Leaf` populated.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ClientCert {
+    pub certificate_pem: String,
+    pub key_pem: String,
+    /// Leaf `NotBefore` / `NotAfter`.
+    pub not_before: DateTime<Utc>,
+    pub not_after: DateTime<Utc>,
+}
+
+#[derive(Default)]
+struct CredsState {
+    cached: Option<Arc<Credentials>>,
+    exp: Option<DateTime<Utc>>,
+    /// How many times a rotated client certificate replaced another one
+    /// (`connTracker.CloseAll()` is called on each; the wiring that owns the
+    /// connections closes them when this changes).
+    cert_rotations: u64,
+}
+
+/// `tls.X509KeyPair` followed by `x509.ParseCertificate(cert.Certificate[0])`
+/// (exec.go:508-525).
+fn parse_client_cert(cert_pem: &str, key_pem: &str) -> Result<ClientCert, String> {
+    let fail = |e: String| format!("failed parsing client key/certificate: {e}");
+    let certs = rustls_pemfile::certs(&mut cert_pem.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| fail(e.to_string()))?;
+    if certs.is_empty() {
+        return Err(fail(
+            "tls: failed to find any PEM data in certificate input".into(),
+        ));
+    }
+    let key = rustls_pemfile::private_key(&mut key_pem.as_bytes())
+        .map_err(|e| fail(e.to_string()))?
+        .ok_or_else(|| fail("tls: failed to find any PEM data in key input".into()))?;
+    let signer = rustls::crypto::aws_lc_rs::sign::any_supported_type(&key)
+        .map_err(|e| fail(format!("tls: failed to parse private key: {e}")))?;
+    // X509KeyPair also rejects a key that does not match the certificate.
+    rustls::sign::CertifiedKey::new(certs.clone(), signer)
+        .keys_match()
+        .map_err(|_| fail("tls: private key does not match public key".into()))?;
+    let (_, leaf) = x509_parser::parse_x509_certificate(certs[0].as_ref())
+        .map_err(|e| format!("failed parsing client leaf certificate: {e}"))?;
+    let ts = |t: x509_parser::time::ASN1Time| {
+        DateTime::<Utc>::from_timestamp(t.timestamp(), 0).unwrap_or_default()
+    };
+    Ok(ClientCert {
+        certificate_pem: cert_pem.to_string(),
+        key_pem: key_pem.to_string(),
+        not_before: ts(leaf.validity().not_before),
+        not_after: ts(leaf.validity().not_after),
+    })
 }
 
 impl Authenticator {
@@ -368,6 +435,8 @@ impl Authenticator {
             stdin_unavailable: config.stdin_unavailable,
             stdin_unavailable_message: config.stdin_unavailable_message.clone(),
             is_terminal,
+            now: Box::new(Utc::now),
+            state: Mutex::new(CredsState::default()),
         })
     }
 
@@ -594,5 +663,89 @@ impl Authenticator {
             client_key_data: status.client_key_data,
             expiration,
         })
+    }
+
+    /// Stub the clock (`Authenticator.now`).
+    pub fn with_now(mut self, now: Box<dyn Fn() -> DateTime<Utc> + Send + Sync>) -> Self {
+        self.now = now;
+        self
+    }
+
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, CredsState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// `credsExpired` (exec.go:386): the zero time never expires.
+    fn creds_expired(&self, exp: Option<DateTime<Utc>>) -> bool {
+        match exp {
+            None => false,
+            Some(e) => (self.now)() > e,
+        }
+    }
+
+    /// `getCreds` (exec.go:401): the cached credentials unless expired,
+    /// otherwise run the plugin. Blocking, like `refresh_creds`.
+    pub fn get_creds(&self) -> Result<Arc<Credentials>, String> {
+        let mut st = self.lock_state();
+        if let Some(c) = &st.cached {
+            if !self.creds_expired(st.exp) {
+                return Ok(c.clone());
+            }
+        }
+        self.refresh_creds_locked(&mut st)?;
+        Ok(st.cached.clone().expect("set by refresh_creds_locked"))
+    }
+
+    /// `cert` (exec.go:393): the client certificate of the current credentials.
+    pub fn cert(&self) -> Result<Option<Arc<Credentials>>, String> {
+        let c = self.get_creds()?;
+        Ok(c.cert.is_some().then_some(c))
+    }
+
+    /// `maybeRefreshCreds` (exec.go:418): force a rotation after a 401 unless
+    /// `creds` (pointer identity, as upstream) were already replaced.
+    pub fn maybe_refresh_creds(&self, creds: &Arc<Credentials>) -> Result<(), String> {
+        let mut st = self.lock_state();
+        match &st.cached {
+            Some(c) if Arc::ptr_eq(c, creds) => {}
+            // Credentials already rotated.
+            _ => return Ok(()),
+        }
+        self.refresh_creds_locked(&mut st)
+    }
+
+    /// Number of client-certificate rotations seen so far (each is a
+    /// `connTracker.CloseAll()` upstream).
+    pub fn cert_rotations(&self) -> u64 {
+        self.lock_state().cert_rotations
+    }
+
+    /// `refreshCredsLocked` (exec.go:434-542) tail: run the plugin, validate
+    /// the pair, replace the cache, set `exp`.
+    fn refresh_creds_locked(&self, st: &mut CredsState) -> Result<(), String> {
+        let status = self.refresh_creds()?;
+        // a.exp = cred.Status.ExpirationTimestamp (zero time when absent)
+        st.exp = status.expiration;
+        let cert =
+            if !status.client_key_data.is_empty() && !status.client_certificate_data.is_empty() {
+                Some(parse_client_cert(
+                    &status.client_certificate_data,
+                    &status.client_key_data,
+                )?)
+            } else {
+                None
+            };
+        let new = Arc::new(Credentials {
+            token: status.token,
+            cert,
+        });
+        // Only count a rotation when the TLS cert changed, not for tokens.
+        if let Some(old) = &st.cached {
+            if old.cert != new.cert {
+                st.cert_rotations += 1;
+            }
+        }
+        st.cached = Some(new);
+        Ok(())
     }
 }
