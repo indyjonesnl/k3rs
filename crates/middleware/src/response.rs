@@ -334,9 +334,12 @@ pub fn encode_native(json: &[u8], api_version: &str, kind: &str) -> Option<Vec<u
 }
 
 /// Build a K8s `runtime.Unknown` envelope around an already-encoded native
-/// protobuf payload. Mirrors [`wrap_json_in_protobuf_envelope`] but advertises
-/// `Unknown.contentType = application/vnd.kubernetes.protobuf` so
-/// Unknown-aware decoders know the body is native proto, not JSON.
+/// protobuf payload. Mirrors [`wrap_json_in_protobuf_envelope`], but
+/// `Unknown.contentType` and `contentEncoding` stay empty, as upstream's
+/// `Serializer.doEncode` leaves them
+/// (apimachinery/pkg/runtime/serializer/protobuf/protobuf.go:200-236): a
+/// non-empty `contentType` marks `raw` as something other than native
+/// protobuf for Unknown-aware decoders.
 pub fn wrap_native_proto_in_envelope(raw: &[u8], api_version: &str, kind: &str) -> Vec<u8> {
     use kubernetes_rs_common::protobuf::{Unknown, UnknownTypeMeta};
 
@@ -347,11 +350,8 @@ pub fn wrap_native_proto_in_envelope(raw: &[u8], api_version: &str, kind: &str) 
         }),
         raw: raw.to_vec(),
         content_encoding: String::new(),
-        // Empty contentType is what real K8s emits when `raw` is native
-        // proto — see `staging/src/k8s.io/apimachinery/pkg/runtime/serializer/protobuf`.
-        // client-go's typed proto path never reads this field anyway, but
-        // setting it to the proto media type is explicit and harmless.
-        content_type: "application/vnd.kubernetes.protobuf".to_string(),
+        // protobuf.go:210-236 `doEncode`: ContentType/ContentEncoding are not set.
+        content_type: String::new(),
     };
 
     use prost::Message;

@@ -104,8 +104,8 @@ mod tests {
         let out = encode_native_or_wrapped(scale, "autoscaling/v1", "Scale");
         let ct = envelope_content_type(&out);
         assert_eq!(
-            ct, "application/vnd.kubernetes.protobuf",
-            "Scale must encode as NATIVE protobuf (the scale client rejects the JSON fallback); got contentType={ct}"
+            ct, "",
+            "Scale must encode as NATIVE protobuf with an empty Unknown.contentType (protobuf.go:200-236); got contentType={ct}"
         );
         // The raw must NOT contain the JSON key "replicas" — native proto carries
         // field numbers, not JSON keys.
@@ -113,6 +113,33 @@ mod tests {
             !String::from_utf8_lossy(&out).contains("\"replicas\""),
             "native raw should not contain JSON keys"
         );
+    }
+
+    #[test]
+    fn native_envelope_keeps_content_type_and_encoding_empty() {
+        // protobuf.go:200-236 `doEncode`: only typeMeta and raw are set.
+        let out = wrap_native_proto_in_envelope(&[0x0a, 0x01, b'x'], "v1", "Pod");
+        assert!(out.starts_with(b"k8s\0"));
+        use prost::Message;
+        let u = kubernetes_rs_common::protobuf::Unknown::decode(&out[4..]).unwrap();
+        assert_eq!(u.content_type, "");
+        assert_eq!(u.content_encoding, "");
+        assert_eq!(u.raw, vec![0x0a, 0x01, b'x']);
+        let tm = u.type_meta.unwrap();
+        assert_eq!((tm.api_version.as_str(), tm.kind.as_str()), ("v1", "Pod"));
+    }
+
+    #[test]
+    fn native_envelope_is_none_for_an_unregistered_kind() {
+        // errNotMarshalable (protobuf.go:50-62): callers must not wrap JSON
+        // in a protobuf envelope; they answer JSON under a JSON Content-Type.
+        let body = br#"{"apiVersion":"example.com/v1","kind":"DefinitelyNotRegistered"}"#;
+        assert!(kubernetes_rs_middleware::response::encode_native(
+            body,
+            "example.com/v1",
+            "DefinitelyNotRegistered"
+        )
+        .is_none());
     }
 
     #[test]
