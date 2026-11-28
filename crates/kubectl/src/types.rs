@@ -1,5 +1,56 @@
 use clap::Subcommand;
 
+/// The flags every `kubectl create <subcommand>` carries
+/// (`staging/src/k8s.io/kubectl/pkg/cmd/create/create_subcommand.go`
+/// `CreateSubcommandOptions`, `cmdutil.AddDryRunFlag`, `AddValidateFlags`,
+/// `AddFieldManagerFlagVar`, `PrintFlags.AddFlags`).
+#[derive(clap::Args, Debug, Clone)]
+pub struct CreateFlags {
+    /// Must be "none", "server", or "client". If client strategy, only print
+    /// the object that would be sent, without sending it. If server strategy,
+    /// submit server-side request without persisting the resource.
+    #[arg(
+        long,
+        num_args = 0..=1,
+        require_equals = true,
+        default_value = "none",
+        default_missing_value = "unchanged"
+    )]
+    pub dry_run: String,
+    /// Output format. One of: (json, yaml, name).
+    #[arg(short = 'o', long)]
+    pub output: Option<String>,
+    /// If true, the configuration of current object will be saved in its
+    /// annotation.
+    #[arg(long)]
+    pub save_config: bool,
+    /// Must be one of: strict (or true), warn, ignore (or false).
+    #[arg(
+        long,
+        num_args = 0..=1,
+        require_equals = true,
+        default_value = "strict",
+        default_missing_value = "strict"
+    )]
+    pub validate: String,
+    /// Name of the manager used to track field ownership.
+    #[arg(long, default_value = "kubectl-create")]
+    pub field_manager: String,
+}
+
+impl Default for CreateFlags {
+    /// The flag defaults, for callers that build a subcommand without a command line.
+    fn default() -> Self {
+        Self {
+            dry_run: "none".to_string(),
+            output: None,
+            save_config: false,
+            validate: "strict".to_string(),
+            field_manager: "kubectl-create".to_string(),
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum CreateCommands {
     /// Create a ClusterRole
@@ -22,6 +73,8 @@ pub enum CreateCommands {
         /// Aggregation rule label selectors (key=value)
         #[arg(long)]
         aggregation_rule: Vec<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a ClusterRoleBinding
     #[command(name = "clusterrolebinding")]
@@ -40,6 +93,8 @@ pub enum CreateCommands {
         /// Service accounts to bind (namespace:name)
         #[arg(long)]
         serviceaccount: Vec<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a ConfigMap
     #[command(name = "configmap", alias = "cm")]
@@ -55,6 +110,8 @@ pub enum CreateCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a CronJob
     #[command(name = "cronjob", alias = "cj")]
@@ -76,6 +133,8 @@ pub enum CreateCommands {
         /// Command to run
         #[arg(last = true)]
         command: Vec<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create an Ingress
     #[command(name = "ingress", alias = "ing")]
@@ -97,6 +156,8 @@ pub enum CreateCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a Job
     #[command(name = "job")]
@@ -115,6 +176,8 @@ pub enum CreateCommands {
         /// Command to run
         #[arg(last = true)]
         command: Vec<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a PodDisruptionBudget
     #[command(name = "poddisruptionbudget", alias = "pdb")]
@@ -133,6 +196,8 @@ pub enum CreateCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a Role
     #[command(name = "role")]
@@ -151,6 +216,8 @@ pub enum CreateCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a RoleBinding
     #[command(name = "rolebinding")]
@@ -175,6 +242,8 @@ pub enum CreateCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a Secret
     #[command(name = "secret")]
@@ -187,6 +256,8 @@ pub enum CreateCommands {
     Namespace {
         /// Name of the Namespace
         name: String,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a Deployment
     #[command(name = "deployment")]
@@ -205,6 +276,8 @@ pub enum CreateCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a Service
     #[command(name = "service", alias = "svc")]
@@ -229,6 +302,8 @@ pub enum CreateCommands {
         /// Description of the PriorityClass
         #[arg(long)]
         description: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a ResourceQuota
     #[command(name = "quota", alias = "resourcequota")]
@@ -241,6 +316,8 @@ pub enum CreateCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a ServiceAccount
     #[command(name = "serviceaccount", alias = "sa")]
@@ -250,6 +327,8 @@ pub enum CreateCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Request a service account token
     #[command(name = "token")]
@@ -296,6 +375,8 @@ pub enum SecretCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a docker-registry secret
     #[command(name = "docker-registry")]
@@ -317,6 +398,8 @@ pub enum SecretCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a TLS secret
     #[command(name = "tls")]
@@ -332,6 +415,8 @@ pub enum SecretCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
 }
 
@@ -348,6 +433,8 @@ pub enum ServiceCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a NodePort service
     #[command(name = "nodeport")]
@@ -360,6 +447,8 @@ pub enum ServiceCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create a LoadBalancer service
     #[command(name = "loadbalancer")]
@@ -372,6 +461,8 @@ pub enum ServiceCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
     /// Create an ExternalName service
     #[command(name = "externalname")]
@@ -384,6 +475,8 @@ pub enum ServiceCommands {
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
+        #[command(flatten)]
+        flags: CreateFlags,
     },
 }
 
