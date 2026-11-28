@@ -20,3 +20,4 @@ mod lifecycle_signals;
 mod mw_unit;
 mod secure_serving;
 mod upstream_golden;
+mod warning_request_recorder;

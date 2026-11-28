@@ -122,6 +122,9 @@ impl RequestContext {
         if warning.is_empty() {
             return;
         }
+        // The request's one recorder (`WithWarningRecorder`), when the handler
+        // chain attached it: it writes the `Warning` headers itself.
+        kubernetes_rs_middleware::warning::add_warning_to_current_request("", &warning);
         if let Ok(mut w) = self.warnings.lock() {
             if !w.contains(&warning) {
                 w.push(warning);
@@ -139,6 +142,12 @@ impl RequestContext {
     /// (`kubernetes_rs_middleware::warning::WarningRecorder`, filters/warning.go:
     /// de-duplicated, 4096-rune total cap, 256-rune items once truncating).
     pub fn warning_headers(&self) -> Vec<String> {
+        // With the request's recorder in place (it was fed by `add_warning`
+        // and appends its headers when the handler returns) writing them
+        // here as well would duplicate every header.
+        if kubernetes_rs_middleware::warning::has_current_request_recorder() {
+            return Vec::new();
+        }
         headers_for_warnings(&self.warnings())
     }
 }
