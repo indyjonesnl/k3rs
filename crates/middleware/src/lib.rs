@@ -8,6 +8,7 @@ pub mod request_header;
 pub mod response;
 pub mod secure_serving;
 pub mod table;
+pub mod warning;
 
 use axum::{
     body::Body,

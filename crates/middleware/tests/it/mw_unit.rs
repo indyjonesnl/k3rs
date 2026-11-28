@@ -12,3 +12,4 @@ mod secure_serving__options;
 mod secure_serving__serve;
 mod secure_serving__webhook;
 mod table;
+mod warning_recorder;
