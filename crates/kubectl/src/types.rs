@@ -574,20 +574,28 @@ pub enum TopCommands {
 
 #[derive(Subcommand)]
 pub enum AuthCommands {
-    /// Check if an action is allowed
+    /// Check whether an action is allowed
     CanI {
-        /// Verb (e.g., get, list, create, delete)
-        verb: String,
-        /// Resource (e.g., pods, deployments)
-        resource: String,
-        /// Resource name
-        name: Option<String>,
+        /// VERB [TYPE | TYPE/NAME | NONRESOURCEURL]
+        args: Vec<String>,
         /// Namespace
         #[arg(short = 'n', long)]
         namespace: Option<String>,
-        /// Check all namespaces
+        /// If true, check the specified action in all namespaces.
         #[arg(short = 'A', long)]
         all_namespaces: bool,
+        /// If true, suppress output and just return the exit code.
+        #[arg(short = 'q', long)]
+        quiet: bool,
+        /// SubResource such as pod/log or deployment/scale
+        #[arg(long, default_value = "")]
+        subresource: String,
+        /// If true, prints all allowed actions.
+        #[arg(long)]
+        list: bool,
+        /// If true, prints allowed actions without headers
+        #[arg(long)]
+        no_headers: bool,
     },
     /// Experimental: Check who you are
     Whoami {

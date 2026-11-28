@@ -443,3 +443,221 @@ mod permission_tests {
         assert!(matches_namespace(None, None));
     }
 }
+
+/// Ports of `TestRunAccessCheck` and `TestRunResourceFor`
+/// (kubectl/pkg/cmd/auth/cani_test.go).
+#[cfg(test)]
+mod auth_can_i_upstream_tests {
+    use kubernetes_rs_kubectl::commands::auth::{
+        format_access_result, resource_for, CanIOptions, Gvr,
+    };
+    use kubernetes_rs_kubectl::discovery::{ResourceMapping, RestMapper};
+    use serde_json::json;
+
+    fn m(
+        group: &str,
+        version: &str,
+        kind: &str,
+        plural: &str,
+        namespaced: bool,
+    ) -> ResourceMapping {
+        ResourceMapping {
+            group: group.into(),
+            version: version.into(),
+            kind: kind.into(),
+            plural: plural.into(),
+            singular: kind.to_lowercase(),
+            namespaced,
+            verbs: vec![],
+            short_names: vec![],
+        }
+    }
+
+    fn mapper() -> RestMapper {
+        RestMapper::new(vec![
+            m("", "v1", "Pod", "pods", true),
+            m("", "v1", "Node", "nodes", false),
+            m("batch", "v1", "Job", "jobs", true),
+            m("extensions", "v1beta1", "ReplicaSet", "replicasets", true),
+            m("extensions", "v1beta1", "Deployment", "deployments", true),
+        ])
+    }
+
+    fn body(o: &mut CanIOptions, args: &[&str]) -> serde_json::Value {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        o.complete(&args, "test", Some(&mapper())).unwrap();
+        o.access_review()["spec"].clone()
+    }
+
+    #[test]
+    fn auth_can_i_restmapping_for_args() {
+        let mut o = CanIOptions::default();
+        assert_eq!(
+            body(&mut o, &["get", "replicaset"]),
+            json!({"resourceAttributes":{"namespace":"test","verb":"get","group":"extensions","resource":"replicasets"}})
+        );
+    }
+
+    #[test]
+    fn auth_can_i_simple_success() {
+        let mut o = CanIOptions::default();
+        assert_eq!(
+            body(&mut o, &["get", "deployments.extensions/foo"]),
+            json!({"resourceAttributes":{"namespace":"test","verb":"get","group":"extensions","resource":"deployments","name":"foo"}})
+        );
+    }
+
+    #[test]
+    fn auth_can_i_all_namespaces_omits_namespace() {
+        let mut o = CanIOptions {
+            all_namespaces: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            body(&mut o, &["get", "deployments.extensions/foo"]),
+            json!({"resourceAttributes":{"verb":"get","group":"extensions","resource":"deployments","name":"foo"}})
+        );
+    }
+
+    #[test]
+    fn auth_can_i_subresource() {
+        let mut o = CanIOptions {
+            all_namespaces: true,
+            subresource: "log".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            body(&mut o, &["get", "pods"]),
+            json!({"resourceAttributes":{"verb":"get","resource":"pods","subresource":"log"}})
+        );
+    }
+
+    #[test]
+    fn auth_can_i_non_resource_url() {
+        let mut o = CanIOptions::default();
+        assert_eq!(
+            body(&mut o, &["get", "/logs"]),
+            json!({"nonResourceAttributes":{"path":"/logs","verb":"get"}})
+        );
+    }
+
+    #[test]
+    fn auth_can_i_resource_for_table() {
+        let mp = mapper();
+        let mut w = vec![];
+        assert_eq!(
+            resource_for(&mp, "*", &mut w),
+            Gvr {
+                resource: "*".into(),
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            resource_for(&mp, "pods", &mut w),
+            Gvr {
+                version: "v1".into(),
+                resource: "pods".into(),
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            resource_for(&mp, "jobs", &mut w),
+            Gvr {
+                group: "batch".into(),
+                version: "v1".into(),
+                resource: "jobs".into()
+            }
+        );
+        assert_eq!(
+            resource_for(&mp, "users", &mut w),
+            Gvr {
+                resource: "users".into(),
+                ..Default::default()
+            }
+        );
+        assert!(w.is_empty());
+        assert_eq!(
+            resource_for(&mp, "invalid", &mut w),
+            Gvr {
+                resource: "invalid".into(),
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            w,
+            vec!["the server doesn't have a resource type 'invalid'\n".to_string()]
+        );
+    }
+
+    #[test]
+    fn auth_can_i_arg_count_error() {
+        let mut o = CanIOptions::default();
+        let err = o.complete(&["get".to_string()], "test", None).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "you must specify two arguments: verb resource or verb resource/resourceName.\nSee 'kubectl auth can-i -h' for help and examples."
+        );
+    }
+
+    #[test]
+    fn auth_can_i_validate_rules() {
+        let mut o = CanIOptions {
+            list: true,
+            quiet: true,
+            ..Default::default()
+        };
+        o.complete(&[], "test", None).unwrap();
+        assert!(o
+            .validate(None)
+            .unwrap_err()
+            .to_string()
+            .contains("list option can't be specified"));
+
+        let mut o = CanIOptions {
+            no_headers: true,
+            ..Default::default()
+        };
+        let args = vec!["get".to_string(), "pods".to_string()];
+        o.complete(&args, "test", Some(&mapper())).unwrap();
+        assert_eq!(
+            o.validate(Some(&mapper())).unwrap_err().to_string(),
+            "--no-headers cannot be set without --list specified"
+        );
+
+        let mut o = CanIOptions {
+            subresource: "x".into(),
+            ..Default::default()
+        };
+        let args = vec!["get".to_string(), "/logs".to_string()];
+        o.complete(&args, "test", None).unwrap();
+        assert_eq!(
+            o.validate(None).unwrap_err().to_string(),
+            "--subresource can not be used with NonResourceURL"
+        );
+    }
+
+    #[test]
+    fn auth_can_i_warnings() {
+        let mut o = CanIOptions::default();
+        let args = vec!["frobnicate".to_string(), "nodes".to_string()];
+        o.complete(&args, "test", Some(&mapper())).unwrap();
+        o.validate(Some(&mapper())).unwrap();
+        assert_eq!(
+            o.warnings,
+            vec![
+                "resource 'nodes' is not namespace scoped\n".to_string(),
+                "verb 'frobnicate' is not a known verb\n".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn auth_can_i_result_text() {
+        assert_eq!(format_access_result(&json!({"allowed": true})), "yes\n");
+        assert_eq!(format_access_result(&json!({"allowed": false})), "no\n");
+        assert_eq!(
+            format_access_result(&json!({"allowed": false, "reason": "r", "evaluationError": "e"})),
+            "no - r - e\n"
+        );
+    }
+}
