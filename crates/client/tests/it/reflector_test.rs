@@ -244,3 +244,100 @@ async fn has_synced_after_initial_list() {
     assert!(r.has_synced());
     r.wait_for_cache_sync().await;
 }
+
+/// Records the `(resourceVersion, page size)` the reflector lists with, and
+/// scripts the results (`list_from` errors are popped first).
+struct ListFromLw {
+    calls: Mutex<Vec<(String, Option<i64>)>>,
+    errors: Mutex<Vec<anyhow::Error>>,
+    paginated: bool,
+}
+
+#[async_trait::async_trait]
+impl ListWatch<Obj> for ListFromLw {
+    async fn list(&self) -> anyhow::Result<(Vec<Obj>, String)> {
+        unreachable!("the reflector lists through list_from")
+    }
+    async fn list_from(
+        &self,
+        rv: &str,
+        page_size: Option<i64>,
+    ) -> anyhow::Result<(Vec<Obj>, String, bool)> {
+        self.calls.lock().unwrap().push((rv.to_string(), page_size));
+        if let Some(e) = self.errors.lock().unwrap().pop() {
+            return Err(e);
+        }
+        Ok((vec![], "77".to_string(), self.paginated))
+    }
+    async fn watch<'a>(
+        &'a self,
+        _rv: Option<String>,
+    ) -> anyhow::Result<BoxStream<'a, WatchItem<Obj>>> {
+        Ok(Box::pin(futures::stream::empty()))
+    }
+}
+
+fn status(code: u16, reason: &str) -> anyhow::Error {
+    kubernetes_rs_client::api_status::ApiStatusError {
+        code,
+        reason: reason.into(),
+        message: "m".into(),
+        retry_after_seconds: None,
+        causes: vec![],
+    }
+    .into()
+}
+
+/// reflector.go:1014-1030 + :610-633: the first list is rv="0" with the pager
+/// default; a relist at a held rv turns paging off (PageSize 0) so the watch
+/// cache serves it, unless the initial list was paginated.
+#[tokio::test]
+async fn reflector_list_page_size_selection() {
+    let lw = Arc::new(ListFromLw {
+        calls: Mutex::new(vec![]),
+        errors: Mutex::new(vec![]),
+        paginated: false,
+    });
+    let r = Reflector::new(lw.clone(), key);
+    r.sync_once().await.unwrap();
+    // `run` re-lists only after an error; force one.
+    r.reset_for_relist();
+    r.sync_once().await.unwrap();
+    let calls = lw.calls.lock().unwrap().clone();
+    assert_eq!(calls[0], ("0".to_string(), None));
+    assert_eq!(calls[1], ("77".to_string(), Some(0)));
+}
+
+#[tokio::test]
+async fn reflector_list_keeps_paging_after_a_paginated_initial_list() {
+    let lw = Arc::new(ListFromLw {
+        calls: Mutex::new(vec![]),
+        errors: Mutex::new(vec![]),
+        paginated: true,
+    });
+    let r = Reflector::new(lw.clone(), key);
+    r.sync_once().await.unwrap();
+    r.reset_for_relist();
+    r.sync_once().await.unwrap();
+    let calls = lw.calls.lock().unwrap().clone();
+    assert_eq!(calls[0], ("0".to_string(), None));
+    assert_eq!(calls[1], ("77".to_string(), None));
+}
+
+/// An Expired list at the held rv is retried at rv="" (consistent read).
+#[tokio::test]
+async fn reflector_list_expired_retries_at_empty_rv() {
+    let lw = Arc::new(ListFromLw {
+        calls: Mutex::new(vec![]),
+        errors: Mutex::new(vec![]),
+        paginated: false,
+    });
+    let r = Reflector::new(lw.clone(), key);
+    r.sync_once().await.unwrap();
+    r.reset_for_relist();
+    lw.errors.lock().unwrap().push(status(410, "Expired"));
+    r.sync_once().await.unwrap();
+    let calls = lw.calls.lock().unwrap().clone();
+    assert_eq!(calls[1].0, "77");
+    assert_eq!(calls[2], ("".to_string(), Some(0)));
+}
