@@ -153,3 +153,45 @@ fn storage_metrics_decode_event_bookmark_list_and_lease() {
     update_lease_object_count(10);
     assert!(sample("etcd_lease_object_counts", &[]).unwrap() >= 1.0);
 }
+
+#[test]
+fn storage_metrics_group_resource_from_key() {
+    assert_eq!(
+        group_resource_from_key("/registry/pods/ns/p"),
+        ("", "pods".to_string())
+    );
+    assert_eq!(
+        group_resource_from_key("/registry/deployments/ns/d"),
+        ("apps", "deployments".to_string())
+    );
+    assert_eq!(
+        group_resource_from_key("/registry/leases/"),
+        ("coordination.k8s.io", "leases".to_string())
+    );
+}
+
+/// Store.Get/Create etc. wrap the etcd call in `RecordEtcdRequest`; only a
+/// backend failure counts as an error.
+#[tokio::test]
+async fn storage_metrics_timed_records_request() {
+    use kubernetes_rs_common::Error;
+    let key = "/registry/flowschemas/x";
+    let l = |v: &'static str| {
+        [
+            ("operation", v),
+            ("group", "flowcontrol.apiserver.k8s.io"),
+            ("resource", "flowschemas"),
+        ]
+    };
+    let _ = timed("get", key, async { Ok::<_, Error>(1) }).await;
+    let _ = timed("get", key, async {
+        Err::<(), _>(Error::NotFound("x".into()))
+    })
+    .await;
+    let _ = timed("get", key, async {
+        Err::<(), _>(Error::Storage("boom".into()))
+    })
+    .await;
+    assert_eq!(sample("etcd_requests_total", &l("get")), Some(3.0));
+    assert_eq!(sample("etcd_request_errors_total", &l("get")), Some(1.0));
+}

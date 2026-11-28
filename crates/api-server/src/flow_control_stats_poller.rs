@@ -14,50 +14,7 @@ use kubernetes_rs_storage::Storage;
 use crate::flow_control_object_count::ObjectCountTracker;
 use crate::flow_control_work_estimator::Stats;
 
-/// The `(group, resource)` pairs observed. Upstream starts one observer per
-/// registered `genericregistry.Store`; this server has no store registry, so
-/// the built-in resources are listed here. Custom resources are not observed
-/// (their lists cost the minimum seats: `ObjectCountNotFoundErr`).
-pub const OBSERVED_RESOURCES: &[(&str, &str)] = &[
-    ("", "pods"),
-    ("", "services"),
-    ("", "endpoints"),
-    ("", "configmaps"),
-    ("", "secrets"),
-    ("", "serviceaccounts"),
-    ("", "namespaces"),
-    ("", "nodes"),
-    ("", "events"),
-    ("", "persistentvolumes"),
-    ("", "persistentvolumeclaims"),
-    ("", "replicationcontrollers"),
-    ("", "resourcequotas"),
-    ("", "limitranges"),
-    ("apps", "deployments"),
-    ("apps", "replicasets"),
-    ("apps", "statefulsets"),
-    ("apps", "daemonsets"),
-    ("apps", "controllerrevisions"),
-    ("batch", "jobs"),
-    ("batch", "cronjobs"),
-    ("discovery.k8s.io", "endpointslices"),
-    ("networking.k8s.io", "ingresses"),
-    ("networking.k8s.io", "networkpolicies"),
-    ("rbac.authorization.k8s.io", "roles"),
-    ("rbac.authorization.k8s.io", "rolebindings"),
-    ("rbac.authorization.k8s.io", "clusterroles"),
-    ("rbac.authorization.k8s.io", "clusterrolebindings"),
-    ("storage.k8s.io", "storageclasses"),
-    ("coordination.k8s.io", "leases"),
-    ("apiextensions.k8s.io", "customresourcedefinitions"),
-    ("autoscaling", "horizontalpodautoscalers"),
-    ("policy", "poddisruptionbudgets"),
-    ("flowcontrol.apiserver.k8s.io", "flowschemas"),
-    (
-        "flowcontrol.apiserver.k8s.io",
-        "prioritylevelconfigurations",
-    ),
-];
+pub use kubernetes_rs_storage::metrics::OBSERVED_RESOURCES;
 
 /// `schema.GroupResource.String()`, the tracker's key.
 fn group_resource(group: &str, resource: &str) -> String {
