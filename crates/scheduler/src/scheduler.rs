@@ -2287,6 +2287,11 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             feasible.clear();
             crate::in_tree::clear_pod_volumes_by_node(cycle_state);
             let mut processed_nodes = 0usize;
+            // `beginCheckNode` (schedule_one.go:683-690): the Filter extension
+            // point is recorded once per `findNodesThatPassFilters` (one
+            // pass here), not per node; an Error status is recorded when the
+            // search aborts (:703-706).
+            let begin_check_node = std::time::Instant::now();
             for &ix in &order {
                 let node = &nodes[ix];
                 processed_nodes += 1;
@@ -2326,6 +2331,11 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                     // `errCh.ReceiveError()` (schedule_one.go:703-706): the
                     // error replaces the whole result; no feasible nodes.
                     diag.scheduling_error = Some(e);
+                    fw.observe_extension_point(
+                        crate::metrics::FILTER,
+                        crate::fwk::Code::Error,
+                        begin_check_node,
+                    );
                     return None;
                 }
                 if let Some(eval) = eval {
@@ -2335,6 +2345,11 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
                     }
                 }
             }
+            fw.observe_extension_point(
+                crate::metrics::FILTER,
+                crate::fwk::Code::Success,
+                begin_check_node,
+            );
             if !full_search {
                 if feasible.is_empty() {
                     nominated_failed = true;

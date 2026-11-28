@@ -829,7 +829,12 @@ impl Framework {
     /// status.Code().String(), f.profileName).Observe(SinceInSeconds(start))`,
     /// the `defer` at the top of each `Run*Plugins` (framework.go:1234, 1416,
     /// 1467, 1517, 1566, 1601, 1645, 1685).
-    fn observe_extension_point(&self, point: &str, code: Code, start: std::time::Instant) {
+    pub(crate) fn observe_extension_point(
+        &self,
+        point: &str,
+        code: Code,
+        start: std::time::Instant,
+    ) {
         crate::metrics::metrics()
             .framework_extension_point_duration
             .with_label_values(&[point, code.as_str(), &self.profile_name])
