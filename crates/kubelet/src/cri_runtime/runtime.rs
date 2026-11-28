@@ -420,7 +420,19 @@ pub struct CriContainerRuntime {
     /// `imageManager.backOff` + `prevPullErrMsg` (`image_manager.go`), shared
     /// across clones so every pod sync sees the same back-off state.
     pub pull_back_off: Arc<crate::image_manager::PullBackOff>,
+    /// `imageManager.imagePullManager` (`image_manager.go`): credential
+    /// verification for already-present images
+    /// (`KubeletEnsureSecretPulledImages`). `None` is upstream's
+    /// `NoopImagePullManager` with the gate off: a present image is used
+    /// without checking who may access it.
+    pub image_pull_manager:
+        Option<Arc<dyn crate::image_manager::image_pull_manager_core::ImagePullManager>>,
 }
+
+/// Memoised pull credentials of one `EnsureImageExists` call (`sync.OnceValues`).
+type PullCredsCell = tokio::sync::OnceCell<
+    std::result::Result<Vec<crate::credentialprovider::TrackedAuthConfig>, String>,
+>;
 
 impl CriContainerRuntime {
     /// Connect to the CRI runtime at `socket`. `log_root` is the base dir for per-pod container logs.
@@ -445,6 +457,7 @@ impl CriContainerRuntime {
             host_ips: Arc::new(std::sync::Mutex::new(Vec::new())),
             node_allocatable: std::collections::HashMap::new(),
             pull_back_off: Arc::new(crate::image_manager::PullBackOff::default()),
+            image_pull_manager: None,
         })
     }
 
@@ -752,6 +765,9 @@ impl CriContainerRuntime {
         use kubernetes_rs_common::resources::EventType;
         let policy = pull_policy.unwrap_or("IfNotPresent");
         let mut cri = self.cri.clone();
+        // `makeLookupPullCredentialsFunc` (`image_manager.go:278`): the lookup
+        // runs at most once, and no earlier than needed.
+        let creds_cell = PullCredsCell::new();
         // `logIt` (`image_manager.go:131-137`): an event only when the caller
         // has an object reference; otherwise upstream just logs.
         let log_it = |etype: EventType, reason: &'static str, msg: String| async move {
@@ -803,15 +819,41 @@ impl CriContainerRuntime {
                 }
             };
             if let Some(present) = present.filter(|p| !p.id.is_empty()) {
-                // `EnsureImageExists` with `KubeletEnsureSecretPulledImages`
-                // off (`image_manager.go:241-249`).
-                log_it(
-                    EventType::Normal,
-                    "Pulled",
-                    im::already_present_message(image),
-                )
-                .await;
-                return Ok(present.id);
+                let Some(pm) = self.image_pull_manager.clone() else {
+                    // `EnsureImageExists` with `KubeletEnsureSecretPulledImages`
+                    // off (`image_manager.go:241-249`).
+                    log_it(
+                        EventType::Normal,
+                        "Pulled",
+                        im::already_present_message(image),
+                    )
+                    .await;
+                    return Ok(present.id);
+                };
+                // `MustAttemptImagePull` (`image_manager.go:251-262`): the
+                // present image is used only when this pod's credentials may
+                // access it.
+                let must_pull = self
+                    .must_attempt_image_pull(
+                        &*pm,
+                        image,
+                        &tagged,
+                        &present.id,
+                        event_ctx,
+                        &creds_cell,
+                    )
+                    .await?;
+                if !must_pull {
+                    log_it(
+                        EventType::Normal,
+                        "Pulled",
+                        format!(
+                            "Container image {image:?} already present on machine and can be accessed by the pod"
+                        ),
+                    )
+                    .await;
+                    return Ok(present.id);
+                }
             }
             if policy == "Never" {
                 // `imageNotPresentOnNeverPolicyError` (`image_manager.go:155`).
@@ -828,6 +870,62 @@ impl CriContainerRuntime {
                 }));
             }
         }
+        // `pullImage` (`image_manager.go:323-336`): record the intent to pull
+        // before anything else, and the outcome on the way out.
+        if let Some(pm) = &self.image_pull_manager {
+            if let Err(e) = pm.record_pull_intent(image) {
+                return Err(anyhow::anyhow!(
+                    "Failed to record image pull intent for container image {image:?}: {e}"
+                ));
+            }
+        }
+        let result = self
+            .pull_with_back_off(
+                &mut cri,
+                image,
+                spec,
+                event_ctx,
+                sandbox_cfg,
+                &creds_cell,
+                &log_it,
+            )
+            .await;
+        if let Some(pm) = &self.image_pull_manager {
+            match &result {
+                Ok((image_ref, creds)) => pm.record_image_pulled(
+                    image,
+                    image_ref,
+                    Some(&im::tracked_to_image_pull_creds(creds.as_ref())),
+                ),
+                Err(_) => pm.record_image_pull_failed(image),
+            }
+        }
+        result.map(|(image_ref, _)| image_ref)
+    }
+
+    /// The tail of `pullImage` (`image_manager.go:332-359`): back-off check,
+    /// pull, back-off bookkeeping. Returns the image ref and the credential the
+    /// pull succeeded with (`None`: anonymous).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors pullImage's parameter list"
+    )]
+    async fn pull_with_back_off<F, Fut>(
+        &self,
+        cri: &mut CriClient,
+        image: &str,
+        spec: v1::ImageSpec,
+        event_ctx: Option<(&Pod, &str)>,
+        sandbox_cfg: Option<&v1::PodSandboxConfig>,
+        creds_cell: &PullCredsCell,
+        log_it: &F,
+    ) -> anyhow::Result<(String, Option<crate::credentialprovider::TrackedAuthConfig>)>
+    where
+        F: Fn(kubernetes_rs_common::resources::EventType, &'static str, String) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        use crate::image_manager::{self as im, ImageErrorKind, ImageManagerError};
+        use kubernetes_rs_common::resources::EventType;
         // `pullImage` (`image_manager.go:332-353`): the back-off is keyed
         // `<podUID>_<image>`; without an object reference upstream has no pod
         // either (`podUID` is empty for image volumes' callers).
@@ -859,12 +957,13 @@ impl CriContainerRuntime {
         )
         .await;
         let started = std::time::Instant::now();
-        let image_ref = match self
+        let (image_ref, used_creds) = match self
             .pull_image(
-                &mut cri,
+                cri,
                 spec.clone(),
                 event_ctx.map(|(p, _)| p),
                 sandbox_cfg,
+                creds_cell,
             )
             .await
         {
@@ -907,7 +1006,7 @@ impl CriContainerRuntime {
             ),
         )
         .await;
-        Ok(image_ref)
+        Ok((image_ref, used_creds))
     }
 
     /// Port of `getPullSecretsForPod` (`kubelet_pods.go:1070-1095`): the
@@ -963,40 +1062,31 @@ impl CriContainerRuntime {
         spec: v1::ImageSpec,
         pod: Option<&Pod>,
         sandbox_cfg: Option<&v1::PodSandboxConfig>,
-    ) -> anyhow::Result<String> {
-        let secrets = match pod {
-            Some(p) => self.get_pull_secrets_for_pod(p).await,
-            None => Vec::new(),
-        };
-        // `NewExternalCredentialProviderDockerKeyring` reads the process-wide
-        // registry of providers registered at startup.
-        let external =
-            crate::credentialprovider_plugin::new_external_credential_provider_docker_keyring();
-        let creds = crate::credentialprovider::lookup_pull_credentials(
-            &secrets,
-            &self.node_keyring,
-            &external,
-            &spec.image,
-        )
-        .await?;
+        creds_cell: &PullCredsCell,
+    ) -> anyhow::Result<(String, Option<crate::credentialprovider::TrackedAuthConfig>)> {
+        let creds = self
+            .pull_credentials(creds_cell, pod, &spec.image)
+            .await?
+            .clone();
         if creds.is_empty() {
             return cri
                 .pull_image_spec(spec, sandbox_cfg.cloned())
                 .await
+                .map(|r| (r, None))
                 .map_err(|e| anyhow::anyhow!("{}", pull_err_message(e)));
         }
         let mut errs = Vec::new();
         for c in creds {
             let auth = v1::AuthConfig {
-                username: c.username,
-                password: c.password,
+                username: c.auth.username.clone(),
+                password: c.auth.password.clone(),
                 ..Default::default()
             };
             match cri
                 .pull_image_spec_with_auth(spec.clone(), Some(auth), sandbox_cfg.cloned())
                 .await
             {
-                Ok(r) => return Ok(r),
+                Ok(r) => return Ok((r, Some(c))),
                 Err(e) => errs.push(pull_err_message(e)),
             }
         }
@@ -1005,6 +1095,77 @@ impl CriContainerRuntime {
             [one] => Err(anyhow::anyhow!("{one}")),
             _ => Err(anyhow::anyhow!("[{}]", errs.join(", "))),
         }
+    }
+
+    /// `lookupPullCredentials` (`image_manager.go:278-316`), memoised in `cell`
+    /// like `sync.OnceValues`.
+    async fn pull_credentials<'c>(
+        &self,
+        cell: &'c PullCredsCell,
+        pod: Option<&Pod>,
+        image: &str,
+    ) -> anyhow::Result<&'c Vec<crate::credentialprovider::TrackedAuthConfig>> {
+        let r = cell
+            .get_or_init(|| async {
+                let secrets = match pod {
+                    Some(p) => self.get_pull_secrets_for_pod(p).await,
+                    None => Vec::new(),
+                };
+                // `NewExternalCredentialProviderDockerKeyring` reads the
+                // process-wide registry of providers registered at startup.
+                let external =
+                    crate::credentialprovider_plugin::new_external_credential_provider_docker_keyring();
+                crate::credentialprovider::lookup_pull_credentials_tracked(
+                    &secrets,
+                    &self.node_keyring,
+                    &external,
+                    image,
+                )
+                .await
+                .map_err(|e| e.to_string())
+            })
+            .await;
+        r.as_ref().map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// The `MustAttemptImagePull` call of `EnsureImageExists`
+    /// (`image_manager.go:251-262`). The manager's credential callback is
+    /// synchronous, so the (async, memoised) lookup is driven from it with
+    /// `block_in_place`; on a current-thread runtime, where that is not
+    /// possible, the lookup is done up front instead.
+    async fn must_attempt_image_pull(
+        &self,
+        pm: &dyn crate::image_manager::image_pull_manager_core::ImagePullManager,
+        requested_image: &str,
+        tagged_image: &str,
+        image_ref: &str,
+        event_ctx: Option<(&Pod, &str)>,
+        creds_cell: &PullCredsCell,
+    ) -> anyhow::Result<bool> {
+        let pod = event_ctx.map(|(p, _)| p);
+        let handle = tokio::runtime::Handle::current();
+        let multi = handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread;
+        if !multi {
+            // Result is memoised; an error resurfaces in the callback.
+            let _ = self.pull_credentials(creds_cell, pod, tagged_image).await;
+        }
+        let get_pod_credentials = || {
+            let creds = if multi {
+                tokio::task::block_in_place(|| {
+                    handle.block_on(self.pull_credentials(creds_cell, pod, tagged_image))
+                })
+            } else {
+                match creds_cell.get() {
+                    Some(Ok(c)) => Ok(c),
+                    Some(Err(e)) => Err(anyhow::anyhow!("{e}")),
+                    None => Err(anyhow::anyhow!("pull credentials were not looked up")),
+                }
+            }
+            .map_err(|e| crate::image_manager::image_pull_manager::Error(e.to_string()))?;
+            Ok(crate::image_manager::pod_credentials_from_tracked(creds))
+        };
+        pm.must_attempt_image_pull(requested_image, image_ref, &get_pod_credentials)
+            .map_err(|e| anyhow::anyhow!("{}", e.0))
     }
 
     /// Port of `getImageVolumes` (`kuberuntime_manager.go:1813-1850`): pull
