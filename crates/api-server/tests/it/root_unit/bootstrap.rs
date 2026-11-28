@@ -56,7 +56,9 @@ mod system_priority_class_tests {
         .await;
         let msg = r.unwrap_err().to_string();
         assert!(
-            msg.contains("unable to add default system priority classes: storage down"),
+            msg.contains(
+                "unable to add default system priority classes: timed out waiting for the condition"
+            ),
             "{msg}"
         );
         assert!(calls > 1);
@@ -1088,7 +1090,7 @@ mod post_start_hook_registration_tests {
         .await;
         assert_eq!(
             r.unwrap_err().to_string(),
-            "unable to initialize roles: etcd down"
+            "unable to initialize roles: timed out waiting for the condition"
         );
     }
 
