@@ -193,6 +193,15 @@ fn context_with(struct_types: &BTreeSet<String>) -> Context<'static, 'static> {
         // reports it as an unknown struct.
         let _ = env.add_type(ObjectStruct::new(name));
     }
+    // A raw overload, so a native list value (`cel_list_types::SchemaList`) is
+    // passed through as it is; converting it to a `Value` would fail.
+    env.add_overload(
+        OBJECT_ITERABLE_FN,
+        "object_iterable",
+        vec![cel::common::types::DYN_TYPE],
+        object_iterable,
+    )
+    .unwrap_or_else(|e| panic!("cannot declare CEL function {OBJECT_ITERABLE_FN}: {e}"));
     let mut ctx = Context::with_env(Arc::new(env));
     // jsonpatch.go:76-80 `jsonPatchReplacer` ("/" -> "~1", "~" -> "~0"; the
     // replacer is a single pass, so "~" is not re-escaped after "/").
@@ -218,11 +227,6 @@ fn context_with(struct_types: &BTreeSet<String>) -> Context<'static, 'static> {
                 )),
             }
         },
-    );
-    add_function(
-        &mut ctx,
-        OBJECT_ITERABLE_FN,
-        |v: Value| -> Result<Value, ExecutionError> { Ok(struct_view(&v)) },
     );
     add_function(
         &mut ctx,
@@ -322,6 +326,22 @@ fn struct_view(v: &Value) -> Value {
         Value::Struct(s) => fields_to_map(struct_fields(s)),
         other => other.clone(),
     }
+}
+
+/// [`struct_view`] over native values: only a struct changes, anything else is
+/// the operand itself.
+fn object_iterable<'b, 'v>(
+    mut args: Vec<cel::common::value::CowVal<'b, 'v>>,
+) -> Result<cel::common::value::CowVal<'b, 'v>, ExecutionError> {
+    use cel::common::types::Kind;
+    let arg = args.remove(0);
+    if arg.get_type().kind() != Kind::Struct {
+        return Ok(arg);
+    }
+    let view = struct_view(&Value::try_from(arg.as_ref())?);
+    Ok(cel::common::value::CowVal::Owned(Box::<
+        dyn cel::common::value::Val,
+    >::try_from(view)?))
 }
 
 fn check_string_keys(v: &Value) -> Result<(), ExecutionError> {
