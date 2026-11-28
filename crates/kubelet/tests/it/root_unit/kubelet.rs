@@ -592,7 +592,7 @@ mod tests {
     /// (`NewMainKubelet`, kubelet.go:428-430, 619, 637), with the
     /// `nodeIPValidator` override kubelet_node_status_test.go uses so the test
     /// IPs need not be on a host interface.
-    async fn node_ip_kubelet(
+    pub(super) async fn node_ip_kubelet(
         dir: &tempfile::TempDir,
         storage: std::sync::Arc<kubernetes_rs_storage::StorageBackend>,
         name: &str,
@@ -3642,6 +3642,96 @@ mod tests {
             .status
             .unwrap();
         assert_eq!(st.phase, Some(Phase::Pending));
+    }
+}
+
+mod kubelet_admit_tests {
+    //! `canAdmitPod` wired into the kubelet (allocation_manager.go:668,
+    //! predicate.go:118): resource fit, host ports, and the Node lookup.
+    use kubernetes_rs_common::resources::Pod;
+    use kubernetes_rs_common::types::Phase;
+    use kubernetes_rs_kubelet::kubelet::Kubelet;
+    use kubernetes_rs_storage::{Storage, StorageBackend};
+    use serde_json::json;
+
+    // `Kubelet::new` registers the node (4 cpu, 110 pods) in storage, so the
+    // tests run against that Node.
+
+    fn pod(name: &str, uid: &str, cpu: &str, ports: bool) -> Pod {
+        let mut c = json!({"name":"c","image":"i","resources":{"requests":{"cpu":cpu}}});
+        if ports {
+            c["ports"] = json!([{"containerPort":80,"hostPort":8080,"protocol":"TCP"}]);
+        }
+        serde_json::from_value(json!({"apiVersion":"v1","kind":"Pod",
+            "metadata":{"name":name,"namespace":"default","uid":uid},
+            "spec":{"nodeName":"node-a","containers":[c]}}))
+        .unwrap()
+    }
+
+    async fn kubelet(dir: &tempfile::TempDir, storage: std::sync::Arc<StorageBackend>) -> Kubelet {
+        super::tests::node_ip_kubelet(dir, storage, "node-a", &["10.1.1.1"], false).await
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn kubelet_admit_rejects_out_of_cpu_and_admits_fit() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = std::sync::Arc::new(StorageBackend::new_memory());
+        let k = kubelet(&dir, storage.clone()).await;
+        let mut running = pod("run", "u1", "3", false);
+        running.status = Some(kubernetes_rs_common::resources::PodStatus {
+            phase: Some(Phase::Running),
+            ..Default::default()
+        });
+        storage
+            .create("/registry/pods/default/run", &running)
+            .await
+            .unwrap();
+        let big = pod("big", "u2", "2", false);
+        let r = k.can_admit_pod(&big).await;
+        assert!(!r.admit, "{r:?}");
+        assert_eq!(r.reason, "OutOfcpu");
+
+        let small = pod("small", "u3", "500m", false);
+        assert!(k.can_admit_pod(&small).await.admit);
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn kubelet_admit_host_port_conflict_and_self_excluded() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = std::sync::Arc::new(StorageBackend::new_memory());
+        let k = kubelet(&dir, storage.clone()).await;
+        let mut running = pod("run", "u1", "100m", true);
+        running.status = Some(kubernetes_rs_common::resources::PodStatus {
+            phase: Some(Phase::Running),
+            ..Default::default()
+        });
+        storage
+            .create("/registry/pods/default/run", &running)
+            .await
+            .unwrap();
+
+        let other = pod("other", "u2", "100m", true);
+        let r = k.can_admit_pod(&other).await;
+        assert!(!r.admit);
+        assert_eq!(r.reason, "NodePorts");
+
+        // The stored pod itself is excluded (same UID).
+        assert!(k.can_admit_pod(&running).await.admit);
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn kubelet_admit_missing_node_falls_back_to_initial_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = std::sync::Arc::new(StorageBackend::new_memory());
+        let k = kubelet(&dir, storage.clone()).await;
+        storage.delete("/registry/nodes/node-a").await.unwrap();
+        // `getNodeAnyWay` (kubelet_getters.go:301) falls back to `initialNode`,
+        // so a not-yet-registered node does not reject (no InvalidNodeInfo).
+        let r = k.can_admit_pod(&pod("p", "u9", "1m", false)).await;
+        assert!(r.admit, "{r:?}");
     }
 }
 
