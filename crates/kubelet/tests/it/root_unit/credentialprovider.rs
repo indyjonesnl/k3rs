@@ -394,3 +394,57 @@ async fn pull_secret_credentials_come_before_node_credentials() {
         .unwrap();
     assert_eq!(got, vec![auth("node", "p", "")]);
 }
+
+// `NewTrackedAuthConfig` / `hashAuthConfig` (keyring.go:73-87,363-372) and the
+// `SecretCoordinates` recorded by secretsToTrackedDockerConfigs
+// (secrets/secrets.go:52-69).
+#[test]
+fn image_pull_tracked_auth_config_hash_matches_go_json_marshal() {
+    // sha256 of {"username":"ada","password":"smash","email":"a@b"}
+    assert_eq!(
+        hash_auth_config(&auth("ada", "smash", "a@b")),
+        "70ba9c16f12ccfb82fee30a8104b9783a855c696cebc0c673060fa1e0958590b"
+    );
+    // json.Marshal escapes <, > and & ; omitempty drops the empty email.
+    assert_eq!(
+        hash_auth_config(&auth("u<&", "p", "")),
+        "2edb30759db20a2e2f7cd7f49e1fbc7fbd73060de04fd57cb237079e02dcdbf9"
+    );
+}
+
+#[test]
+fn image_pull_tracked_secret_keyring_records_coordinates_and_hash() {
+    let json = format!(
+        r#"{{"auths":{{"reg.example.com":{{"auth":"{}","email":"a@b"}}}}}}"#,
+        b64("ada:smash")
+    );
+    let mut s = secret(
+        "j",
+        "kubernetes.io/dockerconfigjson",
+        ".dockerconfigjson",
+        &json,
+    );
+    s.metadata.uid = "uid-1".into();
+    let kr = make_docker_keyring(&[s]).unwrap().unwrap();
+    let got = kr.lookup_tracked("reg.example.com/x");
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].auth, auth("ada", "smash", "a@b"));
+    assert_eq!(got[0].auth_config_hash, hash_auth_config(&got[0].auth));
+    assert_eq!(
+        got[0].source,
+        Some(CredentialSource::Secret(SecretCoordinates {
+            uid: "uid-1".into(),
+            namespace: "ns".into(),
+            name: "j".into(),
+        }))
+    );
+}
+
+#[test]
+fn image_pull_tracked_node_credentials_have_no_source() {
+    let mut kr = BasicDockerKeyring::default();
+    kr.add(vec![("quay.io".into(), auth("u", "p", ""))]);
+    let got = kr.lookup_tracked("quay.io/x");
+    assert_eq!(got[0].source, None);
+    assert!(!got[0].auth_config_hash.is_empty());
+}

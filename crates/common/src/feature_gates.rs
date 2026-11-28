@@ -335,6 +335,12 @@ pub enum Feature {
     /// `pkg/features/kube_features.go:1299-1302`). Read by
     /// `useAllowEnvFilesValidation` (`pkg/api/pod/util.go:561`).
     EnvFiles,
+
+    /// Upstream gate `KubeletEnsureSecretPulledImages` (1.33 Alpha, 1.35 Beta
+    /// on; `pkg/features/kube_features.go:1434-1437`). Read by
+    /// `images.imageManager.EnsureImageExists` and
+    /// `credentialprovider.NewTrackedAuthConfig`.
+    KubeletEnsureSecretPulledImages,
 }
 
 impl Feature {
@@ -419,6 +425,7 @@ impl Feature {
             Feature::ServiceAccountNodeAudienceRestriction => 75,
             Feature::RelaxedEnvironmentVariableValidation => 76,
             Feature::EnvFiles => 77,
+            Feature::KubeletEnsureSecretPulledImages => 78,
         }
     }
 
@@ -482,7 +489,8 @@ impl Feature {
             | Feature::StructuredAuthenticationConfigurationJWKSMetrics
             | Feature::ServiceAccountNodeAudienceRestriction
             | Feature::ImageVolume
-            | Feature::EnvFiles => PreRelease::Beta,
+            | Feature::EnvFiles
+            | Feature::KubeletEnsureSecretPulledImages => PreRelease::Beta,
             Feature::NodeDeclaredFeatures
             | Feature::DRADeviceTaints
             | Feature::DRAPartitionableDevices
@@ -694,6 +702,8 @@ impl Feature {
             Feature::ServiceAccountNodeAudienceRestriction => true,
             Feature::RelaxedEnvironmentVariableValidation => true,
             Feature::EnvFiles => true,
+            // 1.35 Beta, on (pkg/features/kube_features.go:1434-1437)
+            Feature::KubeletEnsureSecretPulledImages => true,
         }
     }
 }
@@ -788,6 +798,7 @@ pub const ALL_FEATURES: &[Feature] = &[
     Feature::ServiceAccountNodeAudienceRestriction,
     Feature::RelaxedEnvironmentVariableValidation,
     Feature::EnvFiles,
+    Feature::KubeletEnsureSecretPulledImages,
 ];
 
 /// Total number of feature gates. Derived from [`ALL_FEATURES`].
@@ -880,6 +891,7 @@ static STATES: [AtomicBool; NUM_FEATURES] = [
     AtomicBool::new(Feature::ServiceAccountNodeAudienceRestriction.default_enabled()),
     AtomicBool::new(Feature::RelaxedEnvironmentVariableValidation.default_enabled()),
     AtomicBool::new(Feature::EnvFiles.default_enabled()),
+    AtomicBool::new(Feature::KubeletEnsureSecretPulledImages.default_enabled()),
 ];
 
 /// Returns whether `feature` is currently enabled in this process.
