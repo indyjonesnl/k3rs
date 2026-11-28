@@ -278,3 +278,164 @@ mod tests {
         );
     }
 }
+
+/// Ports of `diff_test.go` `TestMasker` and `TestDiffProgram` (diff.go
+/// `Masker`, `DiffProgram`, `diffError`).
+mod diff_masker_program {
+    use kubernetes_rs_kubectl::commands::diff::*;
+    use serde_json::{json, Value};
+    use std::sync::{Arc, Mutex};
+
+    fn mask(from: Option<Value>, to: Option<Value>) -> (Option<Value>, Option<Value>) {
+        let m = Masker::new(from, to).unwrap();
+        (m.from().cloned(), m.to().cloned())
+    }
+
+    fn d(v: Value) -> Option<Value> {
+        Some(json!({ "data": v }))
+    }
+
+    #[test]
+    fn diff_masker_no_changes() {
+        let both = json!({"username": "abc", "password": "123"});
+        let (f, t) = mask(d(both.clone()), d(both));
+        let want = json!({"username": "***", "password": "***"});
+        assert_eq!(f, d(want.clone()));
+        assert_eq!(t, d(want));
+    }
+
+    #[test]
+    fn diff_masker_object_created_and_removed() {
+        let v = json!({"username": "abc", "password": "123"});
+        let want = d(json!({"username": "***", "password": "***"}));
+        let (f, t) = mask(None, d(v.clone()));
+        assert_eq!((f, t), (None, want.clone()));
+        let (f, t) = mask(d(v), None);
+        assert_eq!((f, t), (want, None));
+    }
+
+    #[test]
+    fn diff_masker_data_key_added_changed_removed() {
+        let (f, t) = mask(
+            d(json!({"username": "abc"})),
+            d(json!({"username": "abc", "password": "123"})),
+        );
+        assert_eq!(f, d(json!({"username": "***"})));
+        assert_eq!(t, d(json!({"username": "***", "password": "***"})));
+
+        let (f, t) = mask(
+            d(json!({"username": "abc", "password": "123"})),
+            d(json!({"username": "abc", "password": "456"})),
+        );
+        assert_eq!(f, d(json!({"username": "***", "password": "*** (before)"})));
+        assert_eq!(t, d(json!({"username": "***", "password": "*** (after)"})));
+
+        let (f, t) = mask(
+            d(json!({"username": "abc", "password": "123"})),
+            d(json!({"username": "abc"})),
+        );
+        assert_eq!(f, d(json!({"username": "***", "password": "***"})));
+        assert_eq!(t, d(json!({"username": "***"})));
+    }
+
+    #[test]
+    fn diff_masker_empty_secret_and_invalid_data_key() {
+        let v = json!({"username": "abc", "password": "123"});
+        let want = d(json!({"username": "***", "password": "***"}));
+        let (f, t) = mask(Some(json!({})), d(v.clone()));
+        assert_eq!((f, t), (Some(json!({})), want.clone()));
+        let (f, t) = mask(d(v.clone()), Some(json!({})));
+        assert_eq!((f, t), (want, Some(json!({}))));
+        // Not under `data`: skipped.
+        let other = Some(json!({"some_other_key": v}));
+        let (f, t) = mask(other.clone(), other.clone());
+        assert_eq!((f, t), (other.clone(), other));
+        // A `data` that is not a map is an error (unstructured.NestedMap).
+        assert!(Masker::new(Some(json!({"data": "x"})), None).is_err());
+    }
+
+    #[test]
+    fn diff_omit_managed_fields_and_secret_check() {
+        let mut o = json!({"metadata": {"name": "a", "managedFields": [{}]}});
+        omit_managed_fields(&mut o);
+        assert_eq!(o, json!({"metadata": {"name": "a"}}));
+        assert!(is_v1_secret(&json!({"apiVersion": "v1", "kind": "Secret"})));
+        assert!(!is_v1_secret(
+            &json!({"apiVersion": "v1", "kind": "ConfigMap"})
+        ));
+    }
+
+    #[derive(Clone, Default)]
+    struct Buf(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Buf {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    // One test mutates the process environment, so keep all env cases together.
+    #[test]
+    fn diff_program_external_diff_and_exit_codes() {
+        // TestDiffProgram: "diff", "diff -ruN", "diff --report-identical-files".
+        for (i, c) in ["diff", "diff -ruN", "diff --report-identical-files"]
+            .iter()
+            .enumerate()
+        {
+            std::env::set_var("KUBECTL_EXTERNAL_DIFF", c);
+            std::env::set_var("LANG", "C");
+            std::env::set_var("LANGUAGE", "en_US");
+            let out = Buf::default();
+            let mut p = DiffProgram {
+                out: Box::new(out.clone()),
+                err_out: Box::new(Buf::default()),
+            };
+            p.run("/dev/zero", "/dev/zero").unwrap();
+            if i == 2 {
+                let got = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+                assert_eq!(got, "Files /dev/zero and /dev/zero are identical\n");
+            }
+        }
+
+        // getCommand: valid extra words are appended after the paths, invalid dropped.
+        std::env::set_var("KUBECTL_EXTERNAL_DIFF", "colordiff -N --x=1 ;rm $(x)");
+        let p = DiffProgram {
+            out: Box::new(Buf::default()),
+            err_out: Box::new(Buf::default()),
+        };
+        let (prog, args) = p.get_command("a", "b");
+        assert_eq!(prog, "colordiff");
+        assert_eq!(args, ["a", "b", "-N", "--x=1"]);
+        std::env::remove_var("KUBECTL_EXTERNAL_DIFF");
+        let (prog, args) = p.get_command("a", "b");
+        assert_eq!(
+            (prog.as_str(), args),
+            (
+                "diff",
+                vec!["-u".into(), "-N".into(), "a".into(), "b".into()]
+            )
+        );
+
+        // Exit status 1 is a diffError; a missing program is not.
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        std::fs::write(&a, "x\n").unwrap();
+        std::fs::write(&b, "y\n").unwrap();
+        let mut p = DiffProgram {
+            out: Box::new(Buf::default()),
+            err_out: Box::new(Buf::default()),
+        };
+        let err = p.run(a.to_str().unwrap(), b.to_str().unwrap()).unwrap_err();
+        assert_eq!(diff_error(&err), Some(&DiffExitError { status: 1 }));
+        std::env::set_var("KUBECTL_EXTERNAL_DIFF", "/nonexistent-diff-program");
+        let err = p.run("a", "b").unwrap_err();
+        assert!(diff_error(&err).is_none());
+        assert!(err
+            .to_string()
+            .starts_with("failed to run \"/nonexistent-diff-program\""));
+        std::env::remove_var("KUBECTL_EXTERNAL_DIFF");
+    }
+}
