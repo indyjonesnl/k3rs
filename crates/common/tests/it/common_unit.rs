@@ -25,6 +25,7 @@ mod defaults;
 mod deletion;
 mod diff;
 mod diff_schema;
+mod dra_defaults;
 mod dump;
 mod equality;
 mod error;

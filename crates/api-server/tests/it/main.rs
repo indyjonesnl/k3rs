@@ -324,6 +324,7 @@ mod require_create_name_router_test;
 mod resource_store_test;
 mod resourceclaim_crud_patch_events_test;
 mod resourceclaim_decode_when_absent_test;
+mod resourceclaim_dra_defaults_test;
 mod resourceclaim_status_validation_test;
 mod resourcequota_admission_store_test;
 mod resourcequota_concurrent_pod_create_test;

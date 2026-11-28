@@ -37,6 +37,7 @@ impl NamespaceScopedStrategy for Strategy {
 
 impl RestCreateStrategy<ResourceClaimTemplate> for Strategy {
     fn prepare_for_create(&self, _ctx: &RequestContext, obj: &mut ResourceClaimTemplate) {
+        kubernetes_rs_common::defaults::default_resource_claim_spec(&mut obj.spec.spec);
         drop_disabled_fields(&mut obj.spec.spec, None);
     }
 
@@ -81,6 +82,7 @@ impl RestUpdateStrategy<ResourceClaimTemplate> for Strategy {
         obj: &mut ResourceClaimTemplate,
         old: &ResourceClaimTemplate,
     ) {
+        kubernetes_rs_common::defaults::default_resource_claim_spec(&mut obj.spec.spec);
         drop_disabled_fields(&mut obj.spec.spec, Some(&old.spec.spec));
     }
 
@@ -98,7 +100,10 @@ impl RestUpdateStrategy<ResourceClaimTemplate> for Strategy {
             &old.metadata,
             &Path::new("metadata"),
         ));
-        errs.extend(validate_resource_claim_template_update(obj, old));
+        // See ResourceClaim: the stored object is defaulted on decode upstream.
+        let mut old = old.clone();
+        kubernetes_rs_common::defaults::default_resource_claim_spec(&mut old.spec.spec);
+        errs.extend(validate_resource_claim_template_update(obj, &old));
         errs
     }
 
