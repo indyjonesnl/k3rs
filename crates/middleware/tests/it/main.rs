@@ -9,6 +9,7 @@
 //! reintroduces a separate binary, which is what this layout avoids.
 mod auth_unauthorized_status;
 mod authentication_metrics_test;
+mod body_limit_mw;
 mod controllerrevision_request_decode;
 mod cors_filter;
 mod filter_latency;
