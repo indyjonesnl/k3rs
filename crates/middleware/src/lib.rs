@@ -3,6 +3,7 @@ pub mod cbor;
 pub mod compression;
 pub mod filter_latency;
 pub mod healthz;
+pub mod hsts;
 pub mod lifecycle;
 pub mod negotiated_error;
 pub mod request_header;
