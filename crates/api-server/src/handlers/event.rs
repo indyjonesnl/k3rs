@@ -143,9 +143,8 @@ fn request_body(
 /// The request's warnings as `Warning: 299` headers
 /// (endpoints/filters/warning.go).
 fn with_warnings(mut response: Response, warnings: &[String]) -> Response {
-    for warning in warnings {
-        let value = crate::handlers::validation::format_warning_header(warning);
-        if let Ok(v) = header::HeaderValue::from_str(&value) {
+    for value in crate::registry::rest::headers_for_warnings(warnings) {
+        if let Ok(v) = header::HeaderValue::from_bytes(value.as_bytes()) {
             response.headers_mut().append(header::WARNING, v);
         }
     }
