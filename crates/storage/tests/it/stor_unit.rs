@@ -6,6 +6,7 @@ mod busy;
 mod concurrency;
 mod etcd;
 mod etcd_compactor;
+mod etcd_compactor_live;
 mod etcd_endpoint;
 mod event_bus;
 mod event_recorder;
