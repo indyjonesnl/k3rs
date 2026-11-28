@@ -140,3 +140,35 @@ fn cel_typed_env_field_counts_match_authorization_v1() {
     assert_eq!(n(build_resource_attributes_type(false)), 7);
     assert_eq!(n(build_non_resource_attributes_type()), 2);
 }
+
+// Shadow comparison (`KUBERNETES_RS_CEL_CHECKER=shadow`): the divergence
+// helper reports exactly the accept/reject disagreements.
+#[test]
+fn cel_typed_env_shadow_divergence_reports_only_disagreements() {
+    use kubernetes_rs_common::cel_authz::{
+        authorization_divergence, compile_authorization_expression,
+    };
+    let s = set();
+    for expr in [
+        "request.user == 'bob'",
+        "request.time == 'now'",
+        "request.user",
+        "x.user",
+    ] {
+        let hand = compile_authorization_expression(expr);
+        // Whatever the hand-rolled compile says must agree with the checker on
+        // these upstream compile_test.go cases.
+        assert_eq!(
+            authorization_divergence(&s, false, expr, &hand),
+            None,
+            "{expr}"
+        );
+    }
+    // A forged hand-rolled verdict is reported in both directions.
+    let ok = compile_authorization_expression("request.user == 'bob'");
+    assert!(authorization_divergence(&s, false, "request.time == 'now'", &ok).is_some());
+    let err = Err("compilation failed: forged".to_string());
+    let d = authorization_divergence(&s, false, "request.user == 'bob'", &err).unwrap();
+    assert_eq!(d.0.as_deref(), Some("compilation failed: forged"));
+    assert_eq!(d.1, None);
+}
