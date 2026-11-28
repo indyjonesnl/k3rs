@@ -47,6 +47,9 @@ pub struct EtcdStorage {
     /// `resourceSizeEstimator`), fed by the reads and writes that hold the
     /// encoded value.
     sizes: Arc<crate::size_estimator::SizeEstimator>,
+    /// Keeps the per-endpoint compactor reachable for the storage's lifetime
+    /// (`etcd3.StartCompactorPerEndpoint`, factory/etcd3.go:427).
+    _compactor: Arc<crate::etcd_compactor::Compactor>,
 }
 
 /// `defaultLeaseReuseDurationSeconds` and `defaultLeaseMaxObjectCount`
@@ -189,6 +192,19 @@ fn prefix_range_end(prefix: &[u8]) -> Vec<u8> {
 impl EtcdStorage {
     /// Create a new EtcdStorage instance
     pub async fn new(endpoints: Vec<String>) -> Result<Self> {
+        Self::new_with_compaction_interval(
+            endpoints,
+            crate::etcd_compactor::DEFAULT_COMPACT_INTERVAL,
+        )
+        .await
+    }
+
+    /// [`EtcdStorage::new`] with an explicit `CompactionInterval`
+    /// (`storagebackend.Config.CompactionInterval`); zero disables compaction.
+    pub async fn new_with_compaction_interval(
+        endpoints: Vec<String>,
+        compaction_interval: std::time::Duration,
+    ) -> Result<Self> {
         let (endpoints, bridges) = crate::etcd_endpoint::resolve_endpoints(endpoints).await?;
         let options = Some(
             etcd_client::ConnectOptions::new()
@@ -198,17 +214,27 @@ impl EtcdStorage {
                 )
                 .with_keep_alive_while_idle(true),
         );
-        let client = Client::connect(endpoints, options)
+        let client = Client::connect(endpoints.clone(), options)
             .await
             .map_err(|e| Error::Storage(format!("Failed to connect to etcd: {}", e)))?;
 
         info!("Connected to etcd successfully");
 
+        // The compactor owns the compaction floor the storage answers from.
+        let compactor = crate::etcd_compactor::start_compactor_per_endpoint(
+            Arc::new(crate::etcd_compactor::EtcdCompactBackend::new(
+                client.clone(),
+                endpoints.clone(),
+            )),
+            compaction_interval,
+        );
+
         Ok(Self {
             client,
             _unix_bridges: Arc::new(bridges),
             page_size: DEFAULT_LIST_PAGE_SIZE,
-            compact_revision: Arc::new(AtomicI64::new(0)),
+            compact_revision: compactor.compact_revision_handle(),
+            _compactor: compactor,
             leases: Arc::new(LeaseManager::new()),
             sizes: Default::default(),
         })
