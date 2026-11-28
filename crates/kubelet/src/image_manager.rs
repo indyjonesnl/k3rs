@@ -24,6 +24,8 @@
 // Declared here (not in lib.rs) to avoid a lib.rs edit collision; file is src/image_pull_manager.rs.
 #[path = "image_pull_manager.rs"]
 pub mod image_pull_manager;
+#[path = "image_pull_metrics.rs"]
+pub mod image_pull_metrics;
 #[path = "image_pull_policies.rs"]
 pub mod image_pull_policies;
 
