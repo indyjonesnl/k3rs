@@ -945,35 +945,32 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                     }
 
                     // Check objectSelector
-                    if let Some(ref obj_selector) = webhook.object_selector {
-                        let obj_labels: std::collections::HashMap<String, String> = object
+                    if webhook.object_selector.is_some() {
+                        // predicates/object/matcher.go `MatchObjectSelector`:
+                        // new OR old object, full LabelSelectorAsSelector.
+                        let selector_json = webhook
+                            .object_selector
                             .as_ref()
-                            .and_then(|o| o.pointer("/metadata/labels"))
-                            .and_then(|l| l.as_object())
-                            .map(|labels_obj| {
-                                labels_obj
-                                    .iter()
-                                    .filter_map(|(k, v)| {
-                                        v.as_str().map(|s| (k.clone(), s.to_string()))
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-
-                        let obj_matches = if let Some(ref match_labels) = obj_selector.match_labels
-                        {
-                            match_labels
-                                .iter()
-                                .all(|(k, v)| obj_labels.get(k) == Some(v))
-                        } else {
-                            true
-                        };
-                        if !obj_matches {
-                            debug!(
-                                "Skipping webhook {} — object labels don't match objectSelector",
-                                webhook.name
-                            );
-                            continue;
+                            .and_then(|s| serde_json::to_value(s).ok());
+                        match crate::webhook_match::match_object_selector(
+                            selector_json.as_ref(),
+                            object.as_ref(),
+                            old_object.as_ref(),
+                        ) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                debug!(
+                                    "Skipping webhook {} — object labels don't match objectSelector",
+                                    webhook.name
+                                );
+                                continue;
+                            }
+                            Err(e) => {
+                                return Err(kubernetes_rs_common::Error::Internal(format!(
+                                    "webhook {} has an invalid objectSelector: {e}",
+                                    webhook.name
+                                )));
+                            }
                         }
                     }
 
@@ -1552,35 +1549,32 @@ impl<S: Storage> AdmissionWebhookManager<S> {
 
                     // Check objectSelector for mutating webhooks
                     // K8s ref: staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/predicates/object/matcher.go
-                    if let Some(ref obj_selector) = webhook.object_selector {
-                        let obj_labels: std::collections::HashMap<String, String> = object
+                    if webhook.object_selector.is_some() {
+                        // predicates/object/matcher.go `MatchObjectSelector`:
+                        // new OR old object, full LabelSelectorAsSelector.
+                        let selector_json = webhook
+                            .object_selector
                             .as_ref()
-                            .and_then(|o| o.pointer("/metadata/labels"))
-                            .and_then(|l| l.as_object())
-                            .map(|labels_obj| {
-                                labels_obj
-                                    .iter()
-                                    .filter_map(|(k, v)| {
-                                        v.as_str().map(|s| (k.clone(), s.to_string()))
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-
-                        let obj_matches = if let Some(ref match_labels) = obj_selector.match_labels
-                        {
-                            match_labels
-                                .iter()
-                                .all(|(k, v)| obj_labels.get(k) == Some(v))
-                        } else {
-                            true
-                        };
-                        if !obj_matches {
-                            debug!(
-                                "Skipping mutating webhook {} — object labels don't match objectSelector",
-                                webhook.name
-                            );
-                            continue;
+                            .and_then(|s| serde_json::to_value(s).ok());
+                        match crate::webhook_match::match_object_selector(
+                            selector_json.as_ref(),
+                            object.as_ref(),
+                            old_object.as_ref(),
+                        ) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                debug!(
+                                    "Skipping mutating webhook {} — object labels don't match objectSelector",
+                                    webhook.name
+                                );
+                                continue;
+                            }
+                            Err(e) => {
+                                return Err(kubernetes_rs_common::Error::Internal(format!(
+                                    "webhook {} has an invalid objectSelector: {e}",
+                                    webhook.name
+                                )));
+                            }
                         }
                     }
 
@@ -2056,6 +2050,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
     /// everything. A cluster-scoped resource other than a Namespace is never
     /// excluded by the namespace selector; a Namespace create/update reads the
     /// labels from the object (the stored namespace does not have them yet).
+    #[allow(clippy::too_many_arguments)]
     async fn vap_selectors_match(
         &self,
         constraints: Option<&Value>,
@@ -2064,6 +2059,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
         resource: &str,
         namespace: Option<&str>,
         object: Option<&Value>,
+        old_object: Option<&Value>,
     ) -> bool {
         use kubernetes_rs_common::types::LabelSelector;
         let selector_of = |c: Option<&Value>, key: &str| -> Option<LabelSelector> {
@@ -2108,7 +2104,17 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                 }
             }
             if let Some(sel) = selector_of(c, "objectSelector") {
-                if !sel.matches_labels(&labels_of(object)) {
+                // object/matcher.go:46-59: new OR old object. An unparsable
+                // selector is an InternalError upstream; fail closed: the
+                // policy is not skipped (unwrap_or(true)).
+                let sel_json = serde_json::to_value(&sel).ok();
+                if !crate::webhook_match::match_object_selector(
+                    sel_json.as_ref(),
+                    object,
+                    old_object,
+                )
+                .unwrap_or(true)
+                {
                     return false;
                 }
             }
@@ -2412,6 +2418,7 @@ impl<S: Storage> AdmissionWebhookManager<S> {
                     &derived_resource,
                     namespace,
                     object,
+                    old_object,
                 )
                 .await
             {
