@@ -233,3 +233,59 @@ mod connect_admission_step_metrics_tests {
         assert!(step("validate") > validate0, "validate step not observed");
     }
 }
+
+/// `LogREST.Get` (`pkg/registry/core/pod/rest/log.go:99-101`): invalid
+/// `PodLogOptions` are a 422 before the pod is looked up; an undecodable query
+/// is a 400.
+mod pod_log_options_tests {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use kubernetes_rs_api_server::handlers::pod_subresources::validate_log_query;
+
+    fn status(q: &str) -> (StatusCode, String) {
+        match validate_log_query("p", q) {
+            Ok(()) => (StatusCode::OK, String::new()),
+            Err(e) => {
+                let msg = e.to_string();
+                (e.into_response().status(), msg)
+            }
+        }
+    }
+
+    #[test]
+    fn pod_log_options_valid_queries_pass() {
+        for q in [
+            "",
+            "container=c&follow=true&timestamps=true",
+            "tailLines=0",
+            "tailLines=10&limitBytes=1&sinceSeconds=5",
+            "previous=true&insecureSkipTLSVerifyBackend=true",
+        ] {
+            assert_eq!(status(q).0, StatusCode::OK, "{q}");
+        }
+    }
+
+    #[test]
+    fn pod_log_options_invalid_values_are_422() {
+        for (q, want) in [
+            ("tailLines=-1", "tailLines"),
+            ("limitBytes=0", "limitBytes"),
+            ("sinceSeconds=0", "sinceSeconds"),
+            (
+                "sinceSeconds=5&sinceTime=2020-01-01T00:00:00Z",
+                "at most one of `sinceTime` or `sinceSeconds` may be specified",
+            ),
+        ] {
+            let (code, msg) = status(q);
+            assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY, "{q}: {msg}");
+            assert!(msg.contains("PodLogOptions"), "{q}: {msg}");
+            assert!(msg.contains(want), "{q}: {msg}");
+        }
+    }
+
+    #[test]
+    fn pod_log_options_undecodable_query_is_400() {
+        assert_eq!(status("tailLines=abc").0, StatusCode::BAD_REQUEST);
+        assert_eq!(status("sinceTime=yesterday").0, StatusCode::BAD_REQUEST);
+    }
+}

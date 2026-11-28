@@ -321,6 +321,10 @@ pub async fn get_logs(
             .map(|(_, v)| v.to_string())
     });
 
+    // `LogREST.Get` validates the options before `LogLocation` loads the pod
+    // (pkg/registry/core/pod/rest/log.go:99-101).
+    validate_log_query(&name, &raw_query)?;
+
     // Load the pod to verify it exists and resolve container + node.
     let pod_key = kubernetes_rs_storage::build_key("pods", Some(&namespace), &name);
     let pod: kubernetes_rs_common::resources::Pod = state.storage.get(&pod_key).await?;
@@ -478,6 +482,37 @@ fn kubelet_connector(
         kubernetes_rs_streamproxy::kubelet_proxy_connector()
     };
     c.map_err(|e| Error::Internal(format!("failed to build kubelet client: {e}")))
+}
+
+/// Decode the `/log` query into `PodLogOptions` (`ParameterCodec.DecodeParameters`;
+/// a decode error is a 400) and run `LogREST.Get`'s checks
+/// (`pkg/registry/core/pod/rest/log.go:89-101`): with `PodLogsQuerySplitStreams`
+/// on, an absent `stream` defaults to `All`; then `ValidatePodLogOptions`,
+/// whose errors are a 422 `PodLogOptions "<name>" is invalid`.
+pub fn validate_log_query(name: &str, raw_query: &str) -> Result<()> {
+    use kubernetes_rs_common::resources::pod::{PodLogOptions, LOG_STREAM_ALL};
+    let mut params = std::collections::HashMap::new();
+    for (k, v) in url::form_urlencoded::parse(raw_query.as_bytes()) {
+        // Only the first value of a parameter is read (`Convert_Slice_string_To_*`).
+        params
+            .entry(k.into_owned())
+            .or_insert_with(|| v.into_owned());
+    }
+    let mut opts = PodLogOptions::from_query(&params).map_err(Error::BadRequest)?;
+    let split_streams =
+        kubernetes_rs_common::feature_gates::gate_enabled("PodLogsQuerySplitStreams")
+            .unwrap_or(false);
+    if split_streams && opts.stream.is_none() {
+        opts.stream = Some(LOG_STREAM_ALL.to_string());
+    }
+    let errs = kubernetes_rs_common::validation::pod_subresource::validate_pod_log_options(
+        &opts,
+        split_streams,
+    );
+    if !errs.is_empty() {
+        return Err(Error::new_invalid("", "PodLogOptions", name, errs));
+    }
+    Ok(())
 }
 
 /// `PodLogOptions.InsecureSkipTLSVerifyBackend` from the raw query:
