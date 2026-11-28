@@ -153,6 +153,7 @@ impl NamespaceScopedStrategy for Strategy {
 impl RestCreateStrategy<ResourceClaim> for Strategy {
     /// Status must not be set by the user on create (strategy.go:93-99).
     fn prepare_for_create(&self, _ctx: &RequestContext, obj: &mut ResourceClaim) {
+        kubernetes_rs_common::defaults::default_resource_claim_spec(&mut obj.spec);
         obj.status = empty_status();
         drop_disabled_spec_fields(&mut obj.spec, None);
     }
@@ -207,6 +208,7 @@ impl RestUpdateStrategy<ResourceClaim> for Strategy {
         obj: &mut ResourceClaim,
         old: &ResourceClaim,
     ) {
+        kubernetes_rs_common::defaults::default_resource_claim_spec(&mut obj.spec);
         obj.status = old.status.clone().or_else(empty_status);
         drop_disabled_spec_fields(&mut obj.spec, Some(&old.spec));
     }
@@ -225,7 +227,11 @@ impl RestUpdateStrategy<ResourceClaim> for Strategy {
             &old.metadata,
             &meta,
         ));
-        errs.extend(validate_resource_claim_update(obj, old));
+        // The stored object is decoded through the same defaulting upstream,
+        // so a claim persisted before defaulting existed compares equal.
+        let mut old = old.clone();
+        kubernetes_rs_common::defaults::default_resource_claim_spec(&mut old.spec);
+        errs.extend(validate_resource_claim_update(obj, &old));
         errs
     }
 

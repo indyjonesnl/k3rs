@@ -200,3 +200,30 @@ pub fn default_container_requests_from_limits(container: &mut Container) {
         requests.entry(key).or_insert(value);
     }
 }
+
+/// `SetDefaults_ExactDeviceRequest` / `SetDefaults_DeviceSubRequest`
+/// (`pkg/apis/resource/v1/defaults.go:31-49`; the v1beta1/v1beta2 variants are
+/// the same): an unset `allocationMode` is `ExactCount`, and an `ExactCount`
+/// request with `count` 0 asks for 1 device. Upstream runs this when a
+/// ResourceClaim or ResourceClaimTemplate is decoded
+/// (`zz_generated.defaults.go`: `SetObjectDefaults_ResourceClaim`,
+/// `_ResourceClaimTemplate`).
+pub fn default_resource_claim_spec(spec: &mut crate::resources::dra::ResourceClaimSpec) {
+    use crate::resources::dra::DeviceAllocationMode;
+    fn default_request(mode: &mut Option<DeviceAllocationMode>, count: &mut Option<i64>) {
+        if mode.is_none() {
+            *mode = Some(DeviceAllocationMode::ExactCount);
+        }
+        if *mode == Some(DeviceAllocationMode::ExactCount) && count.unwrap_or(0) == 0 {
+            *count = Some(1);
+        }
+    }
+    for req in &mut spec.devices.requests {
+        if let Some(exactly) = req.exactly.as_mut() {
+            default_request(&mut exactly.allocation_mode, &mut exactly.count);
+        }
+        for sub in &mut req.first_available {
+            default_request(&mut sub.allocation_mode, &mut sub.count);
+        }
+    }
+}
