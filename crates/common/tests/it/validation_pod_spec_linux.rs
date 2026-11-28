@@ -140,3 +140,57 @@ fn pod_hostname_override_linux_container_windows_options() {
         ]
     );
 }
+
+/// The two validators are reached from `ValidatePodSpec` (validation.go:4662, :4717-4725).
+mod via_pod_spec {
+    use super::*;
+    use kubernetes_rs_common::resources::pod::PodOS;
+    use kubernetes_rs_common::validation::pod::validate_pod_spec;
+
+    fn base() -> PodSpec {
+        PodSpec {
+            containers: vec![Container {
+                name: "c".into(),
+                image: "busybox".into(),
+                termination_message_policy: Some("File".into()),
+                image_pull_policy: Some("IfNotPresent".into()),
+                ..Default::default()
+            }],
+            restart_policy: Some("Always".into()),
+            dns_policy: Some("ClusterFirst".into()),
+            ..Default::default()
+        }
+    }
+
+    fn fields(spec: &PodSpec) -> Vec<String> {
+        validate_pod_spec(spec, &Path::new("spec"), false, false)
+            .iter()
+            .map(|e| e.field.clone())
+            .collect()
+    }
+
+    #[test]
+    fn pod_hostname_override_is_validated_by_pod_spec() {
+        assert!(fields(&base()).is_empty(), "{:?}", fields(&base()));
+        let mut s = base();
+        s.hostname_override = Some("bad_name".into());
+        s.host_network = Some(true);
+        let f = fields(&s);
+        assert_eq!(f, vec!["spec.hostnameOverride", "spec.hostnameOverride"]);
+    }
+
+    #[test]
+    fn pod_windows_options_rejected_only_for_explicit_linux_os() {
+        let mut s = base();
+        s.security_context = Some(PodSecurityContext {
+            windows_options: win(),
+            ..Default::default()
+        });
+        // No spec.os: validateLinux is not called (validation.go:4717).
+        assert!(!fields(&s).contains(&"spec.securityContext.windowsOptions".to_string()));
+        s.os = Some(PodOS {
+            name: "linux".into(),
+        });
+        assert!(fields(&s).contains(&"spec.securityContext.windowsOptions".to_string()));
+    }
+}
