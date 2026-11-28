@@ -16,6 +16,7 @@ mod gzip_response;
 mod healthz_handler;
 mod hsts_filter;
 mod legacy_token_observations;
+mod lifecycle_filters;
 mod lifecycle_signals;
 mod mw_unit;
 mod secure_serving;
