@@ -313,3 +313,81 @@ pub fn record_storage_list_metrics(
         .with_label_values(&[group, resource])
         .inc_by(num_returned as u64);
 }
+
+/// The `(group, resource)` pairs observed. Upstream starts one observer per
+/// registered `genericregistry.Store`; this server has no store registry, so
+/// the built-in resources are listed here. Custom resources are not observed
+/// (their lists cost the minimum seats: `ObjectCountNotFoundErr`).
+pub const OBSERVED_RESOURCES: &[(&str, &str)] = &[
+    ("", "pods"),
+    ("", "services"),
+    ("", "endpoints"),
+    ("", "configmaps"),
+    ("", "secrets"),
+    ("", "serviceaccounts"),
+    ("", "namespaces"),
+    ("", "nodes"),
+    ("", "events"),
+    ("", "persistentvolumes"),
+    ("", "persistentvolumeclaims"),
+    ("", "replicationcontrollers"),
+    ("", "resourcequotas"),
+    ("", "limitranges"),
+    ("apps", "deployments"),
+    ("apps", "replicasets"),
+    ("apps", "statefulsets"),
+    ("apps", "daemonsets"),
+    ("apps", "controllerrevisions"),
+    ("batch", "jobs"),
+    ("batch", "cronjobs"),
+    ("discovery.k8s.io", "endpointslices"),
+    ("networking.k8s.io", "ingresses"),
+    ("networking.k8s.io", "networkpolicies"),
+    ("rbac.authorization.k8s.io", "roles"),
+    ("rbac.authorization.k8s.io", "rolebindings"),
+    ("rbac.authorization.k8s.io", "clusterroles"),
+    ("rbac.authorization.k8s.io", "clusterrolebindings"),
+    ("storage.k8s.io", "storageclasses"),
+    ("coordination.k8s.io", "leases"),
+    ("apiextensions.k8s.io", "customresourcedefinitions"),
+    ("autoscaling", "horizontalpodautoscalers"),
+    ("policy", "poddisruptionbudgets"),
+    ("flowcontrol.apiserver.k8s.io", "flowschemas"),
+    (
+        "flowcontrol.apiserver.k8s.io",
+        "prioritylevelconfigurations",
+    ),
+];
+
+/// The `(group, resource)` labels of a storage key or prefix
+/// (`/registry/<resource type>/...`). Upstream's store knows its
+/// `GroupResource`; storage keys here carry only the resource type, so the
+/// built-in table above gives the group (empty for the core group and for
+/// resource types not in it).
+pub fn group_resource_from_key(key: &str) -> (&'static str, String) {
+    let rt = key
+        .strip_prefix("/registry/")
+        .and_then(|r| r.split('/').next())
+        .unwrap_or("");
+    match OBSERVED_RESOURCES.iter().find(|(_, r)| *r == rt) {
+        Some((g, _)) => (g, rt.to_string()),
+        None => ("", rt.to_string()),
+    }
+}
+
+/// `RecordEtcdRequest` around one backend call (store.go `Get`/`Create`/
+/// `Delete`/`GuaranteedUpdate`/`GetList`): only a failure of the backend
+/// itself (`Error::Storage`) counts as an error, as the etcd client's error
+/// does upstream; NotFound / Conflict are application results.
+pub async fn timed<R>(
+    verb: &str,
+    key: &str,
+    fut: impl std::future::Future<Output = kubernetes_rs_common::Result<R>>,
+) -> kubernetes_rs_common::Result<R> {
+    let start = Instant::now();
+    let r = fut.await;
+    let (group, resource) = group_resource_from_key(key);
+    let err = matches!(&r, Err(kubernetes_rs_common::Error::Storage(_)));
+    record_etcd_request(verb, group, &resource, err, start);
+    r
+}

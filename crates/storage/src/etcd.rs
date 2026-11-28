@@ -455,77 +455,83 @@ impl Storage for EtcdStorage {
     where
         T: Serialize + DeserializeOwned + Send + Sync,
     {
-        let mut client = kv_client(&self.client);
-        // Stamp system-managed creation metadata (uid, creationTimestamp,
-        // generation) centrally, mirroring k8s registry.Store.Create.
-        let json = {
-            let mut raw = Self::serialize(value)?;
-            if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                crate::metadata::ensure_create_metadata(&mut v);
-                raw = serde_json::to_string(&v).unwrap_or(raw);
+        crate::metrics::timed("create", key, async {
+            let mut client = kv_client(&self.client);
+            // Stamp system-managed creation metadata (uid, creationTimestamp,
+            // generation) centrally, mirroring k8s registry.Store.Create.
+            let json = {
+                let mut raw = Self::serialize(value)?;
+                if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    crate::metadata::ensure_create_metadata(&mut v);
+                    raw = serde_json::to_string(&v).unwrap_or(raw);
+                }
+                raw
+            };
+
+            // Upstream's create is a single-op transaction guarded on the key not
+            // existing — `OptimisticPut(key, data, 0)` in
+            // `vendor/go.etcd.io/etcd/client/v3/kubernetes/client.go`:
+            //
+            //     txn.If(clientv3.Compare(clientv3.ModRevision(key), "=", 0))
+            //        .Then(clientv3.OpPut(key, value))
+            //
+            // Two details are deliberate: the guard compares `ModRevision` (not
+            // `Version`), and the success branch holds exactly one operation. Any
+            // other shape falls outside the subset etcd-API shims implement.
+            let txn = etcd_client::Txn::new()
+                .when(vec![Compare::mod_revision(key, CompareOp::Equal, 0)])
+                .and_then(vec![self.put_op(key, &json, ttl).await?]);
+
+            let txn_resp = crate::latency::tracked(client.txn(txn))
+                .await
+                .map_err(|e| write_error("Failed to create resource", e))?;
+
+            if !txn_resp.succeeded() {
+                return Err(Error::AlreadyExists(key.to_string()));
             }
-            raw
-        };
 
-        // Upstream's create is a single-op transaction guarded on the key not
-        // existing — `OptimisticPut(key, data, 0)` in
-        // `vendor/go.etcd.io/etcd/client/v3/kubernetes/client.go`:
-        //
-        //     txn.If(clientv3.Compare(clientv3.ModRevision(key), "=", 0))
-        //        .Then(clientv3.OpPut(key, value))
-        //
-        // Two details are deliberate: the guard compares `ModRevision` (not
-        // `Version`), and the success branch holds exactly one operation. Any
-        // other shape falls outside the subset etcd-API shims implement.
-        let txn = etcd_client::Txn::new()
-            .when(vec![Compare::mod_revision(key, CompareOp::Equal, 0)])
-            .and_then(vec![self.put_op(key, &json, ttl).await?]);
+            debug!("Created resource at key: {}", key);
 
-        let txn_resp = crate::latency::tracked(client.txn(txn))
-            .await
-            .map_err(|e| write_error("Failed to create resource", e))?;
+            // The put is the only operation in the transaction, so the response
+            // header's revision *is* the new mod_revision. Upstream reads it the
+            // same way (`resp.Revision = txnResp.Header.Revision`), which is why
+            // the read-back GET this used to carry was always redundant.
+            let mod_revision = txn_resp.header().map(|h| h.revision()).unwrap_or(0);
 
-        if !txn_resp.succeeded() {
-            return Err(Error::AlreadyExists(key.to_string()));
-        }
+            self.sizes.update_key(key, json.len(), mod_revision);
 
-        debug!("Created resource at key: {}", key);
-
-        // The put is the only operation in the transaction, so the response
-        // header's revision *is* the new mod_revision. Upstream reads it the
-        // same way (`resp.Revision = txnResp.Header.Revision`), which is why
-        // the read-back GET this used to carry was always redundant.
-        let mod_revision = txn_resp.header().map(|h| h.revision()).unwrap_or(0);
-
-        self.sizes.update_key(key, json.len(), mod_revision);
-
-        // Inject resourceVersion and deserialize
-        let json_with_rv = Self::inject_resource_version(&json, mod_revision);
-        serde_json::from_str(&json_with_rv).map_err(Error::Serialization)
+            // Inject resourceVersion and deserialize
+            let json_with_rv = Self::inject_resource_version(&json, mod_revision);
+            serde_json::from_str(&json_with_rv).map_err(Error::Serialization)
+        })
+        .await
     }
 
     async fn get<T>(&self, key: &str) -> Result<T>
     where
         T: DeserializeOwned + Send + Sync,
     {
-        let mut client = kv_client(&self.client);
+        crate::metrics::timed("get", key, async {
+            let mut client = kv_client(&self.client);
 
-        let resp = crate::latency::tracked(client.get(key, None))
-            .await
-            .map_err(|e| Error::Storage(format!("Failed to get resource: {}", e)))?;
+            let resp = crate::latency::tracked(client.get(key, None))
+                .await
+                .map_err(|e| Error::Storage(format!("Failed to get resource: {}", e)))?;
 
-        if let Some(kv) = resp.kvs().first() {
-            let json = kv
-                .value_str()
-                .map_err(|e| Error::Storage(format!("Invalid UTF-8 in value: {}", e)))?;
+            if let Some(kv) = resp.kvs().first() {
+                let json = kv
+                    .value_str()
+                    .map_err(|e| Error::Storage(format!("Invalid UTF-8 in value: {}", e)))?;
 
-            let mod_revision = kv.mod_revision();
-            self.sizes.update_key(key, json.len(), mod_revision);
-            let json_with_rv = Self::inject_resource_version(json, mod_revision);
-            serde_json::from_str(&json_with_rv).map_err(Error::Serialization)
-        } else {
-            Err(Error::NotFound(key.to_string()))
-        }
+                let mod_revision = kv.mod_revision();
+                self.sizes.update_key(key, json.len(), mod_revision);
+                let json_with_rv = Self::inject_resource_version(json, mod_revision);
+                serde_json::from_str(&json_with_rv).map_err(Error::Serialization)
+            } else {
+                Err(Error::NotFound(key.to_string()))
+            }
+        })
+        .await
     }
 
     async fn update<T>(&self, key: &str, value: &T) -> Result<T>
@@ -539,83 +545,86 @@ impl Storage for EtcdStorage {
     where
         T: Serialize + DeserializeOwned + Send + Sync,
     {
-        let mut client = kv_client(&self.client);
-        let json = Self::serialize(value)?;
+        crate::metrics::timed("update", key, async {
+            let mut client = kv_client(&self.client);
+            let json = Self::serialize(value)?;
 
-        // Extract resourceVersion from the incoming resource
-        let incoming_resource: serde_json::Value =
-            serde_json::from_str(&json).map_err(Error::Serialization)?;
-        let incoming_rv = crate::concurrency::extract_resource_version(
-            incoming_resource
-                .get("metadata")
-                .unwrap_or(&serde_json::json!({})),
-        );
+            // Extract resourceVersion from the incoming resource
+            let incoming_resource: serde_json::Value =
+                serde_json::from_str(&json).map_err(Error::Serialization)?;
+            let incoming_rv = crate::concurrency::extract_resource_version(
+                incoming_resource
+                    .get("metadata")
+                    .unwrap_or(&serde_json::json!({})),
+            );
 
-        // Validate optimistic concurrency if resourceVersion is provided
-        if let Some(incoming_rv) = incoming_rv.as_deref() {
-            // Use a transaction to ensure atomic update with version check
-            let expected_mod_revision =
-                crate::concurrency::resource_version_to_mod_revision(incoming_rv)?;
-            // Upstream `OptimisticPut(key, data, expectedRevision,
-            // {GetOnFailure: true})`: one guarded PUT, and a GET only in the
-            // failure branch so the conflict error can name the current
-            // revision.
-            let txn = etcd_client::Txn::new()
-                .when(vec![Compare::mod_revision(
-                    key,
-                    CompareOp::Equal,
-                    expected_mod_revision,
-                )])
-                .and_then(vec![self.put_op(key, &json, ttl).await?])
-                .or_else(vec![TxnOp::get(key, None)]);
+            // Validate optimistic concurrency if resourceVersion is provided
+            if let Some(incoming_rv) = incoming_rv.as_deref() {
+                // Use a transaction to ensure atomic update with version check
+                let expected_mod_revision =
+                    crate::concurrency::resource_version_to_mod_revision(incoming_rv)?;
+                // Upstream `OptimisticPut(key, data, expectedRevision,
+                // {GetOnFailure: true})`: one guarded PUT, and a GET only in the
+                // failure branch so the conflict error can name the current
+                // revision.
+                let txn = etcd_client::Txn::new()
+                    .when(vec![Compare::mod_revision(
+                        key,
+                        CompareOp::Equal,
+                        expected_mod_revision,
+                    )])
+                    .and_then(vec![self.put_op(key, &json, ttl).await?])
+                    .or_else(vec![TxnOp::get(key, None)]);
 
-            let txn_resp = crate::latency::tracked(client.txn(txn))
-                .await
-                .map_err(|e| write_error("Failed to update resource", e))?;
+                let txn_resp = crate::latency::tracked(client.txn(txn))
+                    .await
+                    .map_err(|e| write_error("Failed to update resource", e))?;
 
-            if !txn_resp.succeeded() {
-                // Get the current resourceVersion from the failed txn's else branch
-                let current_rv = txn_resp
-                    .op_responses()
-                    .first()
-                    .and_then(|resp| {
-                        if let etcd_client::TxnOpResponse::Get(get_resp) = resp {
-                            get_resp.kvs().first().map(|kv| {
-                                crate::concurrency::mod_revision_to_resource_version(
-                                    kv.mod_revision(),
-                                )
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or_else(|| "unknown".to_string());
-                return Err(Error::Conflict(format!(
+                if !txn_resp.succeeded() {
+                    // Get the current resourceVersion from the failed txn's else branch
+                    let current_rv = txn_resp
+                        .op_responses()
+                        .first()
+                        .and_then(|resp| {
+                            if let etcd_client::TxnOpResponse::Get(get_resp) = resp {
+                                get_resp.kvs().first().map(|kv| {
+                                    crate::concurrency::mod_revision_to_resource_version(
+                                        kv.mod_revision(),
+                                    )
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_else(|| "unknown".to_string());
+                    return Err(Error::Conflict(format!(
                     "resourceVersion mismatch: resource was modified (expected: {}, current: {})",
                     incoming_rv, current_rv
                 )));
+                }
+
+                debug!("Updated resource at key: {}", key);
+
+                // Single-op success branch: the header revision is the new
+                // mod_revision.
+                let mod_revision = txn_resp.header().map(|h| h.revision()).unwrap_or(0);
+                self.sizes.update_key(key, json.len(), mod_revision);
+
+                let json_with_rv = Self::inject_resource_version(&json, mod_revision);
+                serde_json::from_str(&json_with_rv).map_err(Error::Serialization)
+            } else {
+                // No resourceVersion provided — read-modify-write under a guard
+                // rather than a bare PUT, matching upstream `GuaranteedUpdate`.
+                let mod_revision = self.put_guaranteed(key, &json, ttl).await?;
+
+                debug!("Updated resource at key: {}", key);
+                self.sizes.update_key(key, json.len(), mod_revision);
+
+                let json_with_rv = Self::inject_resource_version(&json, mod_revision);
+                serde_json::from_str(&json_with_rv).map_err(Error::Serialization)
             }
-
-            debug!("Updated resource at key: {}", key);
-
-            // Single-op success branch: the header revision is the new
-            // mod_revision.
-            let mod_revision = txn_resp.header().map(|h| h.revision()).unwrap_or(0);
-            self.sizes.update_key(key, json.len(), mod_revision);
-
-            let json_with_rv = Self::inject_resource_version(&json, mod_revision);
-            serde_json::from_str(&json_with_rv).map_err(Error::Serialization)
-        } else {
-            // No resourceVersion provided — read-modify-write under a guard
-            // rather than a bare PUT, matching upstream `GuaranteedUpdate`.
-            let mod_revision = self.put_guaranteed(key, &json, ttl).await?;
-
-            debug!("Updated resource at key: {}", key);
-            self.sizes.update_key(key, json.len(), mod_revision);
-
-            let json_with_rv = Self::inject_resource_version(&json, mod_revision);
-            serde_json::from_str(&json_with_rv).map_err(Error::Serialization)
-        }
+        })
+        .await
     }
 
     async fn update_raw(&self, key: &str, value: &serde_json::Value) -> Result<()> {
@@ -628,37 +637,40 @@ impl Storage for EtcdStorage {
     }
 
     async fn delete(&self, key: &str) -> Result<()> {
-        let mut client = kv_client(&self.client);
+        crate::metrics::timed("delete", key, async {
+            let mut client = kv_client(&self.client);
 
-        // Upstream `OptimisticDelete` (`client/v3/kubernetes/client.go`):
-        //
-        //     txn.If(clientv3.Compare(clientv3.ModRevision(key), "=", rev))
-        //        .Then(clientv3.OpDelete(key))
-        //
-        // A bare `DeleteRange` would remove a revision we never observed, and
-        // sits outside the RPC subset besides. Read the current revision, then
-        // delete under a guard, retrying if a writer beats us to it.
-        for _ in 0..GUARANTEED_UPDATE_ATTEMPTS {
-            let expected = Self::read_mod_revision(&mut client, key).await?;
-            let txn = etcd_client::Txn::new()
-                .when(vec![Compare::mod_revision(key, CompareOp::Equal, expected)])
-                .and_then(vec![TxnOp::delete(key, None)])
-                .or_else(vec![TxnOp::get(key, None)]);
-            let resp = crate::latency::tracked(client.txn(txn))
-                .await
-                .map_err(|e| Error::Storage(format!("Failed to delete resource: {}", e)))?;
-            if resp.succeeded() {
-                debug!("Deleted resource at key: {}", key);
-                let rev = resp.header().map(|h| h.revision()).unwrap_or(0);
-                self.sizes.delete_key(key, rev);
-                return Ok(());
+            // Upstream `OptimisticDelete` (`client/v3/kubernetes/client.go`):
+            //
+            //     txn.If(clientv3.Compare(clientv3.ModRevision(key), "=", rev))
+            //        .Then(clientv3.OpDelete(key))
+            //
+            // A bare `DeleteRange` would remove a revision we never observed, and
+            // sits outside the RPC subset besides. Read the current revision, then
+            // delete under a guard, retrying if a writer beats us to it.
+            for _ in 0..GUARANTEED_UPDATE_ATTEMPTS {
+                let expected = Self::read_mod_revision(&mut client, key).await?;
+                let txn = etcd_client::Txn::new()
+                    .when(vec![Compare::mod_revision(key, CompareOp::Equal, expected)])
+                    .and_then(vec![TxnOp::delete(key, None)])
+                    .or_else(vec![TxnOp::get(key, None)]);
+                let resp = crate::latency::tracked(client.txn(txn))
+                    .await
+                    .map_err(|e| Error::Storage(format!("Failed to delete resource: {}", e)))?;
+                if resp.succeeded() {
+                    debug!("Deleted resource at key: {}", key);
+                    let rev = resp.header().map(|h| h.revision()).unwrap_or(0);
+                    self.sizes.delete_key(key, rev);
+                    return Ok(());
+                }
             }
-        }
 
-        Err(Error::Conflict(format!(
+            Err(Error::Conflict(format!(
             "failed to delete {} after {} attempts: concurrent writers keep moving the revision",
             key, GUARANTEED_UPDATE_ATTEMPTS
         )))
+        })
+        .await
     }
 
     /// `etcd3 store.conditionalDelete` (`etcd3/store.go:361-453`): read the
@@ -671,59 +683,68 @@ impl Storage for EtcdStorage {
         key: &str,
         preconditions: &crate::Preconditions,
     ) -> Result<()> {
-        let mut client = kv_client(&self.client);
-        for _ in 0..GUARANTEED_UPDATE_ATTEMPTS {
-            let resp = crate::latency::tracked(client.get(key, None))
-                .await
-                .map_err(|e| Error::Storage(format!("Failed to read resource: {}", e)))?;
-            let kv = resp
-                .kvs()
-                .first()
-                .ok_or_else(|| Error::NotFound(key.to_string()))?;
-            let expected = kv.mod_revision();
-            let json = kv
-                .value_str()
-                .map_err(|e| Error::Storage(format!("Invalid UTF-8 in value: {}", e)))?;
-            let obj: serde_json::Value =
-                serde_json::from_str(&Self::inject_resource_version(json, expected))
-                    .map_err(Error::Serialization)?;
-            preconditions.check(key, &obj)?;
+        crate::metrics::timed("delete", key, async {
+            let mut client = kv_client(&self.client);
+            for _ in 0..GUARANTEED_UPDATE_ATTEMPTS {
+                let resp = crate::latency::tracked(client.get(key, None))
+                    .await
+                    .map_err(|e| Error::Storage(format!("Failed to read resource: {}", e)))?;
+                let kv = resp
+                    .kvs()
+                    .first()
+                    .ok_or_else(|| Error::NotFound(key.to_string()))?;
+                let expected = kv.mod_revision();
+                let json = kv
+                    .value_str()
+                    .map_err(|e| Error::Storage(format!("Invalid UTF-8 in value: {}", e)))?;
+                let obj: serde_json::Value =
+                    serde_json::from_str(&Self::inject_resource_version(json, expected))
+                        .map_err(Error::Serialization)?;
+                preconditions.check(key, &obj)?;
 
-            let txn = etcd_client::Txn::new()
-                .when(vec![Compare::mod_revision(key, CompareOp::Equal, expected)])
-                .and_then(vec![TxnOp::delete(key, None)])
-                .or_else(vec![TxnOp::get(key, None)]);
-            let resp = crate::latency::tracked(client.txn(txn))
-                .await
-                .map_err(|e| Error::Storage(format!("Failed to delete resource: {}", e)))?;
-            if resp.succeeded() {
-                debug!("Deleted resource at key: {} (preconditions held)", key);
-                let rev = resp.header().map(|h| h.revision()).unwrap_or(0);
-                self.sizes.delete_key(key, rev);
-                return Ok(());
+                let txn = etcd_client::Txn::new()
+                    .when(vec![Compare::mod_revision(key, CompareOp::Equal, expected)])
+                    .and_then(vec![TxnOp::delete(key, None)])
+                    .or_else(vec![TxnOp::get(key, None)]);
+                let resp = crate::latency::tracked(client.txn(txn))
+                    .await
+                    .map_err(|e| Error::Storage(format!("Failed to delete resource: {}", e)))?;
+                if resp.succeeded() {
+                    debug!("Deleted resource at key: {} (preconditions held)", key);
+                    let rev = resp.header().map(|h| h.revision()).unwrap_or(0);
+                    self.sizes.delete_key(key, rev);
+                    return Ok(());
+                }
             }
-        }
 
-        Err(Error::Conflict(format!(
+            Err(Error::Conflict(format!(
             "failed to delete {} after {} attempts: concurrent writers keep moving the revision",
             key, GUARANTEED_UPDATE_ATTEMPTS
         )))
+        })
+        .await
     }
 
     async fn list<T>(&self, prefix: &str) -> Result<Vec<T>>
     where
         T: Serialize + DeserializeOwned + Send + Sync,
     {
-        let results = self.list_inner(prefix, None).await?;
-        debug!("Listed {} resources with prefix: {}", results.len(), prefix);
-        Ok(results)
+        crate::metrics::timed("list", prefix, async {
+            let results = self.list_inner(prefix, None).await?;
+            debug!("Listed {} resources with prefix: {}", results.len(), prefix);
+            Ok(results)
+        })
+        .await
     }
 
     async fn list_at_revision<T>(&self, prefix: &str, revision: i64) -> Result<Vec<T>>
     where
         T: Serialize + DeserializeOwned + Send + Sync,
     {
-        self.list_inner(prefix, Some(revision)).await
+        crate::metrics::timed("list", prefix, async {
+            self.list_inner(prefix, Some(revision)).await
+        })
+        .await
     }
 
     /// `storage/etcd3/stats.go` `resourceSizeEstimator.Stats`: a keys-only
