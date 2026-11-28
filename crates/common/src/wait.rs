@@ -268,6 +268,9 @@ pub enum WaitError<E> {
     DeadlineExceeded,
     /// The condition returned an error.
     Condition(E),
+    /// `wait.ErrWaitTimeout` ([`ERR_WAIT_TIMEOUT`]), returned by the legacy
+    /// `Poll*` family and by `ExponentialBackoff*` when the steps run out.
+    WaitTimeout,
 }
 
 /// `wait.Timer` (`timer.go`): `noopTimer`, `variableTimer`, `fixedTimer`.
@@ -494,4 +497,172 @@ pub async fn non_sliding_until<Fut>(
     Fut: Future<Output = ()>,
 {
     jitter_until(f, period, 0.0, false, stop).await
+}
+
+/// `ExponentialBackoffWithContext` (`backoff.go:493-518`). `done` is the
+/// context's `Err()` future, as in [`loop_condition_until_context`]. The
+/// condition runs at most `backoff.steps` times; an error from it ends the
+/// loop at once; running out of steps is [`WaitError::WaitTimeout`].
+pub async fn exponential_backoff_with_context<E, Fut>(
+    done: impl Future<Output = WaitError<E>>,
+    mut backoff: Backoff,
+    mut condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    tokio::pin!(done);
+    while backoff.steps > 0 {
+        // `select { case <-ctx.Done(): return ctx.Err(); default: }`
+        tokio::select! {
+            biased;
+            err = &mut done => return Err(err),
+            _ = std::future::ready(()) => {}
+        }
+        match condition().await {
+            Err(e) => return Err(WaitError::Condition(e)),
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+        }
+        if backoff.steps == 1 {
+            break;
+        }
+        let wait_before_retry = backoff.step();
+        tokio::select! {
+            err = &mut done => return Err(err),
+            _ = tokio::time::sleep(wait_before_retry) => {}
+        }
+    }
+    Err(WaitError::WaitTimeout)
+}
+
+/// `poll` + `poller` + `waitForWithContext` (`poll.go:243-318`, `wait.go`),
+/// the engine of the deprecated `Poll*` family. A `timeout` of zero means no
+/// timeout. When the timeout passes the condition runs one last time (the
+/// closed tick channel still wakes `waitForWithContext`) before
+/// [`WaitError::WaitTimeout`]; a cancelled context is `WaitTimeout` too, as
+/// the Go code keeps `ErrWaitTimeout` for backward compatibility.
+pub async fn poll<E, Fut>(
+    cancel: impl Future<Output = ()>,
+    immediate: bool,
+    interval: Duration,
+    timeout: Duration,
+    mut condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    tokio::pin!(cancel);
+    if immediate {
+        match condition().await {
+            Err(e) => return Err(WaitError::Condition(e)),
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+        }
+    }
+    tokio::select! {
+        biased;
+        _ = &mut cancel => return Err(WaitError::WaitTimeout),
+        _ = std::future::ready(()) => {}
+    }
+    let mut tick = tokio::time::interval_at(TokioInstant::now() + interval, interval);
+    // `poller` drops ticks nobody is ready to receive.
+    tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let after = async {
+        if timeout.is_zero() {
+            std::future::pending::<()>().await
+        } else {
+            tokio::time::sleep(timeout).await
+        }
+    };
+    tokio::pin!(after);
+    loop {
+        let open = tokio::select! {
+            _ = &mut cancel => return Err(WaitError::WaitTimeout),
+            _ = tick.tick() => true,
+            _ = &mut after => false,
+        };
+        match condition().await {
+            Err(e) => return Err(WaitError::Condition(e)),
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+        }
+        if !open {
+            return Err(WaitError::WaitTimeout);
+        }
+    }
+}
+
+/// `Poll` / `PollWithContext` (`poll.go:65`, `:84`).
+pub async fn poll_with_context<E, Fut>(
+    cancel: impl Future<Output = ()>,
+    interval: Duration,
+    timeout: Duration,
+    condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    poll(cancel, false, interval, timeout, condition).await
+}
+
+/// `PollUntilWithContext` (`poll.go:110`): no timeout, waits first.
+pub async fn poll_until_with_context<E, Fut>(
+    cancel: impl Future<Output = ()>,
+    interval: Duration,
+    condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    poll(cancel, false, interval, Duration::ZERO, condition).await
+}
+
+/// `PollInfiniteWithContext` (`poll.go:138`): same as `PollUntilWithContext`.
+pub async fn poll_infinite_with_context<E, Fut>(
+    cancel: impl Future<Output = ()>,
+    interval: Duration,
+    condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    poll_until_with_context(cancel, interval, condition).await
+}
+
+/// `PollImmediate` / `PollImmediateWithContext` (`poll.go:156`, `:174`).
+pub async fn poll_immediate_with_context<E, Fut>(
+    cancel: impl Future<Output = ()>,
+    interval: Duration,
+    timeout: Duration,
+    condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    poll(cancel, true, interval, timeout, condition).await
+}
+
+/// `PollImmediateUntilWithContext` (`poll.go:199`).
+pub async fn poll_immediate_until_with_context<E, Fut>(
+    cancel: impl Future<Output = ()>,
+    interval: Duration,
+    condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    poll(cancel, true, interval, Duration::ZERO, condition).await
+}
+
+/// `PollImmediateInfiniteWithContext` (`poll.go:228`).
+pub async fn poll_immediate_infinite_with_context<E, Fut>(
+    cancel: impl Future<Output = ()>,
+    interval: Duration,
+    condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    poll_immediate_until_with_context(cancel, interval, condition).await
 }

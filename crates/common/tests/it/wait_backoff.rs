@@ -280,4 +280,120 @@ mod loops {
         .await;
         assert_eq!(n.load(Ordering::SeqCst), 0);
     }
+
+    // TestPoll: one tick, condition true -> one invocation.
+    #[tokio::test]
+    async fn wait_backoff_poll_waits_first() {
+        let n = Arc::new(AtomicUsize::new(0));
+        let c = n.clone();
+        let r = poll_with_context(
+            std::future::pending(),
+            MS,
+            5 * Duration::from_secs(1),
+            move || {
+                c.fetch_add(1, Ordering::SeqCst);
+                std::future::ready(Ok::<_, ()>(true))
+            },
+        )
+        .await;
+        assert_eq!(r, Ok(()));
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+    }
+
+    // TestPollError: the condition's error is returned as is.
+    #[tokio::test]
+    async fn wait_backoff_poll_error() {
+        let r = poll_with_context(std::future::pending(), MS, Duration::ZERO, || {
+            std::future::ready(Err::<bool, _>("Expected error"))
+        })
+        .await;
+        assert_eq!(r, Err(WaitError::Condition("Expected error")));
+    }
+
+    // TestPollImmediate / TestPollImmediateError: no tick needed.
+    #[tokio::test]
+    async fn wait_backoff_poll_immediate_legacy() {
+        let r = poll_immediate_with_context(
+            std::future::pending(),
+            Duration::from_secs(3600),
+            Duration::ZERO,
+            || std::future::ready(Ok::<_, ()>(true)),
+        )
+        .await;
+        assert_eq!(r, Ok(()));
+        let r = poll_immediate_until_with_context(
+            std::future::pending(),
+            Duration::from_secs(3600),
+            || std::future::ready(Err::<bool, _>(7)),
+        )
+        .await;
+        assert_eq!(r, Err(WaitError::Condition(7)));
+    }
+
+    // Timeout: ErrWaitTimeout after a final condition run; cancel too.
+    #[tokio::test]
+    async fn wait_backoff_poll_timeout_and_cancel() {
+        let n = Arc::new(AtomicUsize::new(0));
+        let c = n.clone();
+        let r = poll_with_context(std::future::pending(), MS, 5 * MS, move || {
+            c.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(Ok::<_, ()>(false))
+        })
+        .await;
+        assert_eq!(r, Err(WaitError::WaitTimeout));
+        assert!(n.load(Ordering::SeqCst) >= 1);
+        let r = poll_infinite_with_context(std::future::ready(()), MS, || {
+            std::future::ready(Ok::<_, ()>(false))
+        })
+        .await;
+        assert_eq!(r, Err(WaitError::WaitTimeout));
+    }
+
+    // TestExponentialBackoffWithContext cases.
+    async fn ebwc(
+        steps: i64,
+        cancelled: bool,
+        cb: impl Fn(usize) -> Result<bool, &'static str>,
+    ) -> (usize, Result<(), WaitError<&'static str>>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c = calls.clone();
+        let done = async move {
+            if cancelled {
+                WaitError::Canceled
+            } else {
+                std::future::pending().await
+            }
+        };
+        let r = exponential_backoff_with_context(
+            done,
+            Backoff {
+                duration: MS,
+                factor: 1.0,
+                jitter: 0.0,
+                steps,
+                cap: Duration::ZERO,
+            },
+            move || {
+                let n = c.fetch_add(1, Ordering::SeqCst) + 1;
+                std::future::ready(cb(n))
+            },
+        )
+        .await;
+        (calls.load(Ordering::SeqCst), r)
+    }
+
+    #[tokio::test]
+    async fn wait_backoff_exponential_backoff_with_context() {
+        let f = |_| Ok(false);
+        assert_eq!(ebwc(0, false, f).await, (0, Err(WaitError::WaitTimeout)));
+        assert_eq!(ebwc(1, false, f).await, (1, Err(WaitError::WaitTimeout)));
+        assert_eq!(ebwc(1, false, |_| Ok(true)).await, (1, Ok(())));
+        assert_eq!(ebwc(5, false, f).await, (5, Err(WaitError::WaitTimeout)));
+        assert_eq!(ebwc(5, false, |n| Ok(n == 3)).await, (3, Ok(())));
+        assert_eq!(
+            ebwc(5, false, |_| Err("condition failed")).await,
+            (1, Err(WaitError::Condition("condition failed")))
+        );
+        assert_eq!(ebwc(5, true, f).await, (0, Err(WaitError::Canceled)));
+    }
 }
