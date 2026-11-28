@@ -19,6 +19,7 @@ mod exec_attach_portforward_tests;
 mod info_commands_tests;
 mod kc_unit;
 mod mock_client_example;
+mod plugin_handler;
 mod printers;
 mod rollout_status_flags;
 mod rollout_status_tests;
