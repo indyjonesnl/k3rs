@@ -202,9 +202,11 @@ async fn sends_selector_attributes() {
     let got = mock.lock().unwrap().last.clone().unwrap();
     assert_eq!(
         got["spec"]["resourceAttributes"]["fieldSelector"],
+        // fields.ParseSelector sorts the terms (selector.go parseSelector),
+        // so `baz!=qux` precedes `foo=bar`.
         json!({"requirements": [
-            {"key": "foo", "operator": "In", "values": ["bar"]},
             {"key": "baz", "operator": "NotIn", "values": ["qux"]},
+            {"key": "foo", "operator": "In", "values": ["bar"]},
         ]})
     );
     // `l>3` (Gt) is dropped: requirements are AND'd, so ignoring is safe.
