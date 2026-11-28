@@ -825,11 +825,39 @@ impl std::fmt::Debug for PreFilterPluginObjects {
 }
 
 impl Framework {
+    /// `metrics.FrameworkExtensionPointDuration.WithLabelValues(point,
+    /// status.Code().String(), f.profileName).Observe(SinceInSeconds(start))`,
+    /// the `defer` at the top of each `Run*Plugins` (framework.go:1234, 1416,
+    /// 1467, 1517, 1566, 1601, 1645, 1685).
+    fn observe_extension_point(&self, point: &str, code: Code, start: std::time::Instant) {
+        crate::metrics::metrics()
+            .framework_extension_point_duration
+            .with_label_values(&[point, code.as_str(), &self.profile_name])
+            .observe(crate::metrics::since_in_seconds(start));
+    }
+
     /// `RunPreScorePlugins` (framework.go:1230-1262) over the PreScore plugin
     /// objects: a Skip records the plugin in the cycle state's skip-score
     /// set; any other non-success is wrapped as
     /// `running PreScore plugin "<name>": <err>`.
     pub async fn run_pre_score_plugins(
+        &self,
+        state: &mut CycleState,
+        pod: &Pod,
+        nodes: &[&Node],
+        all_pods: &[Pod],
+        all_nodes: &[Node],
+        handle: &dyn Handle,
+    ) -> Status {
+        let start = std::time::Instant::now();
+        let status = self
+            .run_pre_score_plugins_inner(state, pod, nodes, all_pods, all_nodes, handle)
+            .await;
+        self.observe_extension_point(crate::metrics::PRE_SCORE, status.code(), start);
+        status
+    }
+
+    async fn run_pre_score_plugins_inner(
         &self,
         state: &mut CycleState,
         pod: &Pod,
@@ -872,6 +900,21 @@ impl Framework {
         node_name: &str,
         handle: &dyn Handle,
     ) -> Status {
+        let start = std::time::Instant::now();
+        let status = self
+            .run_reserve_plugins_reserve_inner(state, pod, node_name, handle)
+            .await;
+        self.observe_extension_point(crate::metrics::RESERVE, status.code(), start);
+        status
+    }
+
+    async fn run_reserve_plugins_reserve_inner(
+        &self,
+        state: &CycleState,
+        pod: &Pod,
+        node_name: &str,
+        handle: &dyn Handle,
+    ) -> Status {
         for pl in &self.reserve_plugin_objects.0 {
             let mut s = pl.reserve(state, pod, node_name, handle).await;
             if s.is_success() {
@@ -899,6 +942,19 @@ impl Framework {
         node_name: &str,
         handle: &dyn Handle,
     ) {
+        let start = std::time::Instant::now();
+        self.run_reserve_plugins_unreserve_inner(state, pod, node_name, handle)
+            .await;
+        self.observe_extension_point(crate::metrics::UNRESERVE, Code::Success, start);
+    }
+
+    async fn run_reserve_plugins_unreserve_inner(
+        &self,
+        state: &CycleState,
+        pod: &Pod,
+        node_name: &str,
+        handle: &dyn Handle,
+    ) {
         for pl in self.reserve_plugin_objects.0.iter().rev() {
             pl.unreserve(state, pod, node_name, handle).await;
         }
@@ -908,6 +964,18 @@ impl Framework {
     /// more plugins will work, Skip when all skip, Error otherwise; the
     /// skipping plugins are recorded in the cycle state.
     pub fn run_pre_bind_pre_flights(
+        &self,
+        state: &mut CycleState,
+        pod: &Pod,
+        node_name: &str,
+    ) -> Status {
+        let start = std::time::Instant::now();
+        let status = self.run_pre_bind_pre_flights_inner(state, pod, node_name);
+        self.observe_extension_point(crate::metrics::PRE_BIND_PRE_FLIGHT, status.code(), start);
+        status
+    }
+
+    fn run_pre_bind_pre_flights_inner(
         &self,
         state: &mut CycleState,
         pod: &Pod,
@@ -949,6 +1017,21 @@ impl Framework {
         node_name: &str,
         handle: &dyn Handle,
     ) -> Status {
+        let start = std::time::Instant::now();
+        let status = self
+            .run_pre_bind_plugins_inner(state, pod, node_name, handle)
+            .await;
+        self.observe_extension_point(crate::metrics::PRE_BIND, status.code(), start);
+        status
+    }
+
+    async fn run_pre_bind_plugins_inner(
+        &self,
+        state: &CycleState,
+        pod: &Pod,
+        node_name: &str,
+        handle: &dyn Handle,
+    ) -> Status {
         for pl in &self.pre_bind_plugin_objects.0 {
             if state.skip_pre_bind_plugins().contains(pl.name()) {
                 continue;
@@ -984,6 +1067,21 @@ impl Framework {
     /// `running Bind plugin "<name>": <err>`, and the first Success wins. No
     /// plugin, or all of them skipping, is a Skip.
     pub async fn run_bind_plugins(
+        &self,
+        state: &CycleState,
+        pod: &Pod,
+        node_name: &str,
+        handle: &dyn Handle,
+    ) -> Status {
+        let start = std::time::Instant::now();
+        let status = self
+            .run_bind_plugins_inner(state, pod, node_name, handle)
+            .await;
+        self.observe_extension_point(crate::metrics::BIND, status.code(), start);
+        status
+    }
+
+    async fn run_bind_plugins_inner(
         &self,
         state: &CycleState,
         pod: &Pod,
@@ -1034,6 +1132,19 @@ impl Framework {
         node_name: &str,
         handle: &dyn Handle,
     ) {
+        let start = std::time::Instant::now();
+        self.run_post_bind_plugins_inner(state, pod, node_name, handle)
+            .await;
+        self.observe_extension_point(crate::metrics::POST_BIND, Code::Success, start);
+    }
+
+    async fn run_post_bind_plugins_inner(
+        &self,
+        state: &CycleState,
+        pod: &Pod,
+        node_name: &str,
+        handle: &dyn Handle,
+    ) {
         for pl in &self.post_bind_plugin_objects.0 {
             pl.post_bind(state, pod, node_name, handle).await;
         }
@@ -1049,6 +1160,21 @@ impl Framework {
     /// then blocks in [`Framework::wait_on_permit`]. Success is
     /// `Status::success()` (upstream's nil).
     pub async fn run_permit_plugins(
+        &self,
+        state: &CycleState,
+        pod: &Pod,
+        node_name: &str,
+        handle: &dyn Handle,
+    ) -> Status {
+        let start = std::time::Instant::now();
+        let status = self
+            .run_permit_plugins_inner(state, pod, node_name, handle)
+            .await;
+        self.observe_extension_point(crate::metrics::PERMIT, status.code(), start);
+        status
+    }
+
+    async fn run_permit_plugins_inner(
         &self,
         state: &CycleState,
         pod: &Pod,

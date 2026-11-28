@@ -649,3 +649,63 @@ async fn wait_on_permit_scheduler_metrics_permit_wait_duration() {
         before
     );
 }
+
+/// `FrameworkExtensionPointDuration{extension_point,status,profile}` is
+/// observed once by each `Run*Plugins` of Reserve, Unreserve, PreBind,
+/// PreBindPreFlight, Bind, PostBind, Permit and PreScore (framework.go:1234,
+/// 1416, 1467, 1517, 1566, 1601, 1645, 1685), whatever the plugin set.
+#[tokio::test]
+async fn scheduler_metrics_extension_point_duration() {
+    use kubernetes_rs_scheduler::metrics as m;
+    let mut f = Framework::default();
+    f.profile_name = "metrics-profile".to_string();
+    let count = |point: &str, status: &str| {
+        m::metrics()
+            .framework_extension_point_duration
+            .with_label_values(&[point, status, "metrics-profile"])
+            .get_sample_count()
+    };
+    let pod = pod_named("p", "p");
+    let state = CycleState::new();
+    let cases = [
+        (m::RESERVE, "Success"),
+        (m::UNRESERVE, "Success"),
+        (m::PRE_BIND, "Success"),
+        (m::PRE_BIND_PRE_FLIGHT, "Skip"),
+        (m::BIND, "Skip"),
+        (m::POST_BIND, "Success"),
+        (m::PERMIT, "Success"),
+        (m::PRE_SCORE, "Success"),
+    ];
+    let before: Vec<u64> = cases.iter().map(|(p, s)| count(p, s)).collect();
+    assert!(f
+        .run_reserve_plugins_reserve(&state, &pod, "n1", &NoHandle)
+        .await
+        .is_success());
+    f.run_reserve_plugins_unreserve(&state, &pod, "n1", &NoHandle)
+        .await;
+    assert!(f
+        .run_pre_bind_plugins(&state, &pod, "n1", &NoHandle)
+        .await
+        .is_success());
+    assert_eq!(
+        f.run_pre_bind_pre_flights(&mut CycleState::new(), &pod, "n1")
+            .code(),
+        Code::Skip
+    );
+    assert_eq!(
+        f.run_bind_plugins(&state, &pod, "n1", &NoHandle)
+            .await
+            .code(),
+        Code::Skip
+    );
+    f.run_post_bind_plugins(&state, &pod, "n1", &NoHandle).await;
+    assert!(run_permit(&f, &pod).await.is_success());
+    assert!(f
+        .run_pre_score_plugins(&mut CycleState::new(), &pod, &[], &[], &[], &NoHandle)
+        .await
+        .is_success());
+    for ((p, s), b) in cases.iter().zip(before) {
+        assert_eq!(count(p, s), b + 1, "{p}/{s}");
+    }
+}
