@@ -28,6 +28,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// `durationToExpireAssumedPod` (scheduler.go:66): assumed pods never expire.
+/// `cleanAssumedPeriod` (cache.go:38): how often the assumed-pod sweep (and
+/// with it the cache-size metrics) runs.
+pub const CLEAN_ASSUMED_PERIOD: Duration = Duration::from_secs(1);
 pub const DURATION_TO_EXPIRE_ASSUMED_POD: Duration = Duration::ZERO;
 
 /// `framework.GetPodKey` (types.go): the pod's UID.
@@ -97,6 +100,19 @@ impl Inner {
         self.pod_states.remove(&key);
         self.assumed_pods.remove(&key);
         Ok(())
+    }
+
+    /// `updateMetrics` (cache.go:765-770): the `scheduler_cache_size` gauge for
+    /// assumed pods and pods. The `nodes` series needs the cache's nodes map,
+    /// which this cache does not have yet (backlog task `scheduler-P1-02g2`).
+    fn update_metrics(&self) {
+        let m = crate::metrics::metrics();
+        m.cache_size
+            .with_label_values(&["assumed_pods"])
+            .set(self.assumed_pods.len() as f64);
+        m.cache_size
+            .with_label_values(&["pods"])
+            .set(self.pod_states.len() as f64);
     }
 
     /// `updatePod` (cache.go:460-469).
@@ -321,6 +337,8 @@ impl SchedulerCache {
                 }
             }
         }
+        // `defer cache.updateMetrics()` (cache.go:743): runs after the sweep.
+        g.update_metrics();
     }
 
     /// Pods recorded on `node` (assumed or confirmed), sorted by name.
