@@ -7,6 +7,7 @@ pub mod localdetector;
 pub mod node_net;
 pub mod nodeport_addresses;
 pub mod proxy;
+pub mod runner;
 pub mod serve_metrics;
 pub mod service_health;
 pub mod service_map;
