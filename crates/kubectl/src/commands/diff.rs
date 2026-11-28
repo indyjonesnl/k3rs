@@ -4,131 +4,222 @@ use anyhow::{Context, Result};
 use kubernetes_rs_client::http::{ApiClient, GetError};
 use serde_json::Value;
 
-/// Show diff between current and applied configuration
-pub async fn execute(client: &ApiClient, file: &str, namespace: &str) -> Result<()> {
-    // Read + split the source into its YAML documents. Empty documents (e.g. a
-    // trailing `---`) are skipped by the shared helper.
-    let documents = crate::manifest::read_documents(file)?;
+/// Options of `kubectl diff` (`DiffOptions`, diff.go:117).
+#[derive(Debug, Clone, Default)]
+pub struct DiffOptions {
+    /// `-f` files or directories (`-` is stdin).
+    pub files: Vec<String>,
+    /// `-R`.
+    pub recursive: bool,
+    /// `--server-side`.
+    pub server_side: bool,
+    /// `--field-manager`.
+    pub field_manager: String,
+    /// `--force-conflicts`.
+    pub force_conflicts: bool,
+    /// `--show-managed-fields`.
+    pub show_managed_fields: bool,
+}
 
-    // Build the REST mapper once for all documents in this file.
-    let mapper = RestMapper::from_server(client).await?;
-
-    for value in &documents {
-        diff_resource(client, &mapper, value, namespace).await?;
+/// `apply.GetApplyFieldManagerFlag` (apply/apply.go:1109): the flag when set,
+/// else `kubectl` for server-side apply and `kubectl-client-side-apply`.
+pub fn apply_field_manager(flag: Option<&str>, server_side: bool) -> String {
+    match flag {
+        Some(f) => f.to_string(),
+        None if server_side => "kubectl".to_string(),
+        None => "kubectl-client-side-apply".to_string(),
     }
+}
 
+/// `DiffOptions.Complete`'s flag checks (diff.go:631-651).
+pub fn validate_options(o: &DiffOptions) -> Result<()> {
+    if o.files.is_empty() {
+        anyhow::bail!("must specify one of -f and -k");
+    }
+    if o.force_conflicts && !o.server_side {
+        anyhow::bail!("--force-conflicts only works with --server-side");
+    }
     Ok(())
 }
 
-async fn diff_resource(
+/// `Differ` (diff.go:545): the LIVE and MERGED temp directories, diffed by
+/// one run of the diff program after every object was printed into them.
+pub struct Differ {
+    from: tempfile::TempDir,
+    to: tempfile::TempDir,
+}
+
+impl Differ {
+    /// `NewDiffer("LIVE", "MERGED")`; the directories are removed on drop
+    /// (`TearDown`).
+    pub fn new(from: &str, to: &str) -> Result<Self> {
+        let mk = |p: &str| tempfile::Builder::new().prefix(&format!("{p}-")).tempdir();
+        Ok(Self {
+            from: mk(from)?,
+            to: mk(to)?,
+        })
+    }
+
+    /// `Differ.Diff` (diff.go:566): print both versions of one object into
+    /// the directories, omitting managed fields and masking v1 Secret data.
+    /// `None` is an object that does not exist on that side.
+    pub fn diff(
+        &self,
+        name: &str,
+        live: Option<Value>,
+        merged: Option<Value>,
+        show_managed_fields: bool,
+    ) -> Result<()> {
+        let (mut from, mut to) = (live, merged);
+        if !show_managed_fields {
+            from.iter_mut().for_each(omit_managed_fields);
+            to.iter_mut().for_each(omit_managed_fields);
+        }
+        if to.as_ref().is_some_and(is_v1_secret) {
+            let m = Masker::new(from, to)?;
+            from = m.from().cloned();
+            to = m.to().cloned();
+        }
+        print_object(self.from.path(), name, from.as_ref())?;
+        print_object(self.to.path(), name, to.as_ref())?;
+        Ok(())
+    }
+
+    /// `Differ.Run` (diff.go:603).
+    pub fn run(&self, program: &mut DiffProgram) -> Result<()> {
+        program.run(
+            &self.from.path().to_string_lossy(),
+            &self.to.path().to_string_lossy(),
+        )
+    }
+}
+
+/// `DiffVersion.Print` + `Printer.Print` (diff.go:236, 160): the object as
+/// YAML into a new file; a missing object leaves an empty file.
+fn print_object(dir: &std::path::Path, name: &str, obj: Option<&Value>) -> Result<()> {
+    let data = match obj {
+        Some(o) => serde_yaml::to_string(o)?,
+        None => String::new(),
+    };
+    std::fs::write(dir.join(name), data)?;
+    Ok(())
+}
+
+/// `InfoObject.Name` (diff.go:376): `[group.]version.Kind.namespace.name`.
+pub fn object_name(group: &str, version: &str, kind: &str, namespace: &str, name: &str) -> String {
+    let group = if group.is_empty() {
+        String::new()
+    } else {
+        format!("{group}.")
+    };
+    format!("{group}{version}.{kind}.{namespace}.{name}")
+}
+
+/// `kubectl diff`: diff the live version of every object of the `-f` files
+/// against the version that apply would produce (`DiffOptions.Run`,
+/// diff.go:700). Returns the diff program's result: `Err` holding a
+/// [`DiffExitError`] with status 1 means differences were found.
+pub async fn execute(
+    client: &ApiClient,
+    opts: &DiffOptions,
+    default_namespace: &str,
+    program: &mut DiffProgram,
+) -> Result<()> {
+    validate_options(opts)?;
+    let differ = Differ::new("LIVE", "MERGED")?;
+    let files = crate::commands::apply::collect_files(&opts.files, opts.recursive)?;
+    let mapper = RestMapper::from_server(client).await?;
+    for file in &files {
+        for value in crate::manifest::read_documents(file)? {
+            diff_object(client, &mapper, &differ, &value, default_namespace, opts).await?;
+        }
+    }
+    differ.run(program)
+}
+
+async fn diff_object(
     client: &ApiClient,
     mapper: &RestMapper,
+    differ: &Differ,
     value: &serde_yaml::Value,
     default_namespace: &str,
+    opts: &DiffOptions,
 ) -> Result<()> {
-    let kind = value
+    let local: Value = serde_json::to_value(value)?;
+    let kind = local
         .get("kind")
         .and_then(|k| k.as_str())
-        .context("Missing 'kind' field")?;
-
-    let metadata = value.get("metadata").context("Missing 'metadata' field")?;
-    let name = metadata
-        .get("name")
-        .and_then(|n| n.as_str())
-        .context("Missing 'name' in metadata")?;
-
-    // Resolve the kind via the server-side REST mapper.
-    let mapping = mapper.resolve(kind).ok_or_else(|| {
+        .context("Missing 'kind' field")?
+        .to_string();
+    let name = crate::ops::value_name(&local).context("Missing 'name' in metadata")?;
+    let mapping = mapper.resolve(&kind).ok_or_else(|| {
         anyhow::anyhow!("error: the server doesn't have a resource type \"{kind}\"")
     })?;
+    let ns: Option<String> = mapping.namespaced.then(|| {
+        crate::ops::value_namespace(&local).unwrap_or_else(|| default_namespace.to_string())
+    });
+    let item = build_path(mapping, ns.as_deref(), Some(&name));
 
-    // Determine the effective namespace.
-    let ns: Option<String> = if mapping.namespaced {
-        let from_body = metadata.get("namespace").and_then(|n| n.as_str());
-        Some(from_body.unwrap_or(default_namespace).to_string())
+    // `info.Get()`: NotFound means the object does not exist yet.
+    let live = match client.get::<Value>(&item).await {
+        Ok(v) => Some(v),
+        Err(GetError::NotFound(_)) => None,
+        Err(GetError::Other(e)) => return Err(e),
+    };
+    let merged = merged_object(
+        client,
+        mapping,
+        &item,
+        ns.as_deref(),
+        &local,
+        live.is_some(),
+        opts,
+    )
+    .await?;
+    let file = object_name(
+        &mapping.group,
+        &mapping.version,
+        &mapping.kind,
+        ns.as_deref().unwrap_or(""),
+        &name,
+    );
+    differ.diff(&file, live, Some(merged), opts.show_managed_fields)
+}
+
+/// `InfoObject.Merged` (diff.go:346): the object as it would look if applied
+/// or created, from a dry-run request. Server-side apply patches with the
+/// apply patch type, forcing conflicts when asked; otherwise a missing object
+/// is dry-run created and an existing one dry-run replaced, as `kubectl apply`
+/// of this crate does (`ops::apply_value`), including the last-applied
+/// annotation.
+async fn merged_object(
+    client: &ApiClient,
+    mapping: &crate::discovery::ResourceMapping,
+    item: &str,
+    ns: Option<&str>,
+    local: &Value,
+    exists: bool,
+    opts: &DiffOptions,
+) -> Result<Value> {
+    if opts.server_side {
+        let q = format!(
+            "?dryRun=All&fieldManager={}&force={}",
+            opts.field_manager, opts.force_conflicts
+        );
+        return client
+            .patch(&format!("{item}{q}"), local, "application/apply-patch+yaml")
+            .await;
+    }
+    let mut body = local.clone();
+    crate::commands::apply::set_last_applied_annotation(&mut body);
+    let query = "?dryRun=All";
+    if exists {
+        client.put(&format!("{item}{query}"), &body).await
     } else {
-        None
-    };
-
-    // Build the item path and fetch the live object.
-    let api_path = build_path(mapping, ns.as_deref(), Some(name));
-
-    // Fetch the live object. We match on GetError so we can cleanly distinguish
-    // a genuine 404 (resource doesn't exist yet → show a creation diff) from
-    // any other error (connection failure, permission denied, etc.) which we
-    // propagate to the caller.
-    // Can't use ops::get_value here — it erases GetError::NotFound(_), which we need
-    // for the creation-diff branch.
-    let current_yaml = match client.get::<Value>(&api_path).await {
-        Ok(mut current) => {
-            // Strip server-managed fields the manifest never carries so the diff
-            // shows only meaningful changes.
-            strip_server_managed(&mut current);
-            // Convert to YAML for diffing
-            serde_yaml::to_string(&current)?
-        }
-        Err(GetError::NotFound(_)) => {
-            println!("--- /dev/null");
-            println!("+++ {}/{} (create)", kind, name);
-            // Round-trip through serde_json::Value so keys sort the same way the
-            // live side does (see the changed-resource branch below).
-            let mut new_json: serde_json::Value = serde_yaml::from_value(value.clone())?;
-            strip_server_managed(&mut new_json);
-            let new_yaml = serde_yaml::to_string(&new_json)?;
-            for line in new_yaml.lines() {
-                println!("+{}", line);
-            }
-            println!();
-            return Ok(());
-        }
-        Err(GetError::Other(e)) => {
-            return Err(e);
-        }
-    };
-
-    // Prepare new resource YAML. Round-trip the desired object through
-    // serde_json::Value so its keys sort identically to the live side (which is
-    // a serde_json::Value → sorted via BTreeMap). Without this, manifests whose
-    // keys aren't already alphabetical would show spurious diffs every run.
-    let mut new_json: serde_json::Value = serde_yaml::from_value(value.clone())?;
-    // Strip the same server-managed fields from the desired side so a field that
-    // exists only on the live side never renders as a deletion.
-    strip_server_managed(&mut new_json);
-    let new_yaml = serde_yaml::to_string(&new_json)?;
-
-    // Calculate and display diff
-    if current_yaml.trim() == new_yaml.trim() {
-        println!("No changes for {}/{}", kind, name);
-        println!();
-        return Ok(());
+        client
+            .post(&format!("{}{query}", build_path(mapping, ns, None)), &body)
+            .await
     }
-
-    println!("--- {}/{} (current)", kind, name);
-    println!("+++ {}/{} (new)", kind, name);
-
-    // Simple line-by-line diff
-    let current_lines: Vec<&str> = current_yaml.lines().collect();
-    let new_lines: Vec<&str> = new_yaml.lines().collect();
-
-    let max_len = current_lines.len().max(new_lines.len());
-    for i in 0..max_len {
-        let current_line = current_lines.get(i).copied();
-        let new_line = new_lines.get(i).copied();
-
-        match (current_line, new_line) {
-            (Some(c), Some(n)) if c == n => println!(" {}", c),
-            (Some(c), Some(n)) => {
-                println!("-{}", c);
-                println!("+{}", n);
-            }
-            (Some(c), None) => println!("-{}", c),
-            (None, Some(n)) => println!("+{}", n),
-            (None, None) => unreachable!(),
-        }
-    }
-    println!();
-
-    Ok(())
 }
 
 /// Remove server-managed fields that the user's manifest never sets, so `diff`

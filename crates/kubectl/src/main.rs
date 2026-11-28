@@ -718,9 +718,29 @@ enum Commands {
 
     /// Show difference between current and applied configuration
     Diff {
-        /// Path to YAML file
-        #[arg(short = 'f', long)]
-        file: String,
+        /// Files that contain the configuration to diff
+        #[arg(short = 'f', long = "filename")]
+        file: Vec<String>,
+
+        /// Process the directory used in -f, --filename recursively
+        #[arg(short = 'R', long)]
+        recursive: bool,
+
+        /// If true, apply runs in the server instead of the client.
+        #[arg(long)]
+        server_side: bool,
+
+        /// If true, server-side apply will force the changes against conflicts.
+        #[arg(long)]
+        force_conflicts: bool,
+
+        /// Name of the manager used to track field ownership.
+        #[arg(long)]
+        field_manager: Option<String>,
+
+        /// If true, include managed fields in the diff.
+        #[arg(long)]
+        show_managed_fields: bool,
 
         /// Namespace
         #[arg(skip)]
@@ -1639,13 +1659,41 @@ async fn main() -> Result<()> {
             )
             .await?;
         }
-        Commands::Diff { file, namespace } => {
-            commands::diff::execute(
-                &client,
-                &file,
-                namespace.as_deref().unwrap_or(&default_namespace),
-            )
-            .await?;
+        Commands::Diff {
+            file,
+            recursive,
+            server_side,
+            force_conflicts,
+            field_manager,
+            show_managed_fields,
+            namespace,
+        } => {
+            let opts = commands::diff::DiffOptions {
+                files: file,
+                recursive,
+                server_side,
+                field_manager: commands::diff::apply_field_manager(
+                    field_manager.as_deref(),
+                    server_side,
+                ),
+                force_conflicts,
+                show_managed_fields,
+            };
+            let mut program = commands::diff::DiffProgram {
+                out: Box::new(std::io::stdout()),
+                err_out: Box::new(std::io::stderr()),
+            };
+            let ns = namespace.as_deref().unwrap_or(&default_namespace);
+            if let Err(err) = commands::diff::execute(&client, &opts, ns, &mut program).await {
+                // `kubectl diff` propagates the exit status of diff: 1 means
+                // differences were found (no message), anything else is an
+                // error, exit status 2 (NewCmdDiff Run, CheckDiffErr).
+                if commands::diff::diff_error(&err).is_some() {
+                    std::process::exit(1);
+                }
+                eprintln!("error: {err}");
+                std::process::exit(2);
+            }
         }
         Commands::Auth { command } => {
             commands::auth::execute(&client, command, &default_namespace).await?;

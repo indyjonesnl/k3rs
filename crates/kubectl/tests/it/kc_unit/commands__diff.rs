@@ -439,3 +439,120 @@ mod diff_masker_program {
         std::env::remove_var("KUBECTL_EXTERNAL_DIFF");
     }
 }
+
+/// `Differ`, `InfoObject.Name`, `Complete` flag checks and the exit-status
+/// contract of `kubectl diff` (diff.go:376, 545-610, 631-651; diff_test.go
+/// TestDiffer).
+mod diff_differ {
+    use kubernetes_rs_kubectl::commands::diff::*;
+    use serde_json::json;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct Buf(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Buf {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn program(out: &Buf) -> DiffProgram {
+        DiffProgram {
+            out: Box::new(out.clone()),
+            err_out: Box::new(Buf::default()),
+        }
+    }
+
+    fn text(out: &Buf) -> String {
+        String::from_utf8(out.0.lock().unwrap().clone()).unwrap()
+    }
+
+    #[test]
+    fn diff_object_name_and_field_manager() {
+        assert_eq!(
+            object_name("apps", "v1", "Deployment", "ns", "web"),
+            "apps.v1.Deployment.ns.web"
+        );
+        assert_eq!(object_name("", "v1", "Pod", "ns", "p"), "v1.Pod.ns.p");
+        assert_eq!(
+            apply_field_manager(None, false),
+            "kubectl-client-side-apply"
+        );
+        assert_eq!(apply_field_manager(None, true), "kubectl");
+        assert_eq!(apply_field_manager(Some("me"), true), "me");
+    }
+
+    #[test]
+    fn diff_validate_options() {
+        let ok = DiffOptions {
+            files: vec!["a.yaml".into()],
+            ..Default::default()
+        };
+        assert!(validate_options(&ok).is_ok());
+        assert_eq!(
+            validate_options(&DiffOptions::default())
+                .unwrap_err()
+                .to_string(),
+            "must specify one of -f and -k"
+        );
+        let bad = DiffOptions {
+            force_conflicts: true,
+            ..ok
+        };
+        assert_eq!(
+            validate_options(&bad).unwrap_err().to_string(),
+            "--force-conflicts only works with --server-side"
+        );
+    }
+
+    // Env-mutating, so kept as one test (nextest runs each test in its own process).
+    #[test]
+    fn diff_differ_masks_secret_omits_managed_fields_and_reports_status() {
+        std::env::remove_var("KUBECTL_EXTERNAL_DIFF");
+        let differ = Differ::new("LIVE", "MERGED").unwrap();
+        let live = json!({
+            "apiVersion": "v1", "kind": "Secret",
+            "metadata": {"name": "s", "managedFields": [{"manager": "x"}]},
+            "data": {"password": "MTIz", "same": "eA=="}
+        });
+        let mut merged = live.clone();
+        merged["data"]["password"] = json!("NDU2");
+        differ
+            .diff("v1.Secret.ns.s", Some(live.clone()), Some(merged), false)
+            .unwrap();
+
+        let out = Buf::default();
+        let err = differ.run(&mut program(&out)).unwrap_err();
+        // Differences were found: exit status 1, not a failure.
+        assert_eq!(diff_error(&err), Some(&DiffExitError { status: 1 }));
+        let t = text(&out);
+        assert!(
+            t.contains("*** (before)") && t.contains("*** (after)"),
+            "{t}"
+        );
+        assert!(
+            !t.contains("MTIz") && !t.contains("NDU2"),
+            "secret leaked: {t}"
+        );
+        assert!(!t.contains("managedFields"), "{t}");
+
+        // No differences: exit status 0.
+        let same = Differ::new("LIVE", "MERGED").unwrap();
+        same.diff("n", Some(live.clone()), Some(live), true)
+            .unwrap();
+        assert!(same.run(&mut program(&Buf::default())).is_ok());
+
+        // A created object shows as all added.
+        let created = Differ::new("LIVE", "MERGED").unwrap();
+        created
+            .diff("n", None, Some(json!({"kind": "ConfigMap"})), true)
+            .unwrap();
+        let out = Buf::default();
+        assert!(created.run(&mut program(&out)).is_err());
+        assert!(text(&out).contains("+kind: ConfigMap"), "{}", text(&out));
+    }
+}
