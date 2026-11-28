@@ -1,5 +1,6 @@
 pub mod core_a;
 pub mod events;
+pub mod storage;
 pub mod workloads;
 
 use anyhow::Result;
