@@ -16,6 +16,63 @@ fn ensure_crypto_provider() {
     CRYPTO_INIT.call_once(install_crypto_provider);
 }
 
+/// `--tls-min-version` / `--tls-cipher-suites` for the serving listeners
+/// (staging/src/k8s.io/apiserver/pkg/server/options/serving.go:186-193,
+/// `SecureServingOptions.ApplyTo` setting `tlsConfig.MinVersion` and
+/// `.CipherSuites`).
+#[derive(Clone, Debug, Default)]
+pub struct TlsPolicy {
+    /// `MinVersion == tls.VersionTLS13` (rustls implements only 1.2 and 1.3;
+    /// the default `DefaultTLSVersion` is 1.2).
+    pub tls13_only: bool,
+    /// `CipherSuites`: constrains TLS 1.2 only, as in Go (the TLS 1.3 suites
+    /// are not configurable). Empty keeps the default list.
+    pub cipher_suites: Vec<rustls::SupportedCipherSuite>,
+}
+
+static SERVING_POLICY: std::sync::OnceLock<TlsPolicy> = std::sync::OnceLock::new();
+
+/// Set the process-wide serving policy; call once at startup, before any
+/// listener config is built. Returns false when a policy was already set.
+/// (Process scoped because the api-server is its own binary; upstream carries
+/// the same `tls.Config` on `SecureServingInfo`.)
+pub fn set_serving_tls_policy(policy: TlsPolicy) -> bool {
+    SERVING_POLICY.set(policy).is_ok()
+}
+
+/// `rustls::ServerConfig::builder()` honouring [`TlsPolicy`]; mirrors
+/// `middleware::secure_serving::serve::build_server_config`.
+fn server_builder(
+    policy: Option<&TlsPolicy>,
+) -> Result<rustls::ConfigBuilder<rustls::ServerConfig, rustls::WantsVerifier>> {
+    let Some(policy) = policy else {
+        return Ok(rustls::ServerConfig::builder());
+    };
+    let mut provider = rustls::crypto::aws_lc_rs::default_provider();
+    if !policy.cipher_suites.is_empty() {
+        let mut suites: Vec<rustls::SupportedCipherSuite> = provider
+            .cipher_suites
+            .iter()
+            .copied()
+            .filter(|s| matches!(s, rustls::SupportedCipherSuite::Tls13(_)))
+            .collect();
+        for s in &policy.cipher_suites {
+            if matches!(s, rustls::SupportedCipherSuite::Tls12(_)) && !suites.contains(s) {
+                suites.push(*s);
+            }
+        }
+        provider.cipher_suites = suites;
+    }
+    let versions: &[&'static rustls::SupportedProtocolVersion] = if policy.tls13_only {
+        &[&rustls::version::TLS13]
+    } else {
+        &[&rustls::version::TLS12, &rustls::version::TLS13]
+    };
+    rustls::ServerConfig::builder_with_provider(Arc::new(provider))
+        .with_protocol_versions(versions)
+        .context("unable to build the TLS configuration")
+}
+
 /// TLS certificate configuration
 pub struct TlsConfig {
     pub cert: Vec<CertificateDer<'static>>,
@@ -103,7 +160,7 @@ impl TlsConfig {
     /// Create rustls server config
     pub fn into_server_config(self) -> Result<Arc<rustls::ServerConfig>> {
         ensure_crypto_provider();
-        let mut config = rustls::ServerConfig::builder()
+        let mut config = server_builder(SERVING_POLICY.get())?
             .with_no_client_auth()
             .with_single_cert(self.cert, self.key)
             .context("Failed to create server config")?;
@@ -116,6 +173,21 @@ impl TlsConfig {
         // K8s ref: staging/src/k8s.io/apiserver/pkg/server/options/serving.go
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
+        Ok(Arc::new(config))
+    }
+
+    /// [`Self::into_server_config`] with an explicit [`TlsPolicy`] instead of
+    /// the process-wide one.
+    pub fn into_server_config_with_policy(
+        self,
+        policy: &TlsPolicy,
+    ) -> Result<Arc<rustls::ServerConfig>> {
+        ensure_crypto_provider();
+        let mut config = server_builder(Some(policy))?
+            .with_no_client_auth()
+            .with_single_cert(self.cert, self.key)
+            .context("Failed to create server config")?;
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         Ok(Arc::new(config))
     }
 
@@ -181,7 +253,7 @@ impl TlsConfig {
                 .build()
                 .context("Failed to build client cert verifier")?;
 
-        let mut config = rustls::ServerConfig::builder()
+        let mut config = server_builder(SERVING_POLICY.get())?
             .with_client_cert_verifier(client_cert_verifier)
             .with_single_cert(self.cert, self.key)
             .context("Failed to create mTLS server config")?;

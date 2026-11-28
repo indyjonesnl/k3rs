@@ -22,6 +22,7 @@ mod image_pull_manager_cache;
 mod image_pull_manager_core;
 mod image_pull_metrics;
 mod image_pull_policies;
+mod image_pull_policy_verify;
 mod kubelet;
 mod labels;
 mod lifecycle;
