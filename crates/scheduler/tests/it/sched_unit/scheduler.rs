@@ -2467,6 +2467,48 @@ mod tests {
         );
     }
 
+    /// The Filter extension point is recorded once per `findNodesThatPassFilters`
+    /// (schedule_one.go:683-690), not once per node: scheduling a pod over
+    /// three nodes observes `Filter/Success` once.
+    #[tokio::test]
+    async fn scheduler_metrics_filter_extension_point_once_per_search() {
+        let m = kubernetes_rs_scheduler::metrics::metrics();
+        let count = || {
+            m.framework_extension_point_duration
+                .with_label_values(&["Filter", "Success", "default-scheduler"])
+                .get_sample_count()
+        };
+        let before = count();
+        let storage = Arc::new(MemoryStorage::new());
+        for n in ["node-1", "node-2", "node-3"] {
+            storage
+                .create(&format!("/registry/nodes/{n}"), &make_node(n))
+                .await
+                .unwrap();
+        }
+        storage
+            .create(
+                "/registry/pods/default/pod-1",
+                &pod_requesting("pod-1", "1"),
+            )
+            .await
+            .unwrap();
+        let scheduler = running(Scheduler::new_with_name(
+            storage.clone(),
+            1,
+            "default-scheduler".to_string(),
+        ));
+        let queue = test_queue();
+        let pod: Pod = storage.get("/registry/pods/default/pod-1").await.unwrap();
+        next(&queue, pod).await;
+        let outcome = scheduler
+            .try_schedule_pod(&queue, "pods/default/pod-1")
+            .await
+            .unwrap();
+        assert!(matches!(outcome, ScheduleOutcome::Assumed(_)));
+        assert_eq!(count(), before + 1);
+    }
+
     /// `handleBindingCycleError` (schedule_one.go:349-382): a failed PreBind
     /// unreserves, forgets the assumed pod and requeues the pod with backoff.
     #[tokio::test]
