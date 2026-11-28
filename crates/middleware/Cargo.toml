@@ -31,6 +31,7 @@ chrono.workspace = true
 prost.workspace = true
 base64 = "0.22"
 bytes = "1.5"
+flate2 = "1"
 http-body = "1"
 prometheus.workspace = true
 axum-server = { version = "0.7", features = ["tls-rustls"] }

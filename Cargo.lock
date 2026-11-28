@@ -2809,6 +2809,7 @@ dependencies = [
  "chrono",
  "ciborium",
  "clap",
+ "flate2",
  "futures",
  "hmac",
  "http-body",
