@@ -1,6 +1,122 @@
+//! `kubectl edit`.
+//!
+//! The editor launcher is a port of
+//! `staging/src/k8s.io/kubectl/pkg/cmd/util/editor/editor.go` (`Editor`,
+//! `NewDefaultEditor`, `defaultEnvEditor`, `defaultEnvShell`, `LaunchTempFile`)
+//! and `launcher_others.go` (`args`, `Launch`). Upstream also wraps the editor
+//! run in `term.TTY.Safe` (terminal state save/restore); not ported here.
+
+/// `editor.Editor`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Editor {
+    pub args: Vec<String>,
+    pub shell: bool,
+}
+
+/// `defaultEnvShell`.
+fn default_env_shell(lookup: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
+    let windows = cfg!(windows);
+    let shell = lookup("SHELL")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| if windows { "cmd" } else { "/bin/bash" }.to_string());
+    let flag = if shell == "cmd" { "/C" } else { "-c" };
+    vec![shell, flag.to_string()]
+}
+
+/// `defaultEnvEditor`: first non-empty variable of `envs` wins, else `vi`
+/// (`notepad` on Windows); an editor with spaces is split on spaces unless it
+/// contains quotes or a backslash, which are punted to the shell.
+pub fn default_env_editor(
+    envs: &[&str],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> (Vec<String>, bool) {
+    let mut editor = String::new();
+    for env in envs {
+        if !env.is_empty() {
+            editor = lookup(env).unwrap_or_default();
+        }
+        if !editor.is_empty() {
+            break;
+        }
+    }
+    if editor.is_empty() {
+        editor = if cfg!(windows) { "notepad" } else { "vi" }.to_string();
+    }
+    if !editor.contains(' ') {
+        return (vec![editor], false);
+    }
+    if !editor.contains(['"', '\'', '\\']) {
+        return (editor.split(' ').map(str::to_string).collect(), false);
+    }
+    // rather than parse the shell arguments ourselves, punt to the shell
+    let mut args = default_env_shell(lookup);
+    args.push(editor);
+    (args, true)
+}
+
+impl Editor {
+    /// `NewDefaultEditor`.
+    pub fn new_default(envs: &[&str]) -> Editor {
+        let (args, shell) = default_env_editor(envs, &|k| std::env::var(k).ok());
+        Editor { args, shell }
+    }
+
+    /// `Editor.args` (launcher_others.go): `%q` quotes the path.
+    pub fn args_for(&self, path: &str) -> Vec<String> {
+        let mut args = self.args.clone();
+        if self.shell {
+            let last = args.pop().unwrap_or_default();
+            args.push(format!("{last} {path:?}"));
+        } else {
+            args.push(path.to_string());
+        }
+        args
+    }
+
+    /// `Editor.Launch` (launcher_others.go).
+    pub fn launch(&self, path: &std::path::Path) -> Result<()> {
+        if self.args.is_empty() {
+            anyhow::bail!("no editor defined, can't open {}", path.display());
+        }
+        let abs = std::path::absolute(path)?;
+        let args = self.args_for(&abs.to_string_lossy());
+        match Command::new(&args[0]).args(&args[1..]).status() {
+            Ok(st) if st.success() => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                anyhow::bail!("unable to launch the editor {:?}", self.args.join(" "))
+            }
+            _ => anyhow::bail!(
+                "there was a problem with the editor {:?}",
+                self.args.join(" ")
+            ),
+        }
+    }
+
+    /// `Editor.LaunchTempFile`: returns the edited bytes and the temp path
+    /// (kept for the caller to clean up).
+    pub fn launch_temp_file(
+        &self,
+        prefix: &str,
+        suffix: &str,
+        content: &[u8],
+    ) -> Result<(Vec<u8>, std::path::PathBuf)> {
+        let file = tempfile::Builder::new()
+            .prefix(prefix)
+            .suffix(suffix)
+            .tempfile()?;
+        let (_, path) = file.keep().map_err(|e| e.error)?;
+        if let Err(e) = fs::write(&path, content) {
+            let _ = fs::remove_file(&path);
+            return Err(e.into());
+        }
+        self.launch(&path)?;
+        let bytes = fs::read(&path)?;
+        Ok((bytes, path))
+    }
+}
+
 use anyhow::{Context, Result};
 use kubernetes_rs_client::http::ApiClient;
-use std::env;
 use std::fs;
 use std::process::Command;
 
@@ -12,16 +128,9 @@ pub async fn execute(
     namespace: &str,
     output_format: &str,
 ) -> Result<()> {
-    // Determine editor
-    let editor = env::var("EDITOR")
-        .or_else(|_| env::var("VISUAL"))
-        .unwrap_or_else(|_| {
-            if cfg!(target_os = "windows") {
-                "notepad".to_string()
-            } else {
-                "vi".to_string()
-            }
-        });
+    // `editor.NewDefaultEditor(editorEnvs())`: KUBE_EDITOR, then EDITOR
+    // (editoptions.go `editorEnvs`).
+    let editor = Editor::new_default(&["KUBE_EDITOR", "EDITOR"]);
 
     // Get API path for resource
     let api_path = get_resource_api_path(resource_type, namespace, name)?;
@@ -39,33 +148,16 @@ pub async fn execute(
         serde_yaml::to_string(&resource)?
     };
 
-    // Create temporary file
-    let temp_file = tempfile::Builder::new()
-        .suffix(if output_format == "json" {
-            ".json"
-        } else {
-            ".yaml"
-        })
-        .tempfile()
-        .context("Failed to create temporary file")?;
-
-    let temp_path = temp_file.path().to_path_buf();
-
-    // Write content to temp file
-    fs::write(&temp_path, &content).context("Failed to write to temporary file")?;
-
-    // Open editor
-    let status = Command::new(&editor)
-        .arg(&temp_path)
-        .status()
-        .context(format!("Failed to launch editor: {}", editor))?;
-
-    if !status.success() {
-        anyhow::bail!("Editor exited with non-zero status");
-    }
-
-    // Read edited content
-    let edited_content = fs::read_to_string(&temp_path).context("Failed to read edited file")?;
+    // Launch the editor on a temp file (`LaunchTempFile`).
+    let suffix = if output_format == "json" {
+        ".json"
+    } else {
+        ".yaml"
+    };
+    let (edited_bytes, temp_path) =
+        editor.launch_temp_file("kubectl-edit-", suffix, content.as_bytes())?;
+    let _ = fs::remove_file(&temp_path);
+    let edited_content = String::from_utf8(edited_bytes).context("Failed to read edited file")?;
 
     // Check if content changed
     if edited_content.trim() == content.trim() {
