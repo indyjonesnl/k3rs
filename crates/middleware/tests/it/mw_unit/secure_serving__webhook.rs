@@ -82,6 +82,7 @@ mod tests {
                 message: "m".into(),
                 retry_after_seconds: retry,
                 causes: Vec::new(),
+                cause_messages: Vec::new(),
             })
         };
         // Status with details.retryAfterSeconds: SuggestsClientDelay.

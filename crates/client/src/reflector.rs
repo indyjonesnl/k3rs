@@ -18,7 +18,7 @@ use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 
-use crate::api_status::{is_resource_expired, is_too_large_resource_version};
+use crate::api_status::{is_expired_error, is_too_large_resource_version};
 use crate::http::{ApiClient, GetError, KubernetesList};
 use crate::pager::{ListOptions, ListPage, ListPager};
 use crate::watch::{watch_stream, WatchEvent};
@@ -199,7 +199,7 @@ where
         let page_size = self.list_page_size(&rv);
         let mut result = self.lw.list_from(&rv, page_size).await;
         if let Err(e) = &result {
-            if is_resource_expired(e) || is_too_large_resource_version(e) {
+            if is_expired_error(e) || is_too_large_resource_version(e) {
                 self.last_sync_rv_unavailable.store(true, Ordering::SeqCst);
                 result = self
                     .lw
@@ -305,7 +305,10 @@ where
                 }
                 Err(e) => {
                     let text = format!("{e:#}");
-                    if text.contains("Expired") || text.contains("too old resource version") {
+                    // `isExpiredError` / `isTooLargeResourceVersionError`
+                    // (tools/cache/reflector.go:1051-1089), by the typed
+                    // status rather than the message text.
+                    if is_expired_error(&e) || is_too_large_resource_version(&e) {
                         tracing::warn!("reflector: resourceVersion expired, re-listing: {text}");
                     } else {
                         tracing::warn!("reflector: sync failed (will re-list + retry): {text}");

@@ -284,6 +284,7 @@ fn status(code: u16, reason: &str) -> anyhow::Error {
         message: "m".into(),
         retry_after_seconds: None,
         causes: vec![],
+        cause_messages: Vec::new(),
     }
     .into()
 }
@@ -340,4 +341,83 @@ async fn reflector_list_expired_retries_at_empty_rv() {
     let calls = lw.calls.lock().unwrap().clone();
     assert_eq!(calls[1].0, "77");
     assert_eq!(calls[2], ("".to_string(), Some(0)));
+}
+
+/// `isExpiredError` (reflector.go:1051-1057): Expired or Gone (the 1.17 and
+/// earlier servers answer 410 with both reasons).
+#[test]
+fn reflector_is_expired_error_expired_or_gone() {
+    use kubernetes_rs_client::api_status::is_expired_error;
+    assert!(is_expired_error(&status(410, "Expired")));
+    assert!(is_expired_error(&status(410, "Gone")));
+    assert!(is_expired_error(&status(410, "")));
+    assert!(!is_expired_error(&status(500, "InternalError")));
+}
+
+/// `isTooLargeResourceVersionError` (reflector.go:1060-1089): the typed cause,
+/// then the legacy-server fallbacks (Timeout + cause message from 1.17.0-1.18.5,
+/// Timeout + status message from before 1.17.0). Not a Timeout, or no details:
+/// false.
+#[test]
+fn reflector_is_too_large_resource_version_legacy_fallback() {
+    use kubernetes_rs_client::api_status::{is_too_large_resource_version, ApiStatusError};
+    let mk =
+        |code: u16, reason: &str, message: &str, retry: Option<i32>, causes: &[(&str, &str)]| {
+            anyhow::Error::new(ApiStatusError {
+                code,
+                reason: reason.into(),
+                message: message.into(),
+                retry_after_seconds: retry,
+                causes: causes.iter().map(|c| c.0.to_string()).collect(),
+                cause_messages: causes.iter().map(|c| c.1.to_string()).collect(),
+            })
+        };
+    // typed cause
+    assert!(is_too_large_resource_version(&mk(
+        504,
+        "Timeout",
+        "m",
+        Some(1),
+        &[("ResourceVersionTooLarge", "x")]
+    )));
+    // 1.17.0-1.18.5: Timeout, cause message
+    assert!(is_too_large_resource_version(&mk(
+        504,
+        "Timeout",
+        "m",
+        Some(1),
+        &[("", "Too large resource version")]
+    )));
+    // before 1.17.0: Timeout, status message
+    assert!(is_too_large_resource_version(&mk(
+        504,
+        "Timeout",
+        "Timeout: Too large resource version: 5, current: 4",
+        Some(1),
+        &[]
+    )));
+    // not a Timeout
+    assert!(!is_too_large_resource_version(&mk(
+        500,
+        "InternalError",
+        "Too large resource version",
+        Some(0),
+        &[("", "Too large resource version")]
+    )));
+    // Timeout without details
+    assert!(!is_too_large_resource_version(&mk(
+        504,
+        "Timeout",
+        "Too large resource version",
+        None,
+        &[]
+    )));
+    // Timeout with details, unrelated messages
+    assert!(!is_too_large_resource_version(&mk(
+        504,
+        "Timeout",
+        "m",
+        Some(1),
+        &[("", "other")]
+    )));
 }

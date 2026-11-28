@@ -175,6 +175,7 @@ mod tests {
                 message: message.into(),
                 retry_after_seconds: None,
                 causes: Vec::new(),
+                cause_messages: Vec::new(),
             })
         };
         assert!(is_expired_error(&typed(
@@ -203,6 +204,7 @@ mod tests {
             message: "Error from server (UnsupportedMediaType): Apply not supported".into(),
             retry_after_seconds: None,
             causes: Vec::new(),
+            cause_messages: Vec::new(),
         });
         assert!(matches!(map_write_err(e), Error::UnsupportedMediaType(_)));
     }

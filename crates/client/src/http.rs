@@ -155,6 +155,7 @@ fn format_status_error(
             } else {
                 format!("Error from server ({reason}): {message}")
             };
+            let (causes, cause_messages) = crate::api_status::parse_causes(&v);
             return anyhow::Error::new(ApiStatusError {
                 code,
                 reason: reason.to_string(),
@@ -167,17 +168,9 @@ fn format_status_error(
                         .and_then(|r| i32::try_from(r).ok())
                         .unwrap_or(0)
                 }),
-                // `Status.Details.Causes[].Type` (JSON `reason`).
-                causes: v
-                    .pointer("/details/causes")
-                    .and_then(|c| c.as_array())
-                    .map(|cs| {
-                        cs.iter()
-                            .filter_map(|c| c.get("reason").and_then(|r| r.as_str()))
-                            .map(str::to_string)
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                // `Status.Details.Causes[].Type` (JSON `reason`) and message.
+                causes,
+                cause_messages,
             });
         }
     }
@@ -189,6 +182,7 @@ fn format_status_error(
         // `Retry-After` header (errors.go:511-523, request.go:1245-1246).
         retry_after_seconds: Some(retry_after),
         causes: Vec::new(),
+        cause_messages: Vec::new(),
     })
 }
 
