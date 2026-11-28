@@ -55,6 +55,7 @@ pub mod gnostic;
 pub mod handlers;
 pub mod max_in_flight_filter;
 pub use kubernetes_rs_middleware as middleware;
+pub mod bootstrap_token_authenticator;
 pub mod openapi;
 pub mod openapi_aggregator;
 pub mod openapiconv;
