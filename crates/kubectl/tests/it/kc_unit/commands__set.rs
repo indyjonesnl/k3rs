@@ -728,3 +728,100 @@ mod set_env_parse {
         assert!(!select_string("abcdef", "x*"));
     }
 }
+
+/// Ports of the logic exercised by set_image_test.go (`getResourcesAndImages`,
+/// `Validate`, `setImage`, the Run patch function).
+mod set_image_logic {
+    use kubernetes_rs_kubectl::commands::set::*;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    fn s(v: &[&str]) -> Vec<String> {
+        v.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn set_image_resources_and_pairs() {
+        let (r, p) = get_resources_and_pairs(
+            &s(&["deployment/nginx", "busybox=busybox", "nginx=nginx:1.9.1"]),
+            "image",
+        )
+        .unwrap();
+        assert_eq!(r, ["deployment/nginx"]);
+        assert_eq!(p, ["busybox=busybox", "nginx=nginx:1.9.1"]);
+        assert_eq!(
+            get_resources_and_pairs(&s(&["a=b", "res"]), "image")
+                .unwrap_err()
+                .to_string(),
+            "all resources must be specified before image changes: res"
+        );
+        // A leading '=' is a resource, not a pair.
+        let (r, p) = get_resources_and_pairs(&s(&["=x"]), "image").unwrap();
+        assert_eq!((r, p), (s(&["=x"]), vec![]));
+        assert_eq!(
+            parse_pairs(&s(&["x-"]), "image").unwrap_err().to_string(),
+            "invalid image format: x-"
+        );
+    }
+
+    #[test]
+    fn set_image_validate() {
+        let one: BTreeMap<String, String> = [("a".to_string(), "i".to_string())].into();
+        let res = s(&["deployment/x"]);
+        assert!(validate_image_args(&res, &one).is_ok());
+        assert_eq!(
+            validate_image_args(&res, &BTreeMap::new())
+                .unwrap_err()
+                .to_string(),
+            "at least one image update is required"
+        );
+        let wild: BTreeMap<String, String> = [
+            ("*".to_string(), "i".to_string()),
+            ("a".to_string(), "j".to_string()),
+        ]
+        .into();
+        assert_eq!(
+            validate_image_args(&res, &wild).unwrap_err().to_string(),
+            "all containers are already specified by *, but saw more than one container_name=container_image pairs"
+        );
+        assert_eq!(
+            validate_image_args(&[], &BTreeMap::new()).unwrap_err().to_string(),
+            "[one or more resources must be specified as <resource> <name> or <resource>/<name>, at least one image update is required]"
+        );
+    }
+
+    #[test]
+    fn set_image_patch_ops_init_containers_wildcard_and_missing() {
+        let spec = json!({
+            "initContainers": [{"name": "init", "image": "busybox"}],
+            "containers": [
+                {"name": "web", "image": "nginx:1.19"},
+                {"name": "side", "image": "envoy:1.0"}
+            ]
+        });
+        let img = |k: &str, v: &str| -> BTreeMap<String, String> {
+            [(k.to_string(), v.to_string())].into()
+        };
+
+        let (ops, errs) = image_patch_ops("/spec/template/spec", &spec, &img("*", "x:1"));
+        assert!(errs.is_empty());
+        assert_eq!(ops.len(), 3);
+        assert_eq!(ops[0]["path"], "/spec/template/spec/initContainers/0/image");
+        assert_eq!(ops[2]["path"], "/spec/template/spec/containers/1/image");
+
+        let (ops, errs) = image_patch_ops("/spec", &spec, &img("web", "nginx:1.21"));
+        assert!(errs.is_empty());
+        assert_eq!(
+            ops,
+            [json!({"op": "add", "path": "/spec/containers/0/image", "value": "nginx:1.21"})]
+        );
+
+        // Same image: no change, no ops.
+        let (ops, _) = image_patch_ops("/spec", &spec, &img("web", "nginx:1.19"));
+        assert!(ops.is_empty());
+
+        let (ops, errs) = image_patch_ops("/spec", &spec, &img("nope", "x"));
+        assert!(ops.is_empty());
+        assert_eq!(errs, ["error: unable to find container named \"nope\""]);
+    }
+}

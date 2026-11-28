@@ -146,129 +146,184 @@ pub fn parse_resource_arg(arg: &str) -> Result<(String, String)> {
     }
 }
 
-/// Update container images in a resource.
+/// Update the image of a pod template.
 ///
-/// Usage: `kubectl set image deployment/nginx nginx=nginx:1.9.1`
+/// Usage: `kubectl set image deployment/nginx busybox=busybox nginx=nginx:1.9.1`
+///
+/// Ports `SetImageOptions.Complete/Validate/Run` (set_image.go:130-290):
+/// `getResourcesAndImages`, the wildcard check, `setImage` over init containers
+/// and containers, and "no changes" being a no-op.
 pub async fn execute_image(
     client: &ApiClient,
     resource: &str,
     container_images: &[String],
     namespace: &str,
 ) -> Result<()> {
-    let (resource_type, name) = parse_resource_arg(resource)?;
+    // getResourcesAndImages(args) (set_image.go:296)
+    let mut args = vec![resource.to_string()];
+    args.extend(container_images.iter().cloned());
+    let (resources, image_args) = get_resources_and_pairs(&args, "image")?;
+    let images = parse_pairs(&image_args, "image")?;
+    validate_image_args(&resources, &images)?;
+
+    let (resource_type, name) = parse_resource_arg(&resources[0])?;
     let (path, mapping) = resolve_resource(client, &resource_type, &name, namespace).await?;
 
-    // Parse container=image pairs
-    let mut image_updates: Vec<(String, String)> = Vec::new();
-    for ci in container_images {
-        if let Some((container, image)) = ci.split_once('=') {
-            image_updates.push((container.to_string(), image.to_string()));
-        } else {
-            anyhow::bail!("Invalid image format: '{}'. Expected CONTAINER=IMAGE", ci);
-        }
-    }
-
-    if image_updates.is_empty() {
-        anyhow::bail!("At least one CONTAINER=IMAGE argument is required");
-    }
-
-    // Get the current resource to find container indices
     let current: Value = client
         .get(&path)
         .await
         .map_err(|e| anyhow::anyhow!("{}", e))
         .context("Failed to get resource")?;
 
-    // Find the containers array path (handles both pod and pod template specs)
-    let containers = if current
-        .get("spec")
-        .and_then(|s| s.get("template"))
-        .is_some()
-    {
-        // Deployment/StatefulSet/DaemonSet/ReplicaSet/Job/CronJob
-        current["spec"]["template"]["spec"]["containers"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-    } else {
-        // Pod
-        current["spec"]["containers"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-    };
-
-    // Build the strategic merge patch for containers
-    let mut patch_containers: Vec<Value> = Vec::new();
-    for (container_name, image) in &image_updates {
-        if container_name == "*" {
-            // Update all containers
-            for c in &containers {
-                if let Some(cname) = c.get("name").and_then(|n| n.as_str()) {
-                    patch_containers.push(json!({
-                        "name": cname,
-                        "image": image,
-                    }));
-                }
-            }
-        } else {
-            // Check container exists
-            let found = containers
-                .iter()
-                .any(|c| c.get("name").and_then(|n| n.as_str()) == Some(container_name));
-            if !found {
-                anyhow::bail!(
-                    "Container '{}' not found in resource {}/{}",
-                    container_name,
-                    resource_type,
-                    name
-                );
-            }
-            patch_containers.push(json!({
-                "name": container_name,
-                "image": image,
-            }));
-        }
+    let spec_ptr = pod_spec_pointer(&current);
+    let pod_spec = current.pointer(&spec_ptr).cloned().unwrap_or(Value::Null);
+    let (ops, errs) = image_patch_ops(&spec_ptr, &pod_spec, &images);
+    if !ops.is_empty() {
+        // patch the change
+        let _result: Value = client
+            .patch(&path, &Value::Array(ops), "application/json-patch+json")
+            .await
+            .context("failed to patch image update to pod template")?;
+        println!(
+            "{} image updated",
+            crate::ops::resource_label(&mapping, &name)
+        );
     }
-
-    // Build patch based on resource type
-    let patch_body = if current
-        .get("spec")
-        .and_then(|s| s.get("template"))
-        .is_some()
-    {
-        json!({
-            "spec": {
-                "template": {
-                    "spec": {
-                        "containers": patch_containers,
-                    }
-                }
-            }
-        })
-    } else {
-        json!({
-            "spec": {
-                "containers": patch_containers,
-            }
-        })
-    };
-
-    let _result: Value = client
-        .patch(&path, &patch_body, "application/strategic-merge-patch+json")
-        .await
-        .context("Failed to update image")?;
-
-    let label = crate::ops::resource_label(&mapping, &name);
-    for (container_name, image) in &image_updates {
-        if container_name == "*" {
-            println!("{label} image updated to {image} (all containers)");
-        } else {
-            println!("{label} container {container_name} image updated to {image}");
-        }
+    if !errs.is_empty() {
+        anyhow::bail!("{}", errs.join("\n"));
     }
-
     Ok(())
+}
+
+/// `cmdutil.GetResourcesAndPairs` (cmd/util/helpers.go:757): resources come
+/// first, then `KEY=VALUE` / `KEY-` pairs.
+pub fn get_resources_and_pairs(
+    args: &[String],
+    pair_type: &str,
+) -> Result<(Vec<String>, Vec<String>)> {
+    let (mut resources, mut pairs) = (Vec::new(), Vec::new());
+    let mut found_pair = false;
+    for s in args {
+        let non_resource =
+            (s.contains('=') && !s.starts_with('=')) || (s.ends_with('-') && s != "-");
+        match (found_pair, non_resource) {
+            (false, true) => {
+                found_pair = true;
+                pairs.push(s.clone());
+            }
+            (true, true) => pairs.push(s.clone()),
+            (false, false) => resources.push(s.clone()),
+            (true, false) => {
+                anyhow::bail!("all resources must be specified before {pair_type} changes: {s}")
+            }
+        }
+    }
+    Ok((resources, pairs))
+}
+
+/// `cmdutil.ParsePairs` with `supportRemove == false` (helpers.go:778). Later
+/// pairs for the same key win, as map assignment does.
+pub fn parse_pairs(
+    pair_args: &[String],
+    pair_type: &str,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut new_pairs = std::collections::BTreeMap::new();
+    let mut invalid: Vec<&str> = Vec::new();
+    for p in pair_args {
+        match p.split_once('=') {
+            Some((k, v)) if !p.starts_with('=') => {
+                new_pairs.insert(k.to_string(), v.to_string());
+            }
+            _ => invalid.push(p),
+        }
+    }
+    if !invalid.is_empty() {
+        anyhow::bail!("invalid {pair_type} format: {}", invalid.join(", "));
+    }
+    Ok(new_pairs)
+}
+
+/// `SetImageOptions.Validate` (set_image.go:177), for the checks that apply
+/// without `--all`, `-f` and `--local`.
+pub fn validate_image_args(
+    resources: &[String],
+    images: &std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    let mut errors: Vec<&str> = Vec::new();
+    if resources.is_empty() {
+        errors.push(
+            "one or more resources must be specified as <resource> <name> or <resource>/<name>",
+        );
+    }
+    if images.is_empty() {
+        errors.push("at least one image update is required");
+    } else if images.len() > 1 && images.contains_key("*") {
+        errors.push("all containers are already specified by *, but saw more than one container_name=container_image pairs");
+    }
+    if errors.is_empty() {
+        return Ok(());
+    }
+    // utilerrors.NewAggregate: one error prints as is, several as "[a, b]".
+    if errors.len() == 1 {
+        anyhow::bail!("{}", errors[0]);
+    }
+    anyhow::bail!("[{}]", errors.join(", "));
+}
+
+/// `setImage` (set_image.go:277): set `image` on every container of
+/// `containers` named `name` (or all, for `*`); whether any was found.
+pub fn set_image(containers: &mut [Value], name: &str, image: &str) -> bool {
+    let mut found = false;
+    for c in containers.iter_mut() {
+        if c.get("name").and_then(|n| n.as_str()) == Some(name) || name == "*" {
+            found = true;
+            c["image"] = Value::String(image.to_string());
+        }
+    }
+    found
+}
+
+/// The body of `SetImageOptions.Run`'s patch function (set_image.go:211-232)
+/// against one pod spec: the JSON-patch ops that change an image, and the
+/// `unable to find container named` errors. `ResolveImage` is the identity
+/// (`resolveImageFunc`, :334).
+pub fn image_patch_ops(
+    spec_ptr: &str,
+    pod_spec: &Value,
+    images: &std::collections::BTreeMap<String, String>,
+) -> (Vec<Value>, Vec<String>) {
+    let list = |f: &str| -> Vec<Value> {
+        pod_spec
+            .get(f)
+            .and_then(|c| c.as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    let (mut init, mut main) = (list("initContainers"), list("containers"));
+    let mut errs = Vec::new();
+    for (name, image) in images {
+        let init_found = set_image(&mut init, name, image);
+        let found = set_image(&mut main, name, image);
+        if !found && !init_found {
+            errs.push(format!("error: unable to find container named {name:?}"));
+        }
+    }
+    let mut ops = Vec::new();
+    for (field, before, after) in [
+        ("initContainers", list("initContainers"), &init),
+        ("containers", list("containers"), &main),
+    ] {
+        for (i, (b, a)) in before.iter().zip(after.iter()).enumerate() {
+            if b["image"] != a["image"] {
+                ops.push(json!({
+                    "op": "add",
+                    "path": format!("{spec_ptr}/{field}/{i}/image"),
+                    "value": a["image"],
+                }));
+            }
+        }
+    }
+    (ops, errs)
 }
 
 /// Update environment variables on a resource.
