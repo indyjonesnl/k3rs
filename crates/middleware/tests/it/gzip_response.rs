@@ -131,3 +131,164 @@ fn gzip_response_negotiate_content_encoding() {
     assert_eq!(h(Some("br,  gzip ,x")), "gzip");
     assert_eq!(h(Some("gzip;q=0.5")), "");
 }
+
+mod layer {
+    use std::io::Read;
+
+    use axum::body::Body;
+    use axum::http::{header, Request, StatusCode};
+    use axum::middleware::from_fn;
+    use axum::response::Response;
+    use axum::routing::get;
+    use axum::Router;
+    use flate2::read::GzDecoder;
+    use kubernetes_rs_middleware::compression::{
+        gzip_response_middleware, DEFAULT_GZIP_THRESHOLD_BYTES,
+    };
+    use tower::ServiceExt;
+
+    fn json_body(n: usize) -> Vec<u8> {
+        let mut v = br#"{"items":["#.to_vec();
+        while v.len() < n {
+            v.extend_from_slice(br#""aaaaaaaaaaaaaaaaaaaaaaaa","#);
+        }
+        v.extend_from_slice(br#""x"]}"#);
+        v
+    }
+
+    fn app(body: Vec<u8>, content_type: &'static str) -> Router {
+        Router::new()
+            .route(
+                "/",
+                get(move || {
+                    let body = body.clone();
+                    async move {
+                        Response::builder()
+                            .header(header::CONTENT_TYPE, content_type)
+                            .header(header::CONTENT_LENGTH, body.len())
+                            .body(Body::from(body))
+                            .unwrap()
+                    }
+                }),
+            )
+            .layer(from_fn(gzip_response_middleware))
+    }
+
+    async fn call(app: Router, accept_encoding: Option<&str>) -> Response {
+        let mut b = Request::builder().uri("/");
+        if let Some(a) = accept_encoding {
+            b = b.header(header::ACCEPT_ENCODING, a);
+        }
+        app.oneshot(b.body(Body::empty()).unwrap()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn gzip_response_large_json_is_compressed() {
+        let body = json_body(DEFAULT_GZIP_THRESHOLD_BYTES + 1000);
+        let resp = call(app(body.clone(), "application/json"), Some("gzip")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers()[header::CONTENT_ENCODING], "gzip");
+        assert_eq!(resp.headers()[header::VARY], "Accept-Encoding");
+        assert_eq!(resp.headers()[header::CONTENT_TYPE], "application/json");
+        // the stale uncompressed length is gone; axum sets the new one
+        let cl = resp.headers().get(header::CONTENT_LENGTH).cloned();
+        let gz = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        if let Some(cl) = cl {
+            assert_eq!(cl.to_str().unwrap(), gz.len().to_string());
+        }
+        assert!(gz.len() < body.len());
+        let mut out = Vec::new();
+        GzDecoder::new(&gz[..]).read_to_end(&mut out).unwrap();
+        assert_eq!(out, body);
+    }
+
+    #[tokio::test]
+    async fn gzip_response_small_body_is_not_compressed() {
+        let body = json_body(1000);
+        let resp = call(app(body.clone(), "application/json"), Some("gzip")).await;
+        assert!(resp.headers().get(header::CONTENT_ENCODING).is_none());
+        assert!(resp.headers().get(header::VARY).is_none());
+        let got = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&got[..], &body[..]);
+    }
+
+    #[tokio::test]
+    async fn gzip_response_not_negotiated_is_plain() {
+        let body = json_body(DEFAULT_GZIP_THRESHOLD_BYTES + 1000);
+        for ae in [None, Some("identity"), Some("br")] {
+            let resp = call(app(body.clone(), "application/json"), ae).await;
+            assert!(
+                resp.headers().get(header::CONTENT_ENCODING).is_none(),
+                "{ae:?}"
+            );
+            let got = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert_eq!(got.len(), body.len());
+        }
+    }
+
+    #[tokio::test]
+    async fn gzip_response_protobuf_is_compressed_and_other_types_are_not() {
+        let body = json_body(DEFAULT_GZIP_THRESHOLD_BYTES + 1000);
+        let resp = call(
+            app(body.clone(), "application/vnd.kubernetes.protobuf"),
+            Some("deflate, gzip"),
+        )
+        .await;
+        assert_eq!(resp.headers()[header::CONTENT_ENCODING], "gzip");
+        let resp = call(app(body, "text/plain"), Some("gzip")).await;
+        assert!(resp.headers().get(header::CONTENT_ENCODING).is_none());
+    }
+
+    #[tokio::test]
+    async fn gzip_response_streaming_and_encoded_bodies_are_untouched() {
+        // a watch: no exact size
+        let app = Router::new()
+            .route(
+                "/",
+                get(|| async {
+                    Response::builder()
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(futures_stream())
+                        .unwrap()
+                }),
+            )
+            .layer(from_fn(gzip_response_middleware));
+        let resp = call(app, Some("gzip")).await;
+        assert!(resp.headers().get(header::CONTENT_ENCODING).is_none());
+
+        // already encoded
+        let big = json_body(DEFAULT_GZIP_THRESHOLD_BYTES + 1000);
+        let app = Router::new()
+            .route(
+                "/",
+                get(move || {
+                    let big = big.clone();
+                    async move {
+                        Response::builder()
+                            .header(header::CONTENT_TYPE, "application/json")
+                            .header(header::CONTENT_ENCODING, "br")
+                            .body(Body::from(big))
+                            .unwrap()
+                    }
+                }),
+            )
+            .layer(from_fn(gzip_response_middleware));
+        let resp = call(app, Some("gzip")).await;
+        assert_eq!(resp.headers()[header::CONTENT_ENCODING], "br");
+    }
+
+    fn futures_stream() -> Body {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
+        tokio::spawn(async move {
+            let _tx = tx;
+            std::future::pending::<()>().await;
+        });
+        Body::from_stream(futures::stream::poll_fn(move |cx| rx.poll_recv(cx)))
+    }
+}

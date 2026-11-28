@@ -3051,6 +3051,12 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
             .layer(axum_middleware::from_fn(
                 middleware::normalize_content_type_middleware,
             ))
+            // `SerializeObject` negotiates gzip for every API response
+            // (responsewriters/writers.go:104-110); outside the content
+            // negotiation above so it sees the final body.
+            .layer(axum_middleware::from_fn(
+                kubernetes_rs_middleware::compression::gzip_response_middleware,
+            ))
             .layer(axum_middleware::from_fn(middleware::skip_auth_middleware))
             .layer(axum_middleware::from_fn(
                 crate::apiserver_request_metrics::with_latency_trackers_filter,
@@ -3137,6 +3143,12 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
             ))
             .layer(axum_middleware::from_fn(
                 middleware::normalize_content_type_middleware,
+            ))
+            // `SerializeObject` negotiates gzip for every API response
+            // (responsewriters/writers.go:104-110); outside the content
+            // negotiation above so it sees the final body.
+            .layer(axum_middleware::from_fn(
+                kubernetes_rs_middleware::compression::gzip_response_middleware,
             ))
             .layer(axum_middleware::from_fn(middleware::auth_middleware))
             // `WithLatencyTrackers` wraps authentication (server/config.go:1084).
