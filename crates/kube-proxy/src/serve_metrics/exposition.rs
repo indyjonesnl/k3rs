@@ -3,7 +3,10 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Response},
 };
-use prometheus::{Encoder, GaugeVec, IntCounterVec, IntGauge, Opts, Registry};
+use prometheus::{
+    Encoder, GaugeVec, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts,
+    Registry,
+};
 use std::{collections::BTreeMap, sync::OnceLock};
 
 struct Metrics {
@@ -153,6 +156,221 @@ impl Drop for InFlight<'_> {
 
 pub(super) fn initialize() {
     let _ = metrics();
+}
+
+/// The kube-proxy collectors of pkg/proxy/metrics/metrics.go:38-322
+/// (subsystem `kubeproxy`). Recording hooks use these handles. The two
+/// `*_nfacct` collectors (metrics.go:166,278) are not defined here.
+pub struct KubeProxyMetrics {
+    pub sync_proxy_rules_latency: HistogramVec,
+    pub sync_full_proxy_rules_latency: HistogramVec,
+    pub sync_partial_proxy_rules_latency: HistogramVec,
+    pub sync_proxy_rules_last_timestamp: GaugeVec,
+    pub network_programming_latency: HistogramVec,
+    pub endpoint_changes_pending: IntGauge,
+    pub endpoint_changes_total: IntCounter,
+    pub service_changes_pending: IntGauge,
+    pub service_changes_total: IntCounter,
+    pub iptables_restore_failures_total: IntCounterVec,
+    pub iptables_partial_restore_failures_total: IntCounterVec,
+    pub iptables_rules_total: GaugeVec,
+    pub iptables_rules_last_sync: GaugeVec,
+    pub nftables_sync_failures_total: IntCounterVec,
+    pub nftables_cleanup_failures_total: IntCounterVec,
+    pub sync_proxy_rules_last_queued_timestamp: GaugeVec,
+    pub sync_proxy_rules_no_local_endpoints_total: GaugeVec,
+    pub reconcile_conntrack_flows_latency: HistogramVec,
+    pub reconcile_conntrack_flows_deleted_entries_total: IntCounterVec,
+}
+
+const ALPHA: &str = "[ALPHA] ";
+
+fn opts(name: &str, help: &str) -> Opts {
+    Opts::new(name, format!("{ALPHA}{help}"))
+}
+
+fn histogram(name: &str, help: &str, buckets: Vec<f64>) -> HistogramVec {
+    HistogramVec::new(
+        HistogramOpts::new(name, format!("{ALPHA}{help}")).buckets(buckets),
+        &["ip_family"],
+    )
+    .expect("static histogram definition")
+}
+
+fn counter_vec(name: &str, help: &str) -> IntCounterVec {
+    IntCounterVec::new(opts(name, help), &["ip_family"]).expect("static counter definition")
+}
+
+fn gauge_vec(name: &str, help: &str, labels: &[&str]) -> GaugeVec {
+    GaugeVec::new(opts(name, help), labels).expect("static gauge definition")
+}
+
+/// metrics.go:38-322 definitions.
+pub fn kube_proxy_metrics() -> &'static KubeProxyMetrics {
+    static M: OnceLock<KubeProxyMetrics> = OnceLock::new();
+    M.get_or_init(|| {
+        // metrics.ExponentialBuckets(0.001, 2, 15)
+        let exp = || prometheus::exponential_buckets(0.001, 2.0, 15).expect("static buckets");
+        // metrics.go:92-101 MergeBuckets of four LinearBuckets.
+        let mut programming = Vec::new();
+        for (start, width, count) in [
+            (0.25, 0.25, 2),
+            (1.0, 1.0, 59),
+            (60.0, 5.0, 12),
+            (120.0, 30.0, 7),
+        ] {
+            programming
+                .extend(prometheus::linear_buckets(start, width, count).expect("static buckets"));
+        }
+        KubeProxyMetrics {
+            sync_proxy_rules_latency: histogram(
+                "kubeproxy_sync_proxy_rules_duration_seconds",
+                "SyncProxyRules latency in seconds",
+                exp(),
+            ),
+            sync_full_proxy_rules_latency: histogram(
+                "kubeproxy_sync_full_proxy_rules_duration_seconds",
+                "SyncProxyRules latency in seconds for full resyncs",
+                exp(),
+            ),
+            sync_partial_proxy_rules_latency: histogram(
+                "kubeproxy_sync_partial_proxy_rules_duration_seconds",
+                "SyncProxyRules latency in seconds for partial resyncs",
+                exp(),
+            ),
+            sync_proxy_rules_last_timestamp: gauge_vec(
+                "kubeproxy_sync_proxy_rules_last_timestamp_seconds",
+                "The last time proxy rules were successfully synced",
+                &["ip_family"],
+            ),
+            network_programming_latency: histogram(
+                "kubeproxy_network_programming_duration_seconds",
+                "In Cluster Network Programming Latency in seconds",
+                programming,
+            ),
+            endpoint_changes_pending: IntGauge::with_opts(opts(
+                "kubeproxy_sync_proxy_rules_endpoint_changes_pending",
+                "Pending proxy rules Endpoint changes",
+            ))
+            .expect("static gauge definition"),
+            endpoint_changes_total: IntCounter::with_opts(opts(
+                "kubeproxy_sync_proxy_rules_endpoint_changes_total",
+                "Cumulative proxy rules Endpoint changes",
+            ))
+            .expect("static counter definition"),
+            service_changes_pending: IntGauge::with_opts(opts(
+                "kubeproxy_sync_proxy_rules_service_changes_pending",
+                "Pending proxy rules Service changes",
+            ))
+            .expect("static gauge definition"),
+            service_changes_total: IntCounter::with_opts(opts(
+                "kubeproxy_sync_proxy_rules_service_changes_total",
+                "Cumulative proxy rules Service changes",
+            ))
+            .expect("static counter definition"),
+            iptables_restore_failures_total: counter_vec(
+                "kubeproxy_sync_proxy_rules_iptables_restore_failures_total",
+                "Cumulative proxy iptables restore failures",
+            ),
+            iptables_partial_restore_failures_total: counter_vec(
+                "kubeproxy_sync_proxy_rules_iptables_partial_restore_failures_total",
+                "Cumulative proxy iptables partial restore failures",
+            ),
+            iptables_rules_total: gauge_vec(
+                "kubeproxy_sync_proxy_rules_iptables_total",
+                "Total number of iptables rules owned by kube-proxy",
+                &["table", "ip_family"],
+            ),
+            iptables_rules_last_sync: gauge_vec(
+                "kubeproxy_sync_proxy_rules_iptables_last",
+                "Number of iptables rules written by kube-proxy in last sync",
+                &["table", "ip_family"],
+            ),
+            nftables_sync_failures_total: counter_vec(
+                "kubeproxy_sync_proxy_rules_nftables_sync_failures_total",
+                "Cumulative proxy nftables sync failures",
+            ),
+            nftables_cleanup_failures_total: counter_vec(
+                "kubeproxy_sync_proxy_rules_nftables_cleanup_failures_total",
+                "Cumulative proxy nftables cleanup failures",
+            ),
+            sync_proxy_rules_last_queued_timestamp: gauge_vec(
+                "kubeproxy_sync_proxy_rules_last_queued_timestamp_seconds",
+                "The last time a sync of proxy rules was queued",
+                &["ip_family"],
+            ),
+            sync_proxy_rules_no_local_endpoints_total: gauge_vec(
+                "kubeproxy_sync_proxy_rules_no_local_endpoints_total",
+                "Number of services with a Local traffic policy and no endpoints",
+                &["traffic_policy", "ip_family"],
+            ),
+            reconcile_conntrack_flows_latency: histogram(
+                "kubeproxy_conntrack_reconciler_sync_duration_seconds",
+                "ReconcileConntrackFlowsLatency latency in seconds",
+                exp(),
+            ),
+            reconcile_conntrack_flows_deleted_entries_total: counter_vec(
+                "kubeproxy_conntrack_reconciler_deleted_entries_total",
+                "Cumulative conntrack flows deleted by conntrack reconciler",
+            ),
+        }
+    })
+}
+
+/// metrics.go:309-358 `RegisterMetrics(mode)`: register the collectors for
+/// `mode` in the legacy registry, once per process. The healthz/livez
+/// counters (also registered there) are registered by [`metrics`].
+pub fn register_metrics(mode: &str) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let m = kube_proxy_metrics();
+        let reg = prometheus::default_registry();
+        let add = |c: Box<dyn prometheus::core::Collector>| {
+            reg.register(c).expect("kube-proxy metrics registered once");
+        };
+        // Core kube-proxy metrics for all backends (:314-325).
+        add(Box::new(m.sync_proxy_rules_latency.clone()));
+        add(Box::new(m.sync_proxy_rules_last_queued_timestamp.clone()));
+        add(Box::new(m.sync_proxy_rules_last_timestamp.clone()));
+        add(Box::new(m.endpoint_changes_pending.clone()));
+        add(Box::new(m.endpoint_changes_total.clone()));
+        add(Box::new(m.service_changes_pending.clone()));
+        add(Box::new(m.service_changes_total.clone()));
+        add(Box::new(m.network_programming_latency.clone()));
+        add(Box::new(
+            m.sync_proxy_rules_no_local_endpoints_total.clone(),
+        ));
+        let conntrack = |add: &dyn Fn(Box<dyn prometheus::core::Collector>)| {
+            add(Box::new(m.reconcile_conntrack_flows_latency.clone()));
+            add(Box::new(
+                m.reconcile_conntrack_flows_deleted_entries_total.clone(),
+            ));
+        };
+        match mode {
+            "iptables" => {
+                add(Box::new(m.sync_full_proxy_rules_latency.clone()));
+                add(Box::new(m.sync_partial_proxy_rules_latency.clone()));
+                add(Box::new(m.iptables_restore_failures_total.clone()));
+                add(Box::new(m.iptables_partial_restore_failures_total.clone()));
+                add(Box::new(m.iptables_rules_total.clone()));
+                add(Box::new(m.iptables_rules_last_sync.clone()));
+                conntrack(&add);
+            }
+            "ipvs" => {
+                add(Box::new(m.iptables_restore_failures_total.clone()));
+                conntrack(&add);
+            }
+            "nftables" => {
+                add(Box::new(m.sync_full_proxy_rules_latency.clone()));
+                add(Box::new(m.sync_partial_proxy_rules_latency.clone()));
+                add(Box::new(m.nftables_sync_failures_total.clone()));
+                add(Box::new(m.nftables_cleanup_failures_total.clone()));
+                conntrack(&add);
+            }
+            // kernelspace: no winkernel-specific metrics.
+            _ => {}
+        }
+    });
 }
 
 /// slis/metrics.go:66-73: successful root health checks record a gauge and count.

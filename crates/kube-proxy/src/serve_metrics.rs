@@ -11,6 +11,7 @@ mod exposition;
 mod health;
 
 pub use configz::ConfigRegistry;
+pub use exposition::{kube_proxy_metrics, register_metrics, KubeProxyMetrics};
 pub use health::{ProxyHealth, ProxyHealthServer};
 
 use axum::{
@@ -155,6 +156,7 @@ pub fn metrics_router_with_flagz(
     flagz_reader: Option<kubernetes_rs_common::flagz::NamedFlagSetsReader>,
 ) -> Router {
     exposition::initialize();
+    exposition::register_metrics(proxy_mode);
     let proxy_mode = proxy_mode.to_owned();
     let router = Router::new()
         .route("/healthz", any(ping_health))

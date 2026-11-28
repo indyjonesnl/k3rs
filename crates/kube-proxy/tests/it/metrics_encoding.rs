@@ -96,3 +96,89 @@ async fn repeated_encoding_headers_and_invalid_parameters() {
         assert!(!headers.contains_key("content-encoding"), "{encoding}");
     }
 }
+
+/// pkg/proxy/metrics/metrics.go:38-322 (iptables mode registration :328-345):
+/// every collector is exposed on /metrics with the `kubeproxy_` prefix once
+/// it has a sample.
+#[tokio::test]
+async fn kubeproxy_metrics_definitions_exposed_on_legacy_registry() {
+    use kubernetes_rs_kube_proxy::serve_metrics::kube_proxy_metrics;
+    let m = kube_proxy_metrics();
+    let _router = metrics_router("iptables"); // RegisterMetrics(mode)
+    for h in [
+        &m.sync_proxy_rules_latency,
+        &m.sync_full_proxy_rules_latency,
+        &m.sync_partial_proxy_rules_latency,
+        &m.network_programming_latency,
+        &m.reconcile_conntrack_flows_latency,
+    ] {
+        h.with_label_values(&["IPv4"]).observe(0.5);
+    }
+    m.sync_proxy_rules_last_timestamp
+        .with_label_values(&["IPv4"])
+        .set(1.0);
+    m.sync_proxy_rules_last_queued_timestamp
+        .with_label_values(&["IPv4"])
+        .set(1.0);
+    m.sync_proxy_rules_no_local_endpoints_total
+        .with_label_values(&["internal", "IPv4"])
+        .set(1.0);
+    m.iptables_rules_total
+        .with_label_values(&["filter", "IPv4"])
+        .set(3.0);
+    m.iptables_rules_last_sync
+        .with_label_values(&["nat", "IPv4"])
+        .set(2.0);
+    m.iptables_restore_failures_total
+        .with_label_values(&["IPv4"])
+        .inc();
+    m.iptables_partial_restore_failures_total
+        .with_label_values(&["IPv4"])
+        .inc();
+    m.reconcile_conntrack_flows_deleted_entries_total
+        .with_label_values(&["IPv4"])
+        .inc();
+    m.endpoint_changes_pending.set(1);
+    m.endpoint_changes_total.inc();
+    m.service_changes_pending.set(1);
+    m.service_changes_total.inc();
+    let text = {
+        let mut out = Vec::new();
+        prometheus::Encoder::encode(
+            &prometheus::TextEncoder::new(),
+            &prometheus::default_registry().gather(),
+            &mut out,
+        )
+        .unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    for name in [
+        "kubeproxy_sync_proxy_rules_duration_seconds",
+        "kubeproxy_sync_full_proxy_rules_duration_seconds",
+        "kubeproxy_sync_partial_proxy_rules_duration_seconds",
+        "kubeproxy_sync_proxy_rules_last_timestamp_seconds",
+        "kubeproxy_network_programming_duration_seconds",
+        "kubeproxy_sync_proxy_rules_endpoint_changes_pending",
+        "kubeproxy_sync_proxy_rules_endpoint_changes_total",
+        "kubeproxy_sync_proxy_rules_service_changes_pending",
+        "kubeproxy_sync_proxy_rules_service_changes_total",
+        "kubeproxy_sync_proxy_rules_iptables_restore_failures_total",
+        "kubeproxy_sync_proxy_rules_iptables_partial_restore_failures_total",
+        "kubeproxy_sync_proxy_rules_iptables_total",
+        "kubeproxy_sync_proxy_rules_iptables_last",
+        "kubeproxy_sync_proxy_rules_last_queued_timestamp_seconds",
+        "kubeproxy_sync_proxy_rules_no_local_endpoints_total",
+        "kubeproxy_conntrack_reconciler_sync_duration_seconds",
+        "kubeproxy_conntrack_reconciler_deleted_entries_total",
+    ] {
+        assert!(text.contains(&format!("# TYPE {name} ")), "missing {name}");
+    }
+    // :92-101 network programming buckets: 2+59+12+7 = 80 bounds.
+    let n = text
+        .lines()
+        .filter(|l| l.starts_with("kubeproxy_network_programming_duration_seconds_bucket{"))
+        .count();
+    assert_eq!(n, 80 + 1, "80 bounds plus +Inf");
+    // nftables-only collectors are not registered in iptables mode.
+    assert!(!text.contains("nftables_sync_failures_total"));
+}
