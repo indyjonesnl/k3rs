@@ -253,6 +253,11 @@ impl Errors {
         );
     }
 
+    /// `Issues.ReportErrorAtID(id, msg)`.
+    pub(crate) fn at_id(&mut self, id: u64, l: &dyn Locator, message: String) {
+        self.report(id, l, message);
+    }
+
     pub(crate) fn not_a_type(&mut self, id: u64, l: &dyn Locator, type_name: &str) {
         self.report(id, l, format!("'{type_name}' is not a type"));
     }

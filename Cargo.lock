@@ -2453,6 +2453,7 @@ name = "kubernetes-rs-cel-checker"
 version = "0.1.0"
 dependencies = [
  "cel",
+ "regex",
  "serde_json",
 ]
 

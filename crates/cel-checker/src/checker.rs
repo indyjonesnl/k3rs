@@ -70,6 +70,9 @@ pub fn check(expr: &IdedExpr, env: &mut Env, locator: &dyn Locator) -> (CheckedA
     let mut errors = c.errors;
     // `Env.Check` applies the validators only to a result without errors.
     if errors.is_empty() {
+        // Validators run in registration order: the homogeneous one from the
+        // 1.0 epoch option, then duration, timestamp and regex (1.29,
+        // base.go:105-112; `ASTValidators` skips names already registered).
         if let Some(config) = &c.env.homogeneous_validator {
             crate::validator::validate_homogeneous_literals(
                 expr,
@@ -78,6 +81,9 @@ pub fn check(expr: &IdedExpr, env: &mut Env, locator: &dyn Locator) -> (CheckedA
                 locator,
                 &mut errors,
             );
+        }
+        if c.env.format_validators {
+            crate::validator::validate_format_literals(expr, locator, &mut errors);
         }
     }
     (checked, errors)

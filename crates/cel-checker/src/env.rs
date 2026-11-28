@@ -177,6 +177,10 @@ pub struct Options {
     /// validator run after a clean type check (`validator.rs`), not a checker
     /// option; the checker joins mixed element types to `dyn`.
     pub validate_homogeneous_literals: bool,
+    /// `cel.ValidateDurationLiterals()`, `ValidateTimestampLiterals()` and
+    /// `ValidateRegexLiterals()`: AST validators (`validator.rs`) that
+    /// `environment/base.go:105-112` adds together with the homogeneous one.
+    pub validate_format_literals: bool,
     /// `HomogeneousAggregateLiteralExemptFunctions`.
     pub homogeneous_exempt_functions: Vec<String>,
     /// `CrossTypeNumericComparisons`.
@@ -198,6 +202,7 @@ pub struct Env {
     scopes: Vec<Group>,
     pub(crate) homogeneous_literals: bool,
     pub(crate) homogeneous_validator: Option<crate::validator::HomogeneousConfig>,
+    pub(crate) format_validators: bool,
     cross_type_numeric: bool,
 }
 
@@ -226,6 +231,7 @@ impl Env {
                     exempt_functions: opts.homogeneous_exempt_functions.clone(),
                 }
             }),
+            format_validators: opts.validate_format_literals,
             cross_type_numeric: opts.cross_type_numeric_comparisons,
         }
     }

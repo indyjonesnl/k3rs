@@ -54,6 +54,9 @@ pub struct VersionedOptions {
     pub feature_enabled: Option<fn(&Features) -> bool>,
     /// `cel.HomogeneousAggregateLiterals()`.
     pub homogeneous_aggregate_literals: bool,
+    /// `cel.ASTValidators(ValidateDurationLiterals(), ValidateTimestampLiterals(),
+    /// ValidateRegexLiterals(), ..)` (`base.go:105-112`).
+    pub format_literal_validators: bool,
     /// `ext.Strings(StringsVersion(1+))` adds the `format` validator, which
     /// exempts the literals under `format` from the homogeneity check.
     pub string_format_validator: bool,
@@ -81,6 +84,7 @@ const NONE: VersionedOptions = VersionedOptions {
     removed: None,
     feature_enabled: None,
     homogeneous_aggregate_literals: false,
+    format_literal_validators: false,
     string_format_validator: false,
     cross_type_numeric_comparisons: false,
     optional_types: false,
@@ -110,6 +114,13 @@ pub static BASE_OPTS: &[VersionedOptions] = &[
         cross_type_numeric_comparisons: true,
         optional_types: true,
         libraries: &[table::quantity],
+        ..NONE
+    },
+    // "add the new validator in 1.29": the literal validators (the homogeneous
+    // one in the same call is already registered, validators are unique by name).
+    VersionedOptions {
+        introduced: v(29),
+        format_literal_validators: true,
         ..NONE
     },
     // `ext.Strings(ext.StringsVersion(0))` until 1.29, then version 2.
@@ -239,6 +250,7 @@ impl EnvSet {
                 validate_homogeneous_literals: opts
                     .iter()
                     .any(|o| o.homogeneous_aggregate_literals),
+                validate_format_literals: opts.iter().any(|o| o.format_literal_validators),
                 homogeneous_exempt_functions: if opts.iter().any(|o| o.string_format_validator) {
                     vec!["format".to_string()]
                 } else {
