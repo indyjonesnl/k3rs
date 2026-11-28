@@ -46,6 +46,8 @@ chrono.workspace = true
 prometheus.workspace = true
 
 [dev-dependencies]
+# Paused-clock tests of the etcd compactor loops (`start_paused`).
+tokio = { workspace = true, features = ["test-util"] }
 # `testcontainers` spins up real etcd via Docker so the etcd backend tests
 # exercise the live wire protocol instead of being permanently `#[ignore]`d.
 # Requires Docker (or Podman with the Docker-compat socket) on the host;

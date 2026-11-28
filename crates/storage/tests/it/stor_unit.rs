@@ -5,6 +5,7 @@ mod api_storage;
 mod busy;
 mod concurrency;
 mod etcd;
+mod etcd_compactor;
 mod etcd_endpoint;
 mod event_bus;
 mod event_recorder;

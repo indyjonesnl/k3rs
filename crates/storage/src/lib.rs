@@ -9,6 +9,7 @@ pub mod api_storage;
 pub mod busy;
 pub mod concurrency;
 pub mod etcd;
+pub mod etcd_compactor;
 pub mod etcd_endpoint;
 pub mod event_bus;
 pub mod event_recorder;
