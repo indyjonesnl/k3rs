@@ -168,7 +168,7 @@ fn to_status(body: serde_json::Value) -> Status {
 }
 
 /// `http.Error`.
-fn http_error(code: StatusCode, msg: &str) -> Response {
+pub fn http_error(code: StatusCode, msg: &str) -> Response {
     Response::builder()
         .status(code)
         .header("content-type", "text/plain; charset=utf-8")

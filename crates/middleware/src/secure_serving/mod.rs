@@ -12,6 +12,7 @@ pub mod authz;
 pub mod filters;
 pub mod options;
 pub mod serve;
+pub mod server_filters;
 pub mod webhook;
 
 use axum::Router;
