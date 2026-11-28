@@ -14,6 +14,7 @@ mod cors_filter;
 mod filter_latency;
 mod gzip_response;
 mod healthz_handler;
+mod hsts_filter;
 mod legacy_token_observations;
 mod lifecycle_signals;
 mod mw_unit;
