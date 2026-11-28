@@ -1,3 +1,6 @@
+#[path = "explain_openapi.rs"]
+pub mod openapi;
+
 use anyhow::Result;
 use std::collections::HashMap;
 

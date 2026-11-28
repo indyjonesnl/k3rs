@@ -23,6 +23,7 @@ mod commands__edit;
 mod commands__events;
 mod commands__exec;
 mod commands__explain;
+mod commands__explain_openapi;
 mod commands__expose;
 mod commands__get;
 mod commands__help;
