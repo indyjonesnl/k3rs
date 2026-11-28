@@ -100,13 +100,13 @@ mod tests {
     fn test_get_event_time_priority() {
         use serde_json::json;
 
-        // eventTime takes priority
+        // events.go eventTime(): lastTimestamp wins over eventTime
         let event = json!({
             "eventTime": "2024-01-01T00:00:00Z",
             "lastTimestamp": "2023-01-01T00:00:00Z",
             "firstTimestamp": "2022-01-01T00:00:00Z"
         });
-        assert_eq!(get_event_time(&event), "2024-01-01T00:00:00Z");
+        assert_eq!(get_event_time(&event), "2023-01-01T00:00:00Z");
 
         // Falls back to lastTimestamp
         let event = json!({
@@ -295,10 +295,9 @@ mod tests {
     fn test_get_event_time_with_null_values() {
         use serde_json::json;
 
-        // When eventTime is null, get() returns Some(null), or_else is not called,
-        // as_str() on null returns None, so result is ""
+        // A null eventTime is zero, so lastTimestamp is used.
         let event = json!({"eventTime": null, "lastTimestamp": "2024-01-01T00:00:00Z"});
-        assert_eq!(get_event_time(&event), "");
+        assert_eq!(get_event_time(&event), "2024-01-01T00:00:00Z");
 
         // When eventTime key is absent, falls through to lastTimestamp
         let event = json!({"lastTimestamp": "2024-01-01T00:00:00Z"});
@@ -348,5 +347,43 @@ mod tests {
         let (kind, name) = parse_for_object("ing/my-ingress").unwrap();
         assert_eq!(kind, "Ingress");
         assert_eq!(name, "my-ingress");
+    }
+}
+
+/// Ports of `kubectl/pkg/cmd/events/events.go` `eventTime` / list options.
+mod events_upstream {
+    use kubernetes_rs_kubectl::commands::events::*;
+    use serde_json::json;
+
+    #[test]
+    fn events_list_path_adds_limit_and_continue() {
+        assert_eq!(DEFAULT_CHUNK_SIZE, 500);
+        assert_eq!(
+            list_path("/api/v1/events", 500, ""),
+            "/api/v1/events?limit=500"
+        );
+        assert_eq!(
+            list_path("/api/v1/events?fieldSelector=a%3Db", 500, "tok=en"),
+            "/api/v1/events?fieldSelector=a%3Db&limit=500&continue=tok%3Den"
+        );
+    }
+
+    // eventTime: series.lastObservedTime > lastTimestamp > eventTime.
+    #[test]
+    fn events_event_time_precedence() {
+        let e = json!({
+            "series": {"lastObservedTime": "2026-01-03T00:00:00.000000Z"},
+            "lastTimestamp": "2026-01-02T00:00:00Z",
+            "eventTime": "2026-01-01T00:00:00.000000Z",
+        });
+        assert_eq!(get_event_time(&e), "2026-01-03T00:00:00.000000Z");
+        let e = json!({"lastTimestamp": "2026-01-02T00:00:00Z", "eventTime": "2026-01-01T00:00:00.000000Z"});
+        assert_eq!(get_event_time(&e), "2026-01-02T00:00:00Z");
+        let e = json!({"eventTime": "2026-01-01T00:00:00.000000Z"});
+        assert_eq!(get_event_time(&e), "2026-01-01T00:00:00.000000Z");
+        // ordering is by instant, not by string
+        let a = json!({"lastTimestamp": "2026-01-02T00:00:00Z"});
+        let b = json!({"eventTime": "2026-01-02T00:00:00.5Z"});
+        assert!(event_time(&a) < event_time(&b));
     }
 }
