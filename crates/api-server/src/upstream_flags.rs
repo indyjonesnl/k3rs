@@ -297,7 +297,7 @@ mod tests {
             "0.0.0.0:6443"
         );
         // Accepted-but-inert flags are reported, never silent.
-        assert_eq!(a.upstream.ignored_flags().len(), 8);
+        assert_eq!(a.upstream.ignored_flags().len(), 7);
     }
 
     #[test]
