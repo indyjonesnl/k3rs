@@ -519,6 +519,21 @@ pub enum TopCommands {
         /// Label selector
         #[arg(short = 'l', long)]
         selector: Option<String>,
+        /// If non-empty, sort nodes list using specified field. The field can be either 'cpu' or 'memory'.
+        #[arg(long)]
+        sort_by: Option<String>,
+        /// If present, print output without headers.
+        #[arg(long)]
+        no_headers: bool,
+        /// Print node resources based on Capacity instead of Allocatable (default) of the nodes.
+        #[arg(long)]
+        show_capacity: bool,
+        /// Print node resources related to swap memory.
+        #[arg(long)]
+        show_swap: bool,
+        /// Enables using protocol-buffers to access Metrics API.
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        use_protocol_buffers: bool,
     },
     /// Display resource usage of pods
     Pod {
@@ -533,9 +548,27 @@ pub enum TopCommands {
         /// Label selector
         #[arg(short = 'l', long)]
         selector: Option<String>,
-        /// Show containers
+        /// If present, print usage of containers within a pod.
         #[arg(long)]
         containers: bool,
+        /// Selector (field query) to filter on, supports '=', '==', and '!='.
+        #[arg(long)]
+        field_selector: Option<String>,
+        /// If non-empty, sort pods list using specified field. The field can be either 'cpu' or 'memory'.
+        #[arg(long)]
+        sort_by: Option<String>,
+        /// If present, print output without headers.
+        #[arg(long)]
+        no_headers: bool,
+        /// Print the sum of the resource usage
+        #[arg(long)]
+        sum: bool,
+        /// Print pod resources related to swap memory.
+        #[arg(long)]
+        show_swap: bool,
+        /// Enables using protocol-buffers to access Metrics API.
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        use_protocol_buffers: bool,
     },
 }
 
