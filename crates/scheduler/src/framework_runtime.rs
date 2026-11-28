@@ -1304,6 +1304,27 @@ impl Framework {
         all_pods: &[Pod],
         all_nodes: &[Node],
     ) -> Result<Vec<crate::score::PluginScores>, String> {
+        // The `defer` at framework.go:1274-1277: a failure is `AsStatus(err)`,
+        // i.e. Code Error.
+        let start = std::time::Instant::now();
+        let out = self.run_score_plugins_inner(state, pod, nodes, all_pods, all_nodes);
+        let code = if out.is_ok() {
+            Code::Success
+        } else {
+            Code::Error
+        };
+        self.observe_extension_point(crate::metrics::SCORE, code, start);
+        out
+    }
+
+    fn run_score_plugins_inner(
+        &self,
+        state: &CycleState,
+        pod: &Pod,
+        nodes: &[&Node],
+        all_pods: &[Pod],
+        all_nodes: &[Node],
+    ) -> Result<Vec<crate::score::PluginScores>, String> {
         let mut out = Vec::new();
         for pl in &self.score_plugin_objects.0 {
             if state.skip_score_plugins().contains(pl.name()) {
@@ -1500,12 +1521,15 @@ impl Framework {
         all_pods: &[Pod],
         handle: &dyn Handle,
     ) -> (Option<PreFilterResult>, Status, HashSet<String>) {
+        let start = std::time::Instant::now();
         let mut skip_plugins: HashSet<String> = HashSet::new();
         let out = self
             .pre_filter_plugins_inner(state, pod, nodes, all_pods, handle, &mut skip_plugins)
             .await;
-        // Upstream sets this in a defer, so it applies on every return path.
+        // Upstream sets this in a defer, so it applies on every return path
+        // (framework.go:865-867, which also records the extension point).
         state.set_skip_filter_plugins(skip_plugins);
+        self.observe_extension_point(crate::metrics::PRE_FILTER, out.1.code(), start);
         out
     }
 

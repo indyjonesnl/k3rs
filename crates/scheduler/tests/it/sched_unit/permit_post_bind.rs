@@ -652,8 +652,9 @@ async fn wait_on_permit_scheduler_metrics_permit_wait_duration() {
 
 /// `FrameworkExtensionPointDuration{extension_point,status,profile}` is
 /// observed once by each `Run*Plugins` of Reserve, Unreserve, PreBind,
-/// PreBindPreFlight, Bind, PostBind, Permit and PreScore (framework.go:1234,
-/// 1416, 1467, 1517, 1566, 1601, 1645, 1685), whatever the plugin set.
+/// PreBindPreFlight, Bind, PostBind, Permit, PreScore, PreFilter and Score
+/// (framework.go:867, 1234, 1276, 1416, 1467, 1517, 1566, 1601, 1645, 1685),
+/// whatever the plugin set.
 #[tokio::test]
 async fn scheduler_metrics_extension_point_duration() {
     use kubernetes_rs_scheduler::metrics as m;
@@ -676,6 +677,8 @@ async fn scheduler_metrics_extension_point_duration() {
         (m::POST_BIND, "Success"),
         (m::PERMIT, "Success"),
         (m::PRE_SCORE, "Success"),
+        (m::PRE_FILTER, "Success"),
+        (m::SCORE, "Success"),
     ];
     let before: Vec<u64> = cases.iter().map(|(p, s)| count(p, s)).collect();
     assert!(f
@@ -705,6 +708,13 @@ async fn scheduler_metrics_extension_point_duration() {
         .run_pre_score_plugins(&mut CycleState::new(), &pod, &[], &[], &[], &NoHandle)
         .await
         .is_success());
+    let (_, status, _) = f
+        .run_pre_filter_plugins(&mut CycleState::new(), &pod, &[], &[], &NoHandle)
+        .await;
+    assert!(status.is_success());
+    assert!(f
+        .run_score_plugins(&CycleState::new(), &pod, &[], &[], &[])
+        .is_ok());
     for ((p, s), b) in cases.iter().zip(before) {
         assert_eq!(count(p, s), b + 1, "{p}/{s}");
     }
