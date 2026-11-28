@@ -23,6 +23,7 @@ mod conformance_storage_pv_csi;
 mod cronjob_controller_test;
 mod csi_attacher_test;
 mod csi_provisioner_test;
+mod csi_resizer_modify_test;
 mod csi_resizer_test;
 mod csr_controller_test;
 mod daemonset_controller_revision_test;
