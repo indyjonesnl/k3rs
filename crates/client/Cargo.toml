@@ -16,6 +16,10 @@ futures.workspace = true
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "macros"] }
 tracing = "0.1"
+# exec credential plugin: tls.X509KeyPair + x509.ParseCertificate equivalents (exec.go:508-525)
+rustls = { workspace = true }
+rustls-pemfile = "2.1"
+x509-parser.workspace = true
 # rustls only — this crate must never pull in openssl.
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
@@ -44,5 +48,4 @@ tokio = { workspace = true, features = [
 # Real-TLS test server for insecure-HTTPS node-registration coverage (M2b):
 # self-signed cert served over tokio-rustls, driven by the reqwest client.
 rcgen = { workspace = true }
-rustls = { workspace = true }
 tokio-rustls = { workspace = true }

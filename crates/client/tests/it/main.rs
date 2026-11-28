@@ -10,6 +10,7 @@
 mod config_test;
 mod events_test;
 mod exec_credential;
+mod exec_credential_cache;
 mod get_not_found_test;
 mod kubeconfig_loading;
 mod list_envelope_test;
