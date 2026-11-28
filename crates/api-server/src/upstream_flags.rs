@@ -48,7 +48,8 @@ pub struct UpstreamCompatArgs {
     #[arg(long, value_delimiter = ',')]
     pub tls_cipher_suites: Vec<String>,
 
-    /// `--enable-bootstrap-token-auth` (authentication.go:367). Accepted, ignored.
+    /// `--enable-bootstrap-token-auth` (authentication.go:367): Secrets of type
+    /// `bootstrap.kubernetes.io/token` in `kube-system` authenticate bearer tokens.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     pub enable_bootstrap_token_auth: Option<bool>,
 
@@ -188,10 +189,6 @@ impl UpstreamCompatArgs {
     /// Flags that were given, accepted, and have no effect (message per flag).
     pub fn ignored_flags(&self) -> Vec<String> {
         let given = [
-            (
-                self.enable_bootstrap_token_auth.is_some(),
-                "--enable-bootstrap-token-auth",
-            ),
             (self.allow_privileged.is_some(), "--allow-privileged"),
             (
                 self.kubelet_client_certificate.is_some(),
@@ -299,7 +296,7 @@ mod tests {
             "0.0.0.0:6443"
         );
         // Accepted-but-inert flags are reported, never silent.
-        assert_eq!(a.upstream.ignored_flags().len(), 8);
+        assert_eq!(a.upstream.ignored_flags().len(), 7);
     }
 
     #[test]
