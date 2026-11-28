@@ -15,6 +15,7 @@ test = false
 
 [dependencies]
 cel.workspace = true
+regex = "1.10" # `ValidateRegexLiterals`: `regexp.Compile` validity
 
 [dev-dependencies]
 serde_json.workspace = true
