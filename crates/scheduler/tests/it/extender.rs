@@ -336,3 +336,109 @@ async fn extender_send_honours_http_timeout() {
     assert!(r.is_err());
     assert!(start.elapsed() < Duration::from_secs(3));
 }
+
+fn node(name: &str) -> kubernetes_rs_common::resources::Node {
+    serde_json::from_str(&format!(r#"{{"metadata":{{"name":"{name}"}}}}"#)).unwrap()
+}
+
+fn ext(url: String, f: impl FnOnce(&mut ExtenderConfig)) -> HttpExtender {
+    let mut c = ExtenderConfig {
+        url_prefix: url,
+        ..Default::default()
+    };
+    f(&mut c);
+    HttpExtender::new(&c).unwrap()
+}
+
+/// extender.go:222 Filter: no verb passes everything through, no request.
+#[tokio::test]
+async fn extender_filter_without_verb_passes_all() {
+    let (url, seen) = serve(200, "{}");
+    let e = ext(url, |_| {});
+    let nodes = vec![node("a"), node("b")];
+    let out = e.filter(&pod(vec![], vec![]), &nodes).await.unwrap();
+    assert_eq!(out.filtered.len(), 2);
+    assert!(out.failed_nodes.is_empty());
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+/// Filter, not nodeCacheCapable: full NodeList is sent, returned Nodes win.
+#[tokio::test]
+async fn extender_filter_node_list() {
+    let (url, seen) = serve(
+        200,
+        r#"{"Nodes":{"items":[{"metadata":{"name":"b"}}]},"FailedNodes":{"a":"no"},"FailedAndUnresolvableNodes":{"c":"never"}}"#,
+    );
+    let e = ext(url, |c| c.filter_verb = "filter".into());
+    let nodes = vec![node("a"), node("b")];
+    let out = e.filter(&pod(vec![], vec![]), &nodes).await.unwrap();
+    assert_eq!(out.filtered.len(), 1);
+    assert_eq!(out.filtered[0].metadata.name, "b");
+    assert_eq!(out.failed_nodes["a"], "no");
+    assert_eq!(out.failed_and_unresolvable_nodes["c"], "never");
+    let body: serde_json::Value = serde_json::from_str(&seen.lock().unwrap()[0].2).unwrap();
+    assert_eq!(body["Nodes"]["items"].as_array().unwrap().len(), 2);
+    assert!(body["NodeNames"].is_null());
+}
+
+/// Filter, nodeCacheCapable: names are sent and resolved against the input.
+#[tokio::test]
+async fn extender_filter_node_names() {
+    let (url, seen) = serve(200, r#"{"NodeNames":["b"]}"#);
+    let e = ext(url, |c| {
+        c.filter_verb = "filter".into();
+        c.node_cache_capable = true;
+    });
+    let nodes = vec![node("a"), node("b")];
+    let out = e.filter(&pod(vec![], vec![]), &nodes).await.unwrap();
+    assert_eq!(out.filtered.len(), 1);
+    let body: serde_json::Value = serde_json::from_str(&seen.lock().unwrap()[0].2).unwrap();
+    assert_eq!(body["NodeNames"], serde_json::json!(["a", "b"]));
+    assert!(body["Nodes"].is_null());
+
+    let (url, _) = serve(200, r#"{"NodeNames":["zzz"]}"#);
+    let e = ext(url.clone(), |c| {
+        c.filter_verb = "filter".into();
+        c.node_cache_capable = true;
+    });
+    let err = e.filter(&pod(vec![], vec![]), &nodes).await.err().unwrap();
+    assert_eq!(
+        err.to_string(),
+        format!(
+            "extender {:?} claims a filtered node \"zzz\" which is not found in the input node list",
+            url
+        )
+    );
+}
+
+#[tokio::test]
+async fn extender_filter_error_field_is_an_error() {
+    let (url, _) = serve(200, r#"{"Error":"boom"}"#);
+    let e = ext(url, |c| c.filter_verb = "filter".into());
+    let err = e
+        .filter(&pod(vec![], vec![]), &[node("a")])
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(err.to_string(), "boom");
+}
+
+/// extender.go:305 Prioritize.
+#[tokio::test]
+async fn extender_prioritize() {
+    let nodes = vec![node("a"), node("b")];
+    // No verb: zero scores, weight 0.
+    let e = ext("http://127.0.0.1:1".into(), |c| c.weight = 5);
+    let (list, w) = e.prioritize(&pod(vec![], vec![]), &nodes).await.unwrap();
+    assert_eq!((list.len(), w), (2, 0));
+    assert!(list.iter().all(|h| h.score == 0));
+    // With a verb: reply and configured weight.
+    let (url, _) = serve(200, r#"[{"Host":"a","Score":3},{"Host":"b","Score":9}]"#);
+    let e = ext(url, |c| {
+        c.prioritize_verb = "prio".into();
+        c.weight = 5;
+    });
+    let (list, w) = e.prioritize(&pod(vec![], vec![]), &nodes).await.unwrap();
+    assert_eq!(w, 5);
+    assert_eq!((list[0].host.as_str(), list[1].score), ("a", 9));
+}

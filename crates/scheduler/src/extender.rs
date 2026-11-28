@@ -299,6 +299,15 @@ fn null_meta_map<'de, D: Deserializer<'de>>(
     Ok(Option::<BTreeMap<String, MetaVictims>>::deserialize(d)?.unwrap_or_default())
 }
 
+/// What `HTTPExtender.Filter` returns: `(filteredList, failedNodes,
+/// failedAndUnresolvableNodes)`.
+#[derive(Debug, Clone, Default)]
+pub struct ExtenderFilterOutcome {
+    pub filtered: Vec<Node>,
+    pub failed_nodes: FailedNodesMap,
+    pub failed_and_unresolvable_nodes: FailedNodesMap,
+}
+
 // ---------------------------------------------------------------------------
 // HTTPExtender
 // ---------------------------------------------------------------------------
@@ -416,6 +425,85 @@ impl HttpExtender {
         }
         let body = resp.bytes().await?;
         Ok(serde_json::from_slice(&body)?)
+    }
+
+    /// `ExtenderArgs` for `nodes`: node names when `nodeCacheCapable`, the
+    /// full `NodeList` otherwise (extender.go Filter/Prioritize).
+    fn extender_args(&self, pod: &Pod, nodes: &[Node]) -> ExtenderArgs {
+        if self.node_cache_capable {
+            ExtenderArgs {
+                pod: Some(pod.clone()),
+                nodes: None,
+                node_names: Some(nodes.iter().map(|n| n.metadata.name.clone()).collect()),
+            }
+        } else {
+            ExtenderArgs {
+                pod: Some(pod.clone()),
+                nodes: Some(NodeList {
+                    items: nodes.to_vec(),
+                }),
+                node_names: None,
+            }
+        }
+    }
+
+    /// `Filter` (extender.go:222): ask the extender which of `nodes` fit.
+    /// Without a filter verb every node passes. An `Error` in the reply, or a
+    /// claimed node name not in the input (nodeCacheCapable), is an error.
+    pub async fn filter(&self, pod: &Pod, nodes: &[Node]) -> Result<ExtenderFilterOutcome> {
+        if self.filter_verb.is_empty() {
+            return Ok(ExtenderFilterOutcome {
+                filtered: nodes.to_vec(),
+                ..Default::default()
+            });
+        }
+        let args = self.extender_args(pod, nodes);
+        let result: ExtenderFilterResult = self.send(&self.filter_verb, &args).await?;
+        if !result.error.is_empty() {
+            bail!("{}", result.error);
+        }
+        let mut filtered = Vec::new();
+        if let (true, Some(names)) = (self.node_cache_capable, result.node_names.as_ref()) {
+            let from_name: std::collections::HashMap<&str, &Node> = nodes
+                .iter()
+                .map(|n| (n.metadata.name.as_str(), n))
+                .collect();
+            for name in names {
+                match from_name.get(name.as_str()) {
+                    Some(n) => filtered.push((*n).clone()),
+                    None => bail!(
+                        "extender {:?} claims a filtered node {:?} which is not found in the input node list",
+                        self.extender_url,
+                        name
+                    ),
+                }
+            }
+        } else if let Some(list) = result.nodes {
+            filtered = list.items;
+        }
+        Ok(ExtenderFilterOutcome {
+            filtered,
+            failed_nodes: result.failed_nodes,
+            failed_and_unresolvable_nodes: result.failed_and_unresolvable_nodes,
+        })
+    }
+
+    /// `Prioritize` (extender.go:305): the extender's scores and its weight.
+    /// Without a prioritize verb every node scores 0 with weight 0.
+    pub async fn prioritize(&self, pod: &Pod, nodes: &[Node]) -> Result<(HostPriorityList, i64)> {
+        if self.prioritize_verb.is_empty() {
+            let list = nodes
+                .iter()
+                .map(|n| HostPriority {
+                    host: n.metadata.name.clone(),
+                    score: 0,
+                })
+                .collect();
+            return Ok((list, 0));
+        }
+        let args = self.extender_args(pod, nodes);
+        let result: HostPriorityList = self.send(&self.prioritize_verb, &args).await?;
+        Ok((result, self.weight))
     }
 
     /// `IsInterested` (extender.go:407): an extender with no managed
