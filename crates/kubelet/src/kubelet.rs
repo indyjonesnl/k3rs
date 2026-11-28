@@ -2041,9 +2041,10 @@ impl Kubelet {
         .collect()
     }
 
-    pub async fn register_node(&self) -> Result<()> {
-        info!("Registering node: {}", self.node_name);
-
+    /// `initialNode` (kubelet_node_status.go:301-364): the Node the kubelet
+    /// registers with, ending in `setNodeStatus`. Also the fallback of
+    /// `getNodeAnyWay` (kubelet_getters.go:301).
+    fn initial_node(&self) -> Node {
         let mut node = Node::new(&self.node_name);
 
         // Set default node labels matching K8s kubelet initialNode()
@@ -2132,6 +2133,13 @@ impl Kubelet {
         // (kubelet_node_status.go:685-686).
         crate::node_status::set_runtime_handlers(&mut node, &self.runtime_state.runtime_handlers());
         crate::node_status::set_node_features(&mut node, self.runtime_state.runtime_features());
+        node
+    }
+
+    pub async fn register_node(&self) -> Result<()> {
+        info!("Registering node: {}", self.node_name);
+
+        let node = self.initial_node();
 
         let key = build_key("nodes", None, &self.node_name);
 
@@ -3712,29 +3720,6 @@ impl Kubelet {
         };
         let is_running = if init_incomplete { false } else { is_running };
 
-        // K8s kubelet admission: reject a pod whose declared OS does not match
-        // this node's OS. Our nodes are Linux, so a pod with spec.os.name set to
-        // anything but "linux" is rejected with Phase=Failed and reason
-        // PodOSNotSupported. K8s ref: pkg/kubelet/kubelet_pods.go — the PodOS
-        // admit handler (GetPodOSValidationError / "PodOSNotSupported").
-        if matches!(current_phase, Phase::Pending) && !is_running {
-            if let Some(os) = pod.spec.as_ref().and_then(|s| s.os.as_ref()) {
-                if os.name != "linux" {
-                    info!(
-                        "Pod {}/{} rejected: pod OS {:?} not supported on this (linux) node",
-                        namespace, pod_name, os.name
-                    );
-                    self.reject_pod(
-                        pod,
-                        "PodOSNotSupported",
-                        "Failed to admit pod as the OS field doesn't match node OS",
-                    )
-                    .await;
-                    return Ok(());
-                }
-            }
-        }
-
         // K8s kubelet admission: reject a pod requesting a forbidden sysctl. A
         // sysctl is allowed only if it is safe (namespaced + isolated) or
         // explicitly permitted via --allowed-unsafe-sysctls; otherwise the pod
@@ -3749,32 +3734,23 @@ impl Kubelet {
             }
         }
 
-        // K8s kubelet admission: check hostPort conflicts before starting the pod.
-        // K8s ref: pkg/kubelet/kubelet.go:2752 — allocationManager.AddPod, with
-        // the conflict rule in pkg/scheduler/framework/types.go
-        // (HostPortInfo.CheckConflict). If a pod's hostPorts conflict with an
-        // already-active pod on this node, reject it with Phase=Failed; the
-        // owning controller (StatefulSet, etc.) then deletes and recreates it.
-        // The pure rule + its tests live in `crate::host_port`.
-        if matches!(current_phase, Phase::Pending)
-            && !is_running
-            && !crate::host_port::host_ports(pod).is_empty()
-        {
-            let all_pods_prefix = build_prefix("pods", None);
-            let all_pods: Vec<Pod> = self
-                .storage
-                .list(&all_pods_prefix)
-                .await
-                .unwrap_or_default();
-            if let Some(conflict) =
-                crate::host_port::find_host_port_conflict(pod, &all_pods, &self.node_name)
-            {
+        // K8s kubelet admission: the predicate admit handler. Ports
+        // `allocationManager.AddPod` -> `canAdmitPod` running
+        // `lifecycle.NewPredicateAdmitHandler(...).Admit`
+        // (pkg/kubelet/allocation/allocation_manager.go:668,
+        // pkg/kubelet/lifecycle/predicate.go:118; handler registered after the
+        // sysctl allowlist at pkg/kubelet/kubelet.go:1060). It covers the OS
+        // label/field checks, node name/affinity, taints, host ports and
+        // resource fit; on reject `rejectPod` (kubelet.go:2475) fails the pod
+        // with the handler's reason and message.
+        if matches!(current_phase, Phase::Pending) && !is_running {
+            let result = self.can_admit_pod(pod).await;
+            if !result.admit {
                 info!(
-                    "Pod {}/{} rejected: hostPort {}/{} conflicts with pod {}",
-                    namespace, pod_name, conflict.port, conflict.protocol, conflict.conflicting_pod
+                    "Pod {}/{} rejected: {} {}",
+                    namespace, pod_name, result.reason, result.message
                 );
-                self.reject_pod(pod, "HostPortConflict", &conflict.message())
-                    .await;
+                self.reject_pod(pod, &result.reason, &result.message).await;
                 return Ok(());
             }
         }
@@ -6723,6 +6699,56 @@ impl Kubelet {
         if !pod_status_equal(&original, &p) {
             let _ = self.storage.update_status(&key, &p).await;
         }
+    }
+
+    /// `canAdmitPod` (allocation_manager.go:668) with the predicate admit
+    /// handler. `OtherPods` is `GetActivePods()` minus the pod itself: pods
+    /// bound to this node that are not terminal or deleted. A Pending pod is
+    /// only counted when it sorts before `pod` by creation time
+    /// (`HandlePodAdditions` sorts `PodsByCreationTime`, kubelet.go:2720), since
+    /// admission here is per pod and a later pod has not been admitted yet.
+    /// `getNodeAnyWayFunc` reads the node from storage.
+    pub async fn can_admit_pod(&self, pod: &Pod) -> crate::lifecycle_predicate::PodAdmitResult {
+        let all: Vec<Pod> = self
+            .storage
+            .list(&build_prefix("pods", None))
+            .await
+            .unwrap_or_default();
+        let key_of = |p: &Pod| (p.metadata.creation_timestamp, p.metadata.name.clone());
+        let me = key_of(pod);
+        let other: Vec<Pod> = all
+            .into_iter()
+            .filter(|p| {
+                p.metadata.uid != pod.metadata.uid
+                    && p.spec.as_ref().and_then(|s| s.node_name.as_deref())
+                        == Some(self.node_name.as_str())
+                    && p.metadata.deletion_timestamp.is_none()
+                    && !matches!(
+                        p.status.as_ref().and_then(|s| s.phase.as_ref()),
+                        Some(Phase::Failed) | Some(Phase::Succeeded)
+                    )
+            })
+            .filter(|p| {
+                matches!(
+                    p.status.as_ref().and_then(|s| s.phase.as_ref()),
+                    Some(Phase::Running)
+                ) || key_of(p) < me
+            })
+            .collect();
+        let node_key = build_key("nodes", None, &self.node_name);
+        let storage = self.storage.clone();
+        // `getNodeAnyWay` (kubelet_getters.go:301): `GetNode`, else `initialNode`.
+        let node: Result<Node, String> = Ok(match storage.get::<Node>(&node_key).await {
+            Ok(n) => n,
+            Err(_) => self.initial_node(),
+        });
+        crate::lifecycle_predicate::admit(
+            &crate::lifecycle_predicate::PodAdmitAttributes {
+                pod,
+                other_pods: &other,
+            },
+            |_use_cache| node.clone(),
+        )
     }
 
     /// `rejectPod` (pkg/kubelet/kubelet.go:2475-2482): a Warning event with the
