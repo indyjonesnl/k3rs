@@ -1019,7 +1019,8 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
 
     // Discovery and OpenAPI endpoints get Cache-Control: no-cache, private
     // so kubectl always re-fetches and sees newly created CRDs.
-    // K8s ref: aggregated discovery uses ETag; non-aggregated uses no-cache.
+    // K8s ref: aggregated discovery uses ETag + `public` (kept below);
+    // everything else defaults to no-cache (WithCacheControl).
     let discovery_routes = Router::new()
         .route("/api", get(handlers::discovery::get_core_api))
         .route("/api/", get(handlers::discovery::get_core_api))
@@ -1212,10 +1213,18 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
         .route("/swagger.json", get(handlers::openapi::get_swagger_spec))
         .layer(axum_middleware::map_response(
             |mut response: Response| async move {
-                response.headers_mut().insert(
-                    axum::http::header::CACHE_CONTROL,
-                    "no-cache, private".parse().unwrap(),
-                );
+                // `WithCacheControl` (filters/cachecontrol.go:25-35): only a
+                // default, set "if it is not already set". Aggregated
+                // discovery sets `Cache-Control: public` next to its ETag.
+                if !response
+                    .headers()
+                    .contains_key(axum::http::header::CACHE_CONTROL)
+                {
+                    response.headers_mut().insert(
+                        axum::http::header::CACHE_CONTROL,
+                        "no-cache, private".parse().unwrap(),
+                    );
+                }
                 response
             },
         ));
