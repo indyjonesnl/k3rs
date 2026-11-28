@@ -708,3 +708,68 @@ fn empty_requirements() -> ResourceRequirements {
 fn is_restartable_init_container(c: &Container) -> bool {
     c.restart_policy.as_deref() == Some("Always")
 }
+
+/// `ValidatePodLogOptions` (`pkg/apis/core/validation/validation.go:8615`,
+/// release-1.35). `allow_stream_selection` is `utilfeature.DefaultFeatureGate.
+/// Enabled(features.PodLogsQuerySplitStreams)` at the caller.
+pub fn validate_pod_log_options(
+    opts: &crate::resources::pod::PodLogOptions,
+    allow_stream_selection: bool,
+) -> ErrorList {
+    use crate::resources::pod::{LOG_STREAM_ALL, LOG_STREAM_STDERR, LOG_STREAM_STDOUT};
+    let mut errs = ErrorList::new();
+    if let Some(n) = opts.tail_lines.filter(|n| *n < 0) {
+        // isNegativeErrorMsg
+        errs.push(Error::invalid(
+            &Path::new("tailLines"),
+            n,
+            "must be greater than or equal to 0",
+        ));
+    }
+    if let Some(n) = opts.limit_bytes.filter(|n| *n < 1) {
+        errs.push(Error::invalid(
+            &Path::new("limitBytes"),
+            n,
+            "must be greater than 0",
+        ));
+    }
+    match (opts.since_seconds, opts.since_time) {
+        (Some(_), Some(_)) => errs.push(Error::forbidden(
+            &Path::new(""),
+            "at most one of `sinceTime` or `sinceSeconds` may be specified",
+        )),
+        (Some(n), None) if n < 1 => errs.push(Error::invalid(
+            &Path::new("sinceSeconds"),
+            n,
+            "must be greater than 0",
+        )),
+        _ => {}
+    }
+    if allow_stream_selection {
+        match &opts.stream {
+            None => errs.push(Error::required(&Path::new("stream"), "must be specified")),
+            Some(s) => {
+                let valid = [LOG_STREAM_ALL, LOG_STREAM_STDERR, LOG_STREAM_STDOUT];
+                if !valid.contains(&s.as_str()) {
+                    errs.push(Error::not_supported(
+                        &Path::new("stream"),
+                        s.clone(),
+                        &valid,
+                    ));
+                }
+                if s != LOG_STREAM_ALL && opts.tail_lines.is_some() {
+                    errs.push(Error::forbidden(
+                        &Path::new(""),
+                        "`tailLines` and specific `stream` are mutually exclusive for now",
+                    ));
+                }
+            }
+        }
+    } else if opts.stream.is_some() {
+        errs.push(Error::forbidden(
+            &Path::new("stream"),
+            "may not be specified",
+        ));
+    }
+    errs
+}
