@@ -64,6 +64,7 @@ pub mod volume_manager;
 pub mod volume_ownership;
 pub mod volume_plugins;
 pub mod volumes;
+pub mod watchdog;
 
 pub use kubelet::PodWorkerState;
 
