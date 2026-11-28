@@ -3,9 +3,12 @@
 //! A producer/consumer queue implementing a heap keyed by `key_fn`, so an
 //! item can be updated in place (`AddOrUpdate` → `heap.Fix`) or removed by
 //! key (`Delete` → `heap.Remove`). Items in `items` are exactly the keys in
-//! `queue` and vice versa. The metric recorder hook is not ported.
+//! `queue` and vice versa. The optional metric recorder (`NewWithRecorder`) is
+//! incremented when an element is added and decremented when one is removed.
 
 use std::collections::HashMap;
+
+use crate::metrics::MetricRecorder;
 
 pub type KeyFn<T> = Box<dyn Fn(&T) -> String + Send + Sync>;
 pub type LessFn<T> = Box<dyn Fn(&T, &T) -> bool + Send + Sync>;
@@ -21,16 +24,29 @@ pub struct Heap<T> {
     queue: Vec<String>,
     key_fn: KeyFn<T>,
     less_fn: LessFn<T>,
+    /// `metricRecorder` (`heap.go:137-139`): updates the counter when elements
+    /// get added or removed; does nothing if `None`.
+    metric_recorder: Option<Box<dyn MetricRecorder + Send + Sync>>,
 }
 
 impl<T> Heap<T> {
     /// `New` (`heap.go:225-227`).
     pub fn new(key_fn: KeyFn<T>, less_fn: LessFn<T>) -> Self {
+        Self::new_with_recorder(key_fn, less_fn, None)
+    }
+
+    /// `NewWithRecorder` (`heap.go:229-240`).
+    pub fn new_with_recorder(
+        key_fn: KeyFn<T>,
+        less_fn: LessFn<T>,
+        metric_recorder: Option<Box<dyn MetricRecorder + Send + Sync>>,
+    ) -> Self {
         Self {
             items: HashMap::new(),
             queue: Vec::new(),
             key_fn,
             less_fn,
+            metric_recorder,
         }
     }
 
@@ -124,6 +140,9 @@ impl<T> Heap<T> {
             self.items.insert(key.clone(), HeapItem { obj, index: n });
             self.queue.push(key);
             self.up(n);
+            if let Some(r) = &self.metric_recorder {
+                r.inc();
+            }
         }
     }
 
@@ -137,7 +156,11 @@ impl<T> Heap<T> {
         match self.items.get(key) {
             Some(item) => {
                 let idx = item.index;
-                Ok(self.remove_at(idx))
+                let obj = self.remove_at(idx);
+                if let Some(r) = &self.metric_recorder {
+                    r.dec();
+                }
+                Ok(obj)
             }
             None => Err("object not found".to_string()),
         }
@@ -156,7 +179,11 @@ impl<T> Heap<T> {
         if self.queue.is_empty() {
             return Err("heap is empty".to_string());
         }
-        Ok(self.remove_at(0))
+        let obj = self.remove_at(0);
+        if let Some(r) = &self.metric_recorder {
+            r.dec();
+        }
+        Ok(obj)
     }
 
     /// `Get` (`heap.go:189-192`).

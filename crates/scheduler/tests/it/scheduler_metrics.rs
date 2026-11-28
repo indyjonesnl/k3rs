@@ -232,3 +232,44 @@ async fn scheduler_metrics_run_loop_flushes_and_stops() {
         .expect("recorder stopped in time")
         .unwrap();
 }
+
+struct CountingRecorder(std::sync::Arc<std::sync::atomic::AtomicI64>);
+
+impl MetricRecorder for CountingRecorder {
+    fn inc(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    fn dec(&self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    fn clear(&self) {
+        self.0.store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// `TestHeapWithRecorder` (`backend/heap/heap_test.go:275`).
+#[test]
+fn scheduler_metrics_heap_with_recorder() {
+    use kubernetes_rs_scheduler::queue::heap::Heap;
+    use std::sync::atomic::{AtomicI64, Ordering};
+    let count = Arc::new(AtomicI64::new(0));
+    let mut h: Heap<(String, i64)> = Heap::new_with_recorder(
+        Box::new(|(k, _): &(String, i64)| k.clone()),
+        Box::new(|a: &(String, i64), b: &(String, i64)| a.1 < b.1),
+        Some(Box::new(CountingRecorder(count.clone()))),
+    );
+    for (k, v) in [("foo", 10), ("bar", 1), ("baz", 100), ("qux", 11)] {
+        h.add_or_update((k.to_string(), v));
+    }
+    assert_eq!(count.load(Ordering::SeqCst), 4);
+    // An update of an existing key does not count again.
+    h.add_or_update(("foo".to_string(), 9));
+    assert_eq!(count.load(Ordering::SeqCst), 4);
+    h.delete(&("bar".to_string(), 1)).unwrap();
+    assert_eq!(count.load(Ordering::SeqCst), 3);
+    // A failed delete does not count.
+    assert!(h.delete(&("nope".to_string(), 0)).is_err());
+    assert_eq!(count.load(Ordering::SeqCst), 3);
+    h.pop().unwrap();
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+}
