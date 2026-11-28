@@ -32,6 +32,47 @@ use crate::admission_metrics::{
 };
 use crate::cel_evaluators::build_context;
 
+/// `matching.Matcher.MatchObjectSelector`
+/// (`staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/predicates/object/matcher.go:46-59`,
+/// `matchObject` :61-72): an empty selector matches; otherwise the selector
+/// is tried against the NEW object's labels and then the OLD object's
+/// (`LabelSelectorAsSelector`, so `matchExpressions` count); a nil object
+/// never matches. A selector that does not parse is an `InternalError` for
+/// the request (`apierrors.NewInternalError`), never a silent skip.
+pub fn match_object_selector(
+    selector: Option<&serde_json::Value>,
+    object: Option<&serde_json::Value>,
+    old_object: Option<&serde_json::Value>,
+) -> Result<bool, String> {
+    let Some(sel) = selector else {
+        return Ok(true);
+    };
+    // The webhook configuration and the shared types carry distinct
+    // `LabelSelector` structs with the same wire form.
+    let sel: kubernetes_rs_common::types::LabelSelector =
+        serde_json::from_value(sel.clone()).map_err(|e| e.to_string())?;
+    let sel = &sel;
+    let parsed = kubernetes_rs_common::types::label_selector_as_selector(Some(sel))
+        .map_err(|e| e.to_string())?;
+    if parsed.is_everything() {
+        return Ok(true);
+    }
+    let matches_object = |obj: Option<&serde_json::Value>| -> bool {
+        let Some(obj) = obj else { return false };
+        let labels: std::collections::HashMap<String, String> = obj
+            .pointer("/metadata/labels")
+            .and_then(|l| l.as_object())
+            .map(|l| {
+                l.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        parsed.matches(Some(&labels))
+    };
+    Ok(matches_object(object) || matches_object(old_object))
+}
+
 /// What `ShouldCallHook` does with the webhook after its match conditions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebhookMatch {
@@ -227,6 +268,91 @@ fn match_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Ports of predicates/object/matcher_test.go TestMatcher: new object,
+    // old object, matchExpressions, nil objects and an empty selector.
+    fn sel(v: serde_json::Value) -> serde_json::Value {
+        v
+    }
+    fn obj(labels: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({"metadata": {"labels": labels}})
+    }
+
+    #[test]
+    fn object_selector_empty_matches_everything_even_nil_objects() {
+        assert_eq!(match_object_selector(None, None, None), Ok(true));
+        assert_eq!(
+            match_object_selector(Some(&sel(serde_json::json!({}))), None, None),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn object_selector_nil_objects_never_match_a_non_empty_selector() {
+        let s = sel(serde_json::json!({"matchLabels": {"a": "b"}}));
+        assert_eq!(match_object_selector(Some(&s), None, None), Ok(false));
+    }
+
+    #[test]
+    fn object_selector_new_or_old_object_labels() {
+        let s = sel(serde_json::json!({"matchLabels": {"a": "b"}}));
+        let with = obj(serde_json::json!({"a": "b"}));
+        let without = obj(serde_json::json!({"a": "other"}));
+        assert_eq!(match_object_selector(Some(&s), Some(&with), None), Ok(true));
+        // label removed by the update: the old object still selects it
+        assert_eq!(
+            match_object_selector(Some(&s), Some(&without), Some(&with)),
+            Ok(true)
+        );
+        // DELETE: object nil, old object carries the labels
+        assert_eq!(match_object_selector(Some(&s), None, Some(&with)), Ok(true));
+        assert_eq!(
+            match_object_selector(Some(&s), Some(&without), Some(&without)),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn object_selector_match_expressions_are_honoured() {
+        let s = sel(serde_json::json!({"matchExpressions": [
+            {"key": "tier", "operator": "In", "values": ["web", "api"]},
+            {"key": "skip", "operator": "DoesNotExist"}
+        ]}));
+        assert_eq!(
+            match_object_selector(
+                Some(&s),
+                Some(&obj(serde_json::json!({"tier": "web"}))),
+                None
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            match_object_selector(
+                Some(&s),
+                Some(&obj(serde_json::json!({"tier": "web", "skip": "1"}))),
+                None
+            ),
+            Ok(false)
+        );
+        assert_eq!(
+            match_object_selector(
+                Some(&s),
+                Some(&obj(serde_json::json!({"tier": "db"}))),
+                None
+            ),
+            Ok(false)
+        );
+    }
+
+    // Security: an unparsable selector is an error (InternalError upstream),
+    // never a silent non-match.
+    #[test]
+    fn object_selector_invalid_selector_is_an_error() {
+        let s = sel(serde_json::json!({"matchExpressions": [
+            {"key": "k", "operator": "Bogus"}
+        ]}));
+        assert!(match_object_selector(Some(&s), Some(&obj(serde_json::json!({}))), None).is_err());
+    }
     use kubernetes_rs_common::admission::{GroupVersionKind, UserInfo};
 
     #[test]
