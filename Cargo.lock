@@ -2912,6 +2912,7 @@ name = "kubernetes-rs-streamproxy"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "futures",
  "http",
  "http-body-util",
  "hyper",
@@ -2924,6 +2925,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-rustls",
+ "tokio-tungstenite",
  "tracing",
 ]
 

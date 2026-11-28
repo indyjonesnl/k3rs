@@ -1,4 +1,5 @@
 mod tls;
+pub mod tunnel;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::response::{IntoResponse, Response};
