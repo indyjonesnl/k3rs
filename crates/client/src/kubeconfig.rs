@@ -645,6 +645,147 @@ pub fn resolve_local_paths(config: &mut KubeConfig, origin: &str) -> Result<(), 
     Ok(())
 }
 
+/// `GetConfigFileReferences` (loader.go:590): every file reference of every
+/// cluster (`certificate-authority`) and user (`client-certificate`,
+/// `client-key`, `tokenFile`, and an exec `command` containing a separator).
+fn config_file_references(config: &mut KubeConfig) -> Vec<&mut String> {
+    let mut refs: Vec<&mut String> = Vec::new();
+    for c in &mut config.clusters {
+        if let Some(r) = c.cluster.certificate_authority.as_mut() {
+            refs.push(r);
+        }
+    }
+    for u in &mut config.users {
+        let u = &mut u.user;
+        if let Some(r) = u.client_certificate.as_mut() {
+            refs.push(r);
+        }
+        if let Some(r) = u.client_key.as_mut() {
+            refs.push(r);
+        }
+        if let Some(r) = u.token_file.as_mut() {
+            refs.push(r);
+        }
+        if let Some(exec) = u.exec.as_mut() {
+            if exec.command.contains(std::path::MAIN_SEPARATOR) {
+                refs.push(&mut exec.command);
+            }
+        }
+    }
+    refs
+}
+
+/// `filepath.Rel(base, path)` for two absolute or two relative cleaned paths.
+fn rel_path(path: &str, base: &std::path::Path) -> Option<String> {
+    let path = clean_path(std::path::Path::new(path));
+    let base = clean_path(base);
+    if path.is_absolute() != base.is_absolute() {
+        return None;
+    }
+    let p: Vec<_> = path.components().collect();
+    let b: Vec<_> = base.components().collect();
+    let common = p.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let mut out = PathBuf::new();
+    for _ in common..b.len() {
+        out.push("..");
+    }
+    for c in &p[common..] {
+        out.push(c.as_os_str());
+    }
+    if out.as_os_str().is_empty() {
+        out.push(".");
+    }
+    Some(out.to_string_lossy().into_owned())
+}
+
+/// `RelativizePathWithNoBacksteps` (loader.go:632): make each non-empty
+/// reference relative to `base`; an absolute path that would need `../` is
+/// left alone, a relative one is an error.
+pub fn relativize_path_with_no_backsteps(
+    refs: Vec<&mut String>,
+    base: &std::path::Path,
+) -> Result<(), String> {
+    for r in refs {
+        if r.is_empty() {
+            continue;
+        }
+        let rel = rel_path(r, base)
+            .ok_or_else(|| format!("{r} requires backsteps and is not absolute"))?;
+        if rel.starts_with("../") {
+            if std::path::Path::new(r.as_str()).is_absolute() {
+                continue;
+            }
+            return Err(format!("{r} requires backsteps and is not absolute"));
+        }
+        *r = rel;
+    }
+    Ok(())
+}
+
+/// `RelativizeConfigPaths` (loader.go:582).
+pub fn relativize_config_paths(
+    config: &mut KubeConfig,
+    base: &std::path::Path,
+) -> Result<(), String> {
+    relativize_path_with_no_backsteps(config_file_references(config), base)
+}
+
+/// `lockName` (loader.go:492).
+fn lock_name(filename: &std::path::Path) -> PathBuf {
+    let mut s = filename.as_os_str().to_owned();
+    s.push(".lock");
+    PathBuf::from(s)
+}
+
+/// `lockFile` (loader.go:469): create `<file>.lock` exclusively (creating the
+/// directory first); fails when it already exists. Dropping the guard is
+/// `unlockFile` (loader.go:488).
+pub struct FileLock(PathBuf);
+
+impl FileLock {
+    pub fn lock(filename: &std::path::Path) -> std::io::Result<FileLock> {
+        if let Some(dir) = filename.parent() {
+            if !dir.as_os_str().is_empty() && !dir.exists() {
+                fs::create_dir_all(dir)?;
+            }
+        }
+        let name = lock_name(filename);
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&name)?;
+        Ok(FileLock(name))
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+/// `WriteToFile` (loader.go:451): create the directory (0755), write the
+/// encoded config with mode 0600.
+pub fn write_to_file(config: &KubeConfig, filename: &std::path::Path) -> Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let content = serde_yaml::to_string(config)?;
+    if let Some(dir) = filename.parent() {
+        if !dir.as_os_str().is_empty() && !dir.exists() {
+            fs::create_dir_all(dir)?;
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
+        }
+    }
+    use std::io::Write;
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(filename)?;
+    f.write_all(content.as_bytes())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
