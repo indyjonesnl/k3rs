@@ -296,6 +296,51 @@ impl IpFamily {
     }
 }
 
+/// The EndpointSlice endpoints serving `svc_port` of `service` for `family`.
+///
+/// EndpointSlice ports are TARGET ports (container port), not service ports:
+/// match by port name, target port number, the service port, or take all when
+/// the service has a single port. Shared by the NAT and filter builders so both
+/// agree on which services have endpoints (`hasEndpoints`, iptables/proxier.go
+/// :1000-1006 gates the `nat` chains and the `filter` REJECT on the same set).
+#[allow(clippy::type_complexity)]
+fn matching_endpoints(
+    service: &kubernetes_rs_common::resources::Service,
+    svc_port: &kubernetes_rs_common::resources::ServicePort,
+    family: IpFamily,
+    endpointslice_map: &std::collections::HashMap<String, Vec<(String, Option<String>, u16)>>,
+) -> Vec<(String, u16)> {
+    let namespace = service.metadata.namespace.as_deref().unwrap_or("default");
+    let svc_key = format!("{}/{}", namespace, service.metadata.name);
+    let target_port = svc_port.target_port.as_ref().and_then(|tp| match tp {
+        kubernetes_rs_common::resources::IntOrString::Int(p) => Some(*p as u16),
+        kubernetes_rs_common::resources::IntOrString::String(s) => s.parse::<u16>().ok(),
+    });
+    endpointslice_map
+        .get(&svc_key)
+        .map(|eps| {
+            eps.iter()
+                // An IPv6 proxier must not see IPv4 endpoints and vice versa
+                // (EndpointSlice addressType split).
+                .filter(|(ip, _, _)| IpFamily::of(ip) == Some(family))
+                .filter(|(_, port_name, ep_port)| {
+                    if svc_port.name.is_some() && svc_port.name.as_deref() == port_name.as_deref() {
+                        return true;
+                    }
+                    if target_port == Some(*ep_port) {
+                        return true;
+                    }
+                    if *ep_port == svc_port.port {
+                        return true;
+                    }
+                    service.spec.ports.len() == 1
+                })
+                .map(|(ip, _, ep_port)| (ip.clone(), *ep_port))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// 16 base32 chars of an FNV-1a 64-bit hash over `ip/port/proto/idx`.
 fn chain_hash(cluster_ip: &str, port: u16, proto: &str, idx: usize) -> String {
     const ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -644,6 +689,38 @@ impl IptablesManager {
         // Create our custom chains if they don't exist
         self.ensure_chain("nat", &self.services_chain)?;
         self.ensure_chain("nat", &self.nodeports_chain)?;
+
+        // filter-table service chains holding the no-endpoints REJECT rules
+        // and their jumps (`iptablesJumpChains`, proxier.go:379-383):
+        // KUBE-EXTERNAL-SERVICES from INPUT and FORWARD, KUBE-SERVICES from
+        // FORWARD and OUTPUT, both for NEW connections only.
+        let external_chain = self.external_services_chain();
+        self.ensure_chain("filter", &self.services_chain)?;
+        self.ensure_chain("filter", &external_chain)?;
+        let ct_new: Vec<String> = ["-m", "conntrack", "--ctstate", "NEW"]
+            .iter()
+            .map(|x| x.to_string())
+            .collect();
+        for (from, chain, comment) in [
+            (
+                "INPUT",
+                &external_chain,
+                "kubernetes externally-visible service portals",
+            ),
+            (
+                "FORWARD",
+                &external_chain,
+                "kubernetes externally-visible service portals",
+            ),
+            (
+                "FORWARD",
+                &self.services_chain,
+                "kubernetes service portals",
+            ),
+            ("OUTPUT", &self.services_chain, "kubernetes service portals"),
+        ] {
+            self.ensure_jump_rule_with_match("filter", from, chain, comment, &ct_new)?;
+        }
 
         // Add jump rules from PREROUTING and OUTPUT to our chains
         self.ensure_jump_rule(
@@ -1364,6 +1441,8 @@ impl IptablesManager {
         // delete_chain("filter", "KUBE-FORWARD") fails because the chain
         // still has rules.
         self.flush_chain("filter", "KUBE-FORWARD")?;
+        self.flush_chain("filter", &self.services_chain)?;
+        self.flush_chain("filter", &self.external_services_chain())?;
 
         // Clean up all per-endpoint (SEP) chains from previous sync.
         // These must be flushed and deleted, otherwise on resync:
@@ -1894,6 +1973,11 @@ impl IptablesManager {
         // the host's filter table and the next run stacks duplicates.
         self.remove_jump_rule("filter", "FORWARD", "KUBE-FORWARD")?;
         self.remove_jump_rule("filter", "OUTPUT", "KUBE-FORWARD")?;
+        let external_chain = self.external_services_chain();
+        self.remove_all_jump_rules("filter", "INPUT", &external_chain);
+        self.remove_all_jump_rules("filter", "FORWARD", &external_chain);
+        self.remove_all_jump_rules("filter", "FORWARD", &self.services_chain);
+        self.remove_all_jump_rules("filter", "OUTPUT", &self.services_chain);
 
         // Remove the POSTROUTING MASQUERADE rules that initialize() added
         // directly (they aren't in our own chains, so flush_rules above
@@ -2019,6 +2103,8 @@ impl IptablesManager {
         self.delete_chain("nat", &self.nodeports_chain)?;
         self.delete_chain("nat", &self.hostports_chain)?;
         self.delete_chain("filter", "KUBE-FORWARD")?;
+        self.delete_chain("filter", &self.services_chain)?;
+        self.delete_chain("filter", &self.external_services_chain())?;
 
         info!("Kube-proxy iptables cleanup complete");
         Ok(())
@@ -2175,37 +2261,7 @@ impl IptablesManager {
                         s.parse::<u16>().ok()
                     }
                 });
-                let endpoints: Vec<(String, u16)> = endpointslice_map
-                    .get(&svc_key)
-                    .map(|eps| {
-                        eps.iter()
-                            // An IPv6 proxier must not see IPv4 endpoints and
-                            // vice versa (EndpointSlice addressType split).
-                            .filter(|(ip, _, _)| IpFamily::of(ip) == Some(family))
-                            .filter(|(_, port_name, ep_port)| {
-                                // Match by port name (most reliable)
-                                if svc_port.name.is_some()
-                                    && svc_port.name.as_deref() == port_name.as_deref()
-                                {
-                                    return true;
-                                }
-                                // Match by target port number
-                                if let Some(tp) = target_port {
-                                    if *ep_port == tp {
-                                        return true;
-                                    }
-                                }
-                                // Match by service port (for services where target_port == port)
-                                if *ep_port == port {
-                                    return true;
-                                }
-                                // If service has only one port, take all endpoints
-                                service.spec.ports.len() == 1
-                            })
-                            .map(|(ip, _, ep_port)| (ip.clone(), *ep_port))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let endpoints = matching_endpoints(service, svc_port, family, endpointslice_map);
 
                 if endpoints.is_empty() {
                     debug!(
@@ -2320,7 +2376,6 @@ impl IptablesManager {
                 continue;
             };
 
-            let namespace = service.metadata.namespace.as_deref().unwrap_or("default");
             for svc_port in &service.spec.ports {
                 let node_port = match svc_port.node_port {
                     Some(np) if np > 0 => np,
@@ -2329,40 +2384,7 @@ impl IptablesManager {
                 let proto = svc_port.protocol.to_lowercase();
                 let port = svc_port.port;
 
-                let svc_key = format!("{}/{}", namespace, service.metadata.name);
-                let np_target_port = svc_port.target_port.as_ref().and_then(|tp| match tp {
-                    kubernetes_rs_common::resources::IntOrString::Int(p) => Some(*p as u16),
-                    kubernetes_rs_common::resources::IntOrString::String(s) => {
-                        s.parse::<u16>().ok()
-                    }
-                });
-                let endpoints: Vec<(String, u16)> = endpointslice_map
-                    .get(&svc_key)
-                    .map(|eps| {
-                        eps.iter()
-                            // An IPv6 proxier must not see IPv4 endpoints and
-                            // vice versa (EndpointSlice addressType split).
-                            .filter(|(ip, _, _)| IpFamily::of(ip) == Some(family))
-                            .filter(|(_, port_name, ep_port)| {
-                                if svc_port.name.is_some()
-                                    && svc_port.name.as_deref() == port_name.as_deref()
-                                {
-                                    return true;
-                                }
-                                if let Some(tp) = np_target_port {
-                                    if *ep_port == tp {
-                                        return true;
-                                    }
-                                }
-                                if *ep_port == svc_port.port {
-                                    return true;
-                                }
-                                service.spec.ports.len() == 1
-                            })
-                            .map(|(ip, _, ep_port)| (ip.clone(), *ep_port))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let endpoints = matching_endpoints(service, svc_port, family, endpointslice_map);
 
                 if endpoints.is_empty() {
                     continue;
@@ -2445,6 +2467,109 @@ impl IptablesManager {
 
         rules.push_str("COMMIT\n");
         rules
+    }
+
+    /// The `filter`-table counterpart of [`Self::build_nat_rules`]: service
+    /// chains holding the REJECT rules for Services without endpoints.
+    ///
+    /// Ported from `syncProxyRules` (pkg/proxy/iptables/proxier.go:996-1027
+    /// and :1056-1160): a service port with no endpoints at all gets
+    /// `-j REJECT` rules in `KUBE-SERVICES` for its ClusterIP and in
+    /// `KUBE-EXTERNAL-SERVICES` for each externalIP, load-balancer ingress IP
+    /// and its NodePort (`-m addrtype --dst-type LOCAL`), so clients get an
+    /// immediate refusal instead of hanging. The `DROP` cases of
+    /// `internalTrafficPolicy`/`externalTrafficPolicy: Local` are not modelled
+    /// by this proxier yet (the nat builder does not know about traffic
+    /// policies either), nor are KUBE-NODEPORTS/KUBE-PROXY-FIREWALL.
+    #[allow(clippy::type_complexity)]
+    pub fn build_filter_rules(
+        &self,
+        services: &[kubernetes_rs_common::resources::Service],
+        endpointslice_map: &std::collections::HashMap<String, Vec<(String, Option<String>, u16)>>,
+    ) -> String {
+        use crate::linebuffer::{Arg, LineBuffer, RealLineBuffer};
+        let family = self.ip_family;
+        let external_chain = self.external_services_chain();
+        let mut rules = RealLineBuffer::new();
+        rules.write(&["*filter".into()]);
+        rules.write(&[format!(":{} - [0:0]", self.services_chain).as_str().into()]);
+        rules.write(&[format!(":{external_chain} - [0:0]").as_str().into()]);
+
+        for service in services {
+            let Some(cluster_ip) = cluster_ip_for_family(service, family) else {
+                continue;
+            };
+            let namespace = service.metadata.namespace.as_deref().unwrap_or("default");
+            for svc_port in &service.spec.ports {
+                if !matching_endpoints(service, svc_port, family, endpointslice_map).is_empty() {
+                    continue;
+                }
+                // `svcPortNameString` (servicePortName.String(): ns/name:port).
+                let name = match svc_port.name.as_deref() {
+                    Some(n) if !n.is_empty() => {
+                        format!("{namespace}/{}:{n}", service.metadata.name)
+                    }
+                    _ => format!("{namespace}/{}", service.metadata.name),
+                };
+                let comment = format!("\"{name} has no endpoints\"");
+                let proto = svc_port.protocol.to_lowercase();
+                let port = svc_port.port.to_string();
+                let mut reject = |chain: &str, dst: Option<&str>, local: bool, dport: &str| {
+                    let mut line: Vec<&str> =
+                        vec!["-A", chain, "-m", "comment", "--comment", &comment];
+                    if local {
+                        line.extend(["-m", "addrtype", "--dst-type", "LOCAL"]);
+                    }
+                    line.extend(["-m", &proto, "-p", &proto]);
+                    if let Some(d) = dst {
+                        line.extend(["-d", d]);
+                    }
+                    line.extend(["--dport", dport, "-j", "REJECT"]);
+                    rules.write(&[Arg::Strs(&line)]);
+                };
+                // ClusterIP (proxier.go:1056-1067).
+                reject(&self.services_chain, Some(&cluster_ip), false, &port);
+                // externalIPs (:1070-1085).
+                for ip in service.spec.external_ips.iter().flatten() {
+                    if IpFamily::of(ip) == Some(family) {
+                        reject(&external_chain, Some(ip), false, &port);
+                    }
+                }
+                // Load-balancer ingress (:1107-1121).
+                let ingress = service
+                    .status
+                    .as_ref()
+                    .and_then(|st| st.load_balancer.as_ref())
+                    .map(|lb| lb.ingress.as_slice())
+                    .unwrap_or_default();
+                for lb in ingress {
+                    if let Some(ip) = lb.ip.as_deref().filter(|i| IpFamily::of(i) == Some(family)) {
+                        reject(&external_chain, Some(ip), false, &port);
+                    }
+                }
+                // NodePort (:1146-1160).
+                if let Some(np) = svc_port.node_port.filter(|np| *np > 0) {
+                    reject(&external_chain, None, true, &np.to_string());
+                }
+            }
+        }
+        rules.write(&["COMMIT".into()]);
+        rules.string()
+    }
+
+    /// `KUBE-EXTERNAL-SERVICES` (iptables/proxier.go:59), under this manager's
+    /// chain prefix.
+    fn external_services_chain(&self) -> String {
+        match self.services_chain.strip_suffix("-SERVICES") {
+            Some(prefix) => format!("{prefix}-EXTERNAL-SERVICES"),
+            None => format!("{}-EXTERNAL", self.services_chain),
+        }
+    }
+
+    /// Atomically apply the `filter` rules of [`Self::build_filter_rules`]
+    /// with `iptables-restore --noflush` (`RestoreAll`, proxier.go:1495).
+    pub fn apply_filter_rules_atomic(&self, rules: &str) -> Result<()> {
+        self.restore_noflush(rules)
     }
 
     /// Build DNAT rules for pod hostPorts on this node.
@@ -2613,27 +2738,9 @@ impl IptablesManager {
         rules
     }
 
-    /// Atomically apply NAT rules using iptables-restore --noflush.
-    /// This replaces our chain rules without any gap.
-    pub fn apply_nat_rules_atomic(&self, rules: &str) -> Result<()> {
+    /// Pipe `rules` into `iptables-restore -w 5 --noflush`.
+    fn restore_noflush(&self, rules: &str) -> Result<()> {
         use std::io::Write;
-
-        debug!(
-            "Applying {} bytes of NAT rules via iptables-restore",
-            rules.len()
-        );
-
-        // DO NOT flush chains before iptables-restore.
-        // iptables-restore --noflush with ":CHAIN - [0:0]" atomically
-        // resets chain counters and replaces rules within the restore
-        // transaction. Manual flush + restore creates a gap where
-        // no rules exist (the original kube-proxy bug).
-        //
-        // Clean up old SEP chains AFTER restore (they're no longer referenced).
-        let old_sep_chains = {
-            let mut guard = self.sep_chains.lock().unwrap();
-            std::mem::take(&mut *guard)
-        };
 
         // Apply rules via iptables-restore --noflush
         // Use the matching restore command for the detected iptables backend
@@ -2671,6 +2778,30 @@ impl IptablesManager {
         }
 
         debug!("iptables-restore applied successfully");
+        Ok(())
+    }
+
+    /// Atomically apply NAT rules using iptables-restore --noflush.
+    /// This replaces our chain rules without any gap.
+    pub fn apply_nat_rules_atomic(&self, rules: &str) -> Result<()> {
+        debug!(
+            "Applying {} bytes of NAT rules via iptables-restore",
+            rules.len()
+        );
+
+        // DO NOT flush chains before iptables-restore.
+        // iptables-restore --noflush with ":CHAIN - [0:0]" atomically
+        // resets chain counters and replaces rules within the restore
+        // transaction. Manual flush + restore creates a gap where
+        // no rules exist (the original kube-proxy bug).
+        //
+        // Clean up old SEP chains AFTER restore (they're no longer referenced).
+        let old_sep_chains = {
+            let mut guard = self.sep_chains.lock().unwrap();
+            std::mem::take(&mut *guard)
+        };
+
+        self.restore_noflush(rules)?;
 
         // Clean up old SEP chains AFTER successful restore.
         // These chains are no longer referenced by the new rules.

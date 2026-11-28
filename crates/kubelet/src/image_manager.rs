@@ -395,3 +395,69 @@ pub fn go_duration_string(d: std::time::Duration) -> String {
         (h, m) => format!("{h}h{m}m{secs}s"),
     }
 }
+
+/// `trackedToImagePullCreds` (`images/image_manager.go:433-460`): the record
+/// of which credentials a pull used. No credential (anonymous) or one without a
+/// source (node-global) is `nodePodsAccessible`.
+pub fn tracked_to_image_pull_creds(
+    tracked: Option<&crate::credentialprovider::TrackedAuthConfig>,
+) -> image_pull_manager::ImagePullCredentials {
+    use crate::credentialprovider::CredentialSource;
+    use image_pull_manager::{ImagePullCredentials, ImagePullSecret, ImagePullServiceAccount};
+    let mut ret = ImagePullCredentials::default();
+    match tracked.and_then(|t| t.source.as_ref().map(|s| (t, s))) {
+        None => ret.node_pods_accessible = true,
+        Some((t, CredentialSource::Secret(s))) => {
+            ret.kubernetes_secrets = vec![ImagePullSecret {
+                uid: s.uid.clone(),
+                namespace: s.namespace.clone(),
+                name: s.name.clone(),
+                credential_hash: t.auth_config_hash.clone(),
+            }];
+        }
+        Some((_, CredentialSource::ServiceAccount(a))) => {
+            ret.kubernetes_service_accounts = vec![ImagePullServiceAccount {
+                uid: a.uid.clone(),
+                namespace: a.namespace.clone(),
+                name: a.name.clone(),
+            }];
+        }
+    }
+    ret
+}
+
+/// `getPodCredentials` (`images/image_manager.go:213-248`): only credentials
+/// that are not node accessible count; there can be one service account per
+/// pod (its audience is not considered).
+pub fn pod_credentials_from_tracked(
+    creds: &[crate::credentialprovider::TrackedAuthConfig],
+) -> (
+    Vec<image_pull_manager::ImagePullSecret>,
+    Option<image_pull_manager::ImagePullServiceAccount>,
+) {
+    use crate::credentialprovider::CredentialSource;
+    let mut secrets = Vec::new();
+    let mut sa = None;
+    for c in creds {
+        match &c.source {
+            None => {}
+            Some(CredentialSource::Secret(s)) => {
+                secrets.push(image_pull_manager::ImagePullSecret {
+                    uid: s.uid.clone(),
+                    namespace: s.namespace.clone(),
+                    name: s.name.clone(),
+                    credential_hash: c.auth_config_hash.clone(),
+                })
+            }
+            Some(CredentialSource::ServiceAccount(a)) if sa.is_none() => {
+                sa = Some(image_pull_manager::ImagePullServiceAccount {
+                    uid: a.uid.clone(),
+                    namespace: a.namespace.clone(),
+                    name: a.name.clone(),
+                })
+            }
+            Some(CredentialSource::ServiceAccount(_)) => {}
+        }
+    }
+    (secrets, sa)
+}

@@ -4,20 +4,72 @@
 //!
 //! Scope: `addressType`, each endpoint's addresses (≥1, ≤100, valid for the
 //! address type), each port (protocol/number/name), and the slice-level size
-//! caps (≤1000 endpoints, ≤20000 ports). nodeName/hostname/topology/hints
-//! detail is left as a follow-up.
+//! caps (≤1000 endpoints, ≤20000 ports), and each endpoint's nodeName,
+//! deprecatedTopology, hostname and hints (`validateEndpoints` :94-176,
+//! `validateHints` :219-265).
 
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use crate::resources::endpointslice::{EndpointPort, EndpointSlice};
+use crate::resources::endpointslice::{
+    EndpointHints, EndpointPort, EndpointSlice, ForNode, ForZone,
+};
 use crate::validation::field::{Error, ErrorList, Path};
-use crate::validation::metav1::{is_dns1123_label, is_dns1123_subdomain};
+use crate::validation::metav1::{
+    is_dns1123_label, is_dns1123_subdomain, is_valid_label_value, validate_labels,
+};
+use crate::validation::pod_spec_extra::validate_node_name;
 
 // Upstream `pkg/apis/discovery/validation` size limits.
 pub const MAX_ENDPOINTS: usize = 1000;
 pub const MAX_ADDRESSES: usize = 100;
 pub const MAX_PORTS: usize = 20000;
+pub const MAX_TOPOLOGY_LABELS: usize = 16;
+pub const MAX_ZONE_HINTS: usize = 8;
+pub const MAX_NODE_HINTS: usize = 8;
+/// `corev1.LabelTopologyZone`.
+const LABEL_TOPOLOGY_ZONE: &str = "topology.kubernetes.io/zone";
+
+/// `validateHints` (validation.go:219-265): forZones then forNodes, each capped
+/// (a cap violation returns immediately), names unique and valid.
+fn validate_hints(hints: &EndpointHints, fld_path: &Path) -> ErrorList {
+    let mut errs: ErrorList = Vec::new();
+    let zones: &[ForZone] = hints.for_zones.as_deref().unwrap_or(&[]);
+    let fz_path = fld_path.child("forZones");
+    if zones.len() > MAX_ZONE_HINTS {
+        errs.push(Error::too_many(&fz_path, zones.len(), MAX_ZONE_HINTS));
+        return errs;
+    }
+    let mut seen: Vec<&str> = Vec::with_capacity(zones.len());
+    for (i, z) in zones.iter().enumerate() {
+        let p = fz_path.index(i).child("name");
+        if seen.contains(&z.name.as_str()) {
+            errs.push(Error::duplicate(&p, z.name.clone()));
+        } else {
+            seen.push(&z.name);
+        }
+        for msg in is_valid_label_value(&z.name) {
+            errs.push(Error::invalid(&p, z.name.clone(), msg));
+        }
+    }
+    let nodes: &[ForNode] = hints.for_nodes.as_deref().unwrap_or(&[]);
+    let fn_path = fld_path.child("forNodes");
+    if nodes.len() > MAX_NODE_HINTS {
+        errs.push(Error::too_many(&fn_path, nodes.len(), MAX_NODE_HINTS));
+        return errs;
+    }
+    let mut seen: Vec<&str> = Vec::with_capacity(nodes.len());
+    for (i, n) in nodes.iter().enumerate() {
+        let p = fn_path.index(i).child("name");
+        if seen.contains(&n.name.as_str()) {
+            errs.push(Error::duplicate(&p, n.name.clone()));
+        } else {
+            seen.push(&n.name);
+        }
+        errs.extend(validate_node_name(&n.name, &p));
+    }
+    errs
+}
 
 fn validate_port(port: &EndpointPort, fld_path: &Path) -> ErrorList {
     let mut errs: ErrorList = Vec::new();
@@ -115,6 +167,43 @@ pub fn validate_endpoint_slice(slice: &EndpointSlice) -> ErrorList {
                 }
                 _ => {} // unknown type: addresses not validated (matches upstream)
             }
+        }
+
+        // nodeName (validation.go:139-145).
+        if let Some(nn) = &ep.node_name {
+            errs.extend(validate_node_name(nn, &eps_path.index(i).child("nodeName")));
+        }
+
+        // deprecatedTopology (validation.go:147-155).
+        let topology_path = eps_path.index(i).child("deprecatedTopology");
+        if let Some(topology) = &ep.deprecated_topology {
+            if topology.len() > MAX_TOPOLOGY_LABELS {
+                errs.push(Error::too_many(
+                    &topology_path,
+                    topology.len(),
+                    MAX_TOPOLOGY_LABELS,
+                ));
+            }
+            errs.extend(validate_labels(topology, &topology_path));
+            if topology.contains_key(LABEL_TOPOLOGY_ZONE) {
+                errs.push(Error::internal(
+                    &topology_path.key(LABEL_TOPOLOGY_ZONE),
+                    "reserved key was not removed in conversion",
+                ));
+            }
+        }
+
+        // hostname (validation.go:157-159): ValidateDNS1123Label.
+        if let Some(h) = &ep.hostname {
+            let hp = eps_path.index(i).child("hostname");
+            for msg in is_dns1123_label(h) {
+                errs.push(Error::invalid(&hp, h.clone(), msg));
+            }
+        }
+
+        // hints (validation.go:161-163).
+        if let Some(hints) = &ep.hints {
+            errs.extend(validate_hints(hints, &eps_path.index(i).child("hints")));
         }
     }
 

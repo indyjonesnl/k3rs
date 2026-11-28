@@ -1,6 +1,7 @@
 pub mod config;
 pub mod conntrack;
 pub mod conntrack_sysctl;
+pub mod endpoints_map;
 pub mod endpointslice_cache;
 pub mod iptables;
 pub mod linebuffer;
@@ -13,6 +14,7 @@ pub mod serve_metrics;
 pub mod service_health;
 pub mod service_map;
 pub mod svc_maps;
+pub mod topology;
 
 use futures::StreamExt;
 use kubernetes_rs_client::http::ApiClient;
