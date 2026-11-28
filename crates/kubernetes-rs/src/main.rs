@@ -75,6 +75,20 @@ struct Args {
     #[arg(long, default_value = "http://localhost:2379")]
     etcd_servers: String,
 
+    /// `--etcd-compaction-interval` (server/options/etcd.go:193): the interval
+    /// of compaction requests; `0` disables the apiserver's compaction.
+    #[arg(
+        long,
+        default_value = "5m0s",
+        value_parser = |s: &str| -> Result<std::time::Duration, String> {
+            let ns = kubernetes_rs_common::go_duration::parse_go_duration(s)?;
+            u64::try_from(ns)
+                .map(std::time::Duration::from_nanos)
+                .map_err(|_| format!("negative duration {s:?} is not allowed"))
+        }
+    )]
+    etcd_compaction_interval: std::time::Duration,
+
     /// Redis URL (only used when --storage-backend=redis)
     #[arg(long, default_value = "redis://localhost:6379")]
     redis_url: String,
@@ -514,7 +528,11 @@ async fn async_main() -> Result<()> {
             );
         }
     };
-    let mut storage = StorageBackend::new(storage_config).await?;
+    let mut storage = StorageBackend::new_with_etcd_compaction_interval(
+        storage_config,
+        args.etcd_compaction_interval,
+    )
+    .await?;
     if args.in_process_bus {
         storage.enable_event_bus();
         info!("In-process watch event bus: ENABLED (internal consumers use the fast path)");
