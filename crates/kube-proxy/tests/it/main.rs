@@ -16,6 +16,7 @@ mod conformance_network_hostport_protocols;
 mod conformance_network_services_proxy;
 mod conntrack_cleanup;
 mod conntrack_sysctl;
+mod endpoints_change_tracker;
 mod endpointslice_cache_test;
 mod hostport_test;
 mod kubeproxy_config;
