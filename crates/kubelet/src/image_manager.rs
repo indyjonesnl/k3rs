@@ -24,6 +24,8 @@
 // Declared here (not in lib.rs) to avoid a lib.rs edit collision; file is src/image_pull_manager.rs.
 #[path = "image_pull_manager.rs"]
 pub mod image_pull_manager;
+#[path = "image_pull_policies.rs"]
+pub mod image_pull_policies;
 
 use crate::flowcontrol::Backoff;
 use std::collections::HashMap;
@@ -223,9 +225,9 @@ pub fn eval_cri_pull_err(img_ref: &str, err: &str) -> (String, ImageErrorKind) {
 }
 
 /// The tag/digest facts `parsers.ParseImageName` reports.
-struct ParsedImage {
-    tag: String,
-    digest: String,
+pub(crate) struct ParsedImage {
+    pub(crate) tag: String,
+    pub(crate) digest: String,
 }
 
 fn is_word(c: char) -> bool {
@@ -287,7 +289,7 @@ fn valid_domain(s: &str) -> bool {
 
 /// `reference.ParseNormalizedNamed` grammar, reduced to the facts
 /// `ParseImageName` returns (`pkg/util/parsers/parsers.go:31-52`).
-fn parse_image_name(image: &str) -> Result<ParsedImage, String> {
+pub(crate) fn parse_image_name(image: &str) -> Result<ParsedImage, String> {
     let invalid = || format!("couldn't parse image name {image:?}: invalid reference format");
     if image.is_empty() {
         return Err(invalid());
