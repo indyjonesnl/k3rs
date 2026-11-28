@@ -170,3 +170,114 @@ fn wait_backoff_jitter_bounds() {
         assert!(d >= S && d <= 2 * S);
     }
 }
+
+mod loops {
+    use kubernetes_rs_common::wait::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    const MS: Duration = Duration::from_millis(1);
+
+    // TestPollImmediate: immediate runs the condition once first.
+    #[tokio::test]
+    async fn wait_backoff_poll_immediate_runs_condition_first() {
+        let n = Arc::new(AtomicUsize::new(0));
+        let c = n.clone();
+        let r = poll_until_context_timeout(
+            std::future::pending(),
+            50 * MS,
+            Duration::from_secs(5),
+            true,
+            move || {
+                c.fetch_add(1, Ordering::SeqCst);
+                std::future::ready(Ok::<_, ()>(true))
+            },
+        )
+        .await;
+        assert_eq!(r, Ok(()));
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+    }
+
+    // TestPoll: not immediate waits one interval first.
+    #[tokio::test]
+    async fn wait_backoff_poll_not_immediate_waits_one_interval() {
+        let start = std::time::Instant::now();
+        let r = poll_until_context_timeout(
+            std::future::pending(),
+            30 * MS,
+            Duration::from_secs(5),
+            false,
+            || std::future::ready(Ok::<_, ()>(true)),
+        )
+        .await;
+        assert_eq!(r, Ok(()));
+        assert!(start.elapsed() >= 30 * MS);
+    }
+
+    // TestPollError.
+    #[tokio::test]
+    async fn wait_backoff_poll_error_is_returned() {
+        let r = poll_until_context_timeout(
+            std::future::pending(),
+            MS,
+            Duration::from_secs(5),
+            true,
+            || std::future::ready(Err::<bool, _>("boom")),
+        )
+        .await;
+        assert_eq!(r, Err(WaitError::Condition("boom")));
+    }
+
+    #[tokio::test]
+    async fn wait_backoff_poll_timeout_is_deadline_exceeded() {
+        let r = poll_until_context_timeout(std::future::pending(), MS, 20 * MS, false, || {
+            std::future::ready(Ok::<_, ()>(false))
+        })
+        .await;
+        assert_eq!(r, Err(WaitError::DeadlineExceeded));
+    }
+
+    #[tokio::test]
+    async fn wait_backoff_poll_cancel_is_canceled() {
+        let r = poll_until_context_cancel(tokio::time::sleep(20 * MS), MS, false, || {
+            std::future::ready(Ok::<_, ()>(false))
+        })
+        .await;
+        assert_eq!(r, Err(WaitError::Canceled));
+    }
+
+    // TestUntil: f keeps running until stop resolves.
+    #[tokio::test]
+    async fn wait_backoff_until_runs_until_stop() {
+        let n = Arc::new(AtomicUsize::new(0));
+        let c = n.clone();
+        until(
+            move || {
+                c.fetch_add(1, Ordering::SeqCst);
+                std::future::ready(())
+            },
+            5 * MS,
+            tokio::time::sleep(60 * MS),
+        )
+        .await;
+        assert!(n.load(Ordering::SeqCst) >= 3);
+    }
+
+    // TestUntilReturnsImmediately: an already-stopped context never runs f.
+    #[tokio::test]
+    async fn wait_backoff_until_returns_immediately_when_stopped() {
+        let n = Arc::new(AtomicUsize::new(0));
+        let c = n.clone();
+        non_sliding_until(
+            move || {
+                c.fetch_add(1, Ordering::SeqCst);
+                std::future::ready(())
+            },
+            5 * MS,
+            std::future::ready(()),
+        )
+        .await;
+        assert_eq!(n.load(Ordering::SeqCst), 0);
+    }
+}

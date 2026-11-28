@@ -249,3 +249,249 @@ pub fn exponential_backoff<E>(
     // None == ErrWaitTimeout
     Err(None)
 }
+
+// ---------------------------------------------------------------------
+// loop.go / poll.go / timer.go
+// ---------------------------------------------------------------------
+
+use std::future::Future;
+use std::pin::Pin;
+use tokio::time::{Instant as TokioInstant, Interval, MissedTickBehavior, Sleep};
+
+/// The failure of a wait loop. Go returns `ctx.Err()` (`context.Canceled` /
+/// `context.DeadlineExceeded`) or the condition's own error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WaitError<E> {
+    /// `context.Canceled`.
+    Canceled,
+    /// `context.DeadlineExceeded`.
+    DeadlineExceeded,
+    /// The condition returned an error.
+    Condition(E),
+}
+
+/// `wait.Timer` (`timer.go`): `noopTimer`, `variableTimer`, `fixedTimer`.
+pub enum Timer {
+    Noop,
+    Variable {
+        f: Box<dyn FnMut() -> Duration + Send>,
+        t: Option<Pin<Box<Sleep>>>,
+    },
+    Fixed {
+        interval: Duration,
+        t: Option<Interval>,
+    },
+}
+
+impl Timer {
+    /// `Backoff.Timer`.
+    pub fn from_backoff(b: &Backoff) -> Timer {
+        if b.steps > 1 || b.jitter != 0.0 {
+            return Timer::Variable {
+                f: Box::new(b.delay_func()),
+                t: None,
+            };
+        }
+        if !b.duration.is_zero() {
+            return Timer::Fixed {
+                interval: b.duration,
+                t: None,
+            };
+        }
+        Timer::Noop
+    }
+
+    /// `Timer.C()`: resolves when the timer fires. Cancel safe.
+    pub async fn tick(&mut self) {
+        match self {
+            Timer::Noop => {}
+            Timer::Variable { f, t } => {
+                let sleep = t.get_or_insert_with(|| Box::pin(tokio::time::sleep(f())));
+                sleep.as_mut().await;
+            }
+            Timer::Fixed { interval, t } => {
+                let iv = t.get_or_insert_with(|| {
+                    let mut iv =
+                        tokio::time::interval_at(TokioInstant::now() + *interval, *interval);
+                    // Go tickers drop ticks for slow receivers.
+                    iv.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                    iv
+                });
+                iv.tick().await;
+            }
+        }
+    }
+
+    /// `Timer.Next()`.
+    pub fn next(&mut self) {
+        if let Timer::Variable { f, t: Some(t) } = self {
+            t.as_mut().reset(TokioInstant::now() + f());
+        }
+    }
+}
+
+/// `loopConditionUntilContext` (`loop.go`). `done` is the context's
+/// cancellation (resolves when cancelled); `deadline` reports whether a
+/// resolved `done` means the deadline passed rather than a cancel.
+pub async fn loop_condition_until_context<E, Fut>(
+    mut done: Pin<&mut impl Future<Output = WaitError<E>>>,
+    mut t: Timer,
+    immediate: bool,
+    sliding: bool,
+    mut condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    if immediate {
+        match condition().await {
+            Err(e) => return Err(WaitError::Condition(e)),
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+        }
+    }
+    loop {
+        tokio::select! {
+            biased;
+            err = &mut done => return Err(err),
+            _ = t.tick() => {}
+        }
+        if !sliding {
+            t.next();
+        }
+        match condition().await {
+            Err(e) => return Err(WaitError::Condition(e)),
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+        }
+        if sliding {
+            t.next();
+        }
+    }
+}
+
+/// `PollUntilContextTimeout` (`poll.go`): poll every `interval` until the
+/// condition is done, errors, `cancel` resolves or `timeout` passes.
+pub async fn poll_until_context_timeout<E, Fut>(
+    cancel: impl Future<Output = ()>,
+    interval: Duration,
+    timeout: Duration,
+    immediate: bool,
+    condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    let done = async {
+        tokio::select! {
+            _ = cancel => WaitError::Canceled,
+            _ = tokio::time::sleep(timeout) => WaitError::DeadlineExceeded,
+        }
+    };
+    tokio::pin!(done);
+    let t = Timer::from_backoff(&Backoff {
+        duration: interval,
+        factor: 0.0,
+        jitter: 0.0,
+        steps: 0,
+        cap: Duration::ZERO,
+    });
+    loop_condition_until_context(done.as_mut(), t, immediate, false, condition).await
+}
+
+/// `PollUntilContextCancel` (`poll.go`): no timeout.
+pub async fn poll_until_context_cancel<E, Fut>(
+    cancel: impl Future<Output = ()>,
+    interval: Duration,
+    immediate: bool,
+    condition: impl FnMut() -> Fut,
+) -> Result<(), WaitError<E>>
+where
+    Fut: Future<Output = Result<bool, E>>,
+{
+    let done = async {
+        cancel.await;
+        WaitError::Canceled
+    };
+    tokio::pin!(done);
+    let t = Timer::from_backoff(&Backoff {
+        duration: interval,
+        factor: 0.0,
+        jitter: 0.0,
+        steps: 0,
+        cap: Duration::ZERO,
+    });
+    loop_condition_until_context(done.as_mut(), t, immediate, false, condition).await
+}
+
+/// `BackoffUntilWithContext` / `JitterUntil` / `Until` (`backoff.go`): run
+/// `f` repeatedly, waiting `backoff.backoff()` between runs (before `f` when
+/// not `sliding`, after it when `sliding`), until `stop` resolves.
+pub async fn backoff_until<Fut>(
+    mut f: impl FnMut() -> Fut,
+    mut backoff: impl BackoffManager,
+    sliding: bool,
+    stop: impl Future<Output = ()>,
+) where
+    Fut: Future<Output = ()>,
+{
+    tokio::pin!(stop);
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut stop => return,
+            _ = std::future::ready(()) => {}
+        }
+        // A non-sliding timer starts before `f` runs, a sliding one after.
+        let mut fire_at = TokioInstant::now();
+        if !sliding {
+            fire_at += backoff.backoff();
+        }
+        f().await;
+        if sliding {
+            fire_at = TokioInstant::now() + backoff.backoff();
+        }
+        tokio::select! {
+            _ = &mut stop => return,
+            _ = tokio::time::sleep_until(fire_at) => {}
+        }
+    }
+}
+
+/// `JitterUntil` (`backoff.go`).
+pub async fn jitter_until<Fut>(
+    f: impl FnMut() -> Fut,
+    period: Duration,
+    jitter_factor: f64,
+    sliding: bool,
+    stop: impl Future<Output = ()>,
+) where
+    Fut: Future<Output = ()>,
+{
+    backoff_until(
+        f,
+        JitteredBackoffManager::new(period, jitter_factor),
+        sliding,
+        stop,
+    )
+    .await
+}
+
+/// `Until` (`backoff.go`): `JitterUntil(f, period, 0.0, true, stop)`.
+pub async fn until<Fut>(f: impl FnMut() -> Fut, period: Duration, stop: impl Future<Output = ()>)
+where
+    Fut: Future<Output = ()>,
+{
+    jitter_until(f, period, 0.0, true, stop).await
+}
+
+/// `NonSlidingUntil` (`backoff.go`).
+pub async fn non_sliding_until<Fut>(
+    f: impl FnMut() -> Fut,
+    period: Duration,
+    stop: impl Future<Output = ()>,
+) where
+    Fut: Future<Output = ()>,
+{
+    jitter_until(f, period, 0.0, false, stop).await
+}
