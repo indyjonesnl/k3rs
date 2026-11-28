@@ -197,17 +197,19 @@ impl ControllerRefManager {
     /// `ClaimPods` / `ClaimReplicaSets` / `ClaimControllerRevisions`
     /// (:183, :349, :487): the objects now owned, plus the aggregate error.
     /// `filters` must all pass, and run only after the selector matched.
-    pub async fn claim_objects<'a>(
+    pub async fn claim_objects<'a, T>(
         &self,
-        objs: &'a [ObjectMeta],
+        objs: &'a [T],
+        meta: impl Fn(&T) -> &ObjectMeta,
         filters: &[&(dyn Fn(&ObjectMeta) -> bool + Sync)],
-    ) -> (Vec<&'a ObjectMeta>, Option<Error>) {
+    ) -> (Vec<&'a T>, Option<Error>) {
         let mut claimed = Vec::new();
         let mut errs = Vec::new();
         let match_fn = |o: &ObjectMeta| {
             self.selector.matches(o.labels.as_ref()) && filters.iter().all(|f| f(o))
         };
-        for obj in objs {
+        for item in objs {
+            let obj = meta(item);
             match self
                 .claim_object(
                     obj,
@@ -217,7 +219,7 @@ impl ControllerRefManager {
                 )
                 .await
             {
-                Ok(true) => claimed.push(obj),
+                Ok(true) => claimed.push(item),
                 Ok(false) => {}
                 Err(e) => errs.push(e),
             }
@@ -349,4 +351,50 @@ pub fn generate_delete_owner_ref_strategic_merge_bytes(
         metadata["$deleteFromPrimitiveList/finalizers"] = json!(finalizers);
     }
     json!({ "metadata": metadata })
+}
+
+/// A [`PatchControl`] over [`Storage`] for objects of type `T` stored under
+/// `resource` (`PodControl.PatchPod`, `RealRSControl.PatchReplicaSet`, ...).
+/// The patch's `metadata.uid` is the precondition, as the registry turns it
+/// into one upstream (`registry/generic/registry/store.go:626-632`), so a
+/// deleted-and-recreated object is not patched.
+pub struct StoragePatchControl<S, T> {
+    pub storage: Arc<S>,
+    pub resource: &'static str,
+    _marker: std::marker::PhantomData<fn() -> T>,
+}
+
+impl<S, T> StoragePatchControl<S, T> {
+    pub fn new(storage: Arc<S>, resource: &'static str) -> Self {
+        Self {
+            storage,
+            resource,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<S, T> PatchControl for StoragePatchControl<S, T>
+where
+    S: kubernetes_rs_storage::Storage + 'static,
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+{
+    async fn patch(&self, namespace: &str, name: &str, patch: &Value) -> Result<()> {
+        let key = kubernetes_rs_storage::build_key(self.resource, Some(namespace), name);
+        let uid = patch
+            .pointer("/metadata/uid")
+            .and_then(Value::as_str)
+            .filter(|u| !u.is_empty());
+        match uid {
+            Some(u) => {
+                let pre = kubernetes_rs_storage::Preconditions::new_uid(u);
+                self.storage
+                    .patch_strategic_merge_with_preconditions::<T>(&key, patch, &pre)
+                    .await?
+            }
+            None => self.storage.patch_strategic_merge::<T>(&key, patch).await?,
+        };
+        Ok(())
+    }
 }
