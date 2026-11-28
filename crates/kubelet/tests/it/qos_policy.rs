@@ -232,3 +232,117 @@ fn oom_score_adjust_pod_level_resources_cases() {
         ],
     );
 }
+
+/// The remaining pod-level-resources cases of `TestGetContainerOOMScoreAdjust`
+/// (policy_test.go:310-656 fixtures, :766-851 table), all at memory capacity
+/// 4000000000 with `PodLevelResources` on (its 1.35 default).
+#[test]
+fn oom_score_adjust_pod_level_resources_remaining_cases() {
+    let cap = 4_000_000_000;
+    let req = STANDARD_MEMORY_AMOUNT / 8; // sampleDefaultMemRequest
+    let lim = 1000 + STANDARD_MEMORY_AMOUNT / 8; // sampleDefaultMemLimit
+    let pod_req = STANDARD_MEMORY_AMOUNT / 4; // sampleDefaultPodMemRequest
+    let pod_lim = 1000 + STANDARD_MEMORY_AMOUNT / 4; // sampleDefaultPodMemLimit
+    let q = |v: i64| v.to_string();
+    let none = |n: &str| container(n, json!({}));
+    let cr = |n: &str, cpu: &str, mreq: i64, mlim: i64| {
+        container(
+            n,
+            json!({"requests": {"cpu": cpu, "memory": q(mreq)},
+                   "limits": {"cpu": "5m", "memory": q(mlim)}}),
+        )
+    };
+    let pod_res = |mreq: i64, mlim: i64| {
+        json!({"requests": {"cpu": "5m", "memory": q(mreq)},
+               "limits": {"cpu": "5m", "memory": q(mlim)}})
+    };
+    let always = |mut c: Value| {
+        c["restartPolicy"] = json!("Always");
+        c
+    };
+
+    // guaranteedPodResourcesNoContainerResources: Guaranteed -> -997.
+    check(
+        "guaranteed-pod-resources-no-container-resources",
+        &pod(json!({"resources": pod_res(pod_req, pod_req),
+            "containers": [none("no-request-limit-1"), none("no-request-limit-2")]})),
+        cap,
+        &[
+            ("no-request-limit-1", -997, -997),
+            ("no-request-limit-2", -997, -997),
+        ],
+    );
+    // guaranteedPodResourcesEqualContainerRequests.
+    check(
+        "guaranteed-pod-resources-equal-container-resources",
+        &pod(json!({"resources": pod_res(pod_req, pod_req),
+            "containers": [cr("guaranteed-container-1", "5m", req, req),
+                           cr("guaranteed-container-2", "5m", req, req)]})),
+        cap,
+        &[
+            ("guaranteed-container-1", -997, -997),
+            ("guaranteed-container-2", -997, -997),
+        ],
+    );
+    // guaranteedPodResourcesUnequalContainerRequests.
+    check(
+        "guaranteed-pod-resources-unequal-container-requests",
+        &pod(json!({"resources": pod_res(pod_req, pod_req),
+            "containers": [cr("burstable-container", "3m", req, lim), none("best-effort-container")]})),
+        cap,
+        &[
+            ("burstable-container", -997, -997),
+            ("best-effort-container", -997, -997),
+        ],
+    );
+    // burstablePodResourcesEqualContainerRequests: pod limit = podMemLimit.
+    check(
+        "burstable-pod-resources-equal-container-requests",
+        &pod(json!({"resources": pod_res(pod_req, pod_lim),
+            "containers": [cr("guaranteed-container-1", "5m", req, req),
+                           cr("guaranteed-container-2", "5m", req, req)]})),
+        cap,
+        &[
+            ("guaranteed-container-1", 750, 750),
+            ("guaranteed-container-2", 750, 750),
+        ],
+    );
+    // burstablePodResourcesNoContainerResourcesWithSidecar.
+    check(
+        "burstable-pod-resources-no-container-resources-with-sidecar",
+        &pod(json!({"resources": pod_res(pod_req, pod_lim),
+            "containers": [none("no-request-limit")],
+            "initContainers": [always(none("no-request-limit-sidecar"))]})),
+        cap,
+        &[
+            ("no-request-limit", 750, 750),
+            ("no-request-limit-sidecar", 750, 750),
+        ],
+    );
+    // burstablePodResourcesEqualContainerRequestsWithSidecar.
+    check(
+        "burstable-pod-resources-equal-container-requests-with-sidecar",
+        &pod(json!({"resources": pod_res(pod_req, pod_lim),
+            "containers": [cr("burstable-container", "5m", req, lim)],
+            "initContainers": [always(cr("burstable-sidecar", "5m", req, lim))]})),
+        cap,
+        &[
+            ("burstable-container", 750, 750),
+            ("burstable-sidecar", 750, 750),
+        ],
+    );
+    // burstablePodResourcesUnequalContainerRequestsWithSidecar.
+    check(
+        "burstable-pod-resources-unequal-container-requests-with-sidecar",
+        &pod(json!({"resources": pod_res(2_000_000_000, pod_lim),
+            "containers": [cr("burstable-container-1", "5m", 1_000_000_000, pod_lim),
+                           cr("burstable-container-2", "5m", 500_000_000, pod_lim)],
+            "initContainers": [always(cr("burstable-sidecar", "5m", 200_000_000, pod_lim))]})),
+        cap,
+        &[
+            ("burstable-container-1", 725, 725),
+            ("burstable-container-2", 850, 850),
+            ("burstable-sidecar", 850, 850),
+        ],
+    );
+}
