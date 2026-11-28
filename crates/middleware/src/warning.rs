@@ -197,6 +197,27 @@ impl WarningRecorder {
     }
 }
 
+tokio::task_local! {
+    /// The request's recorder for code that has no `Request` in hand (the Go
+    /// `context.Context` carries it); set by [`with_warning_recorder`] for the
+    /// duration of the handler chain.
+    static REQUEST_RECORDER: Arc<WarningRecorder>;
+}
+
+/// `warning.AddWarning(ctx, agent, text)` for code running inside the handler
+/// chain without the request: records on the current request's recorder and
+/// returns whether one was attached.
+pub fn add_warning_to_current_request(agent: &str, text: &str) -> bool {
+    REQUEST_RECORDER
+        .try_with(|r| r.add_warning(agent, text))
+        .is_ok()
+}
+
+/// Whether the handler chain attached a recorder to the current request.
+pub fn has_current_request_recorder() -> bool {
+    REQUEST_RECORDER.try_with(|_| ()).is_ok()
+}
+
 /// `warning.AddWarning(ctx, agent, text)`: records on the request's recorder;
 /// a no-op when none is attached.
 pub fn add_warning(extensions: &axum::http::Extensions, agent: &str, text: &str) {
@@ -210,7 +231,9 @@ pub fn add_warning(extensions: &axum::http::Extensions, agent: &str, text: &str)
 pub async fn with_warning_recorder(mut req: Request<Body>, next: Next) -> Response {
     let recorder = Arc::new(WarningRecorder::default());
     req.extensions_mut().insert(recorder.clone());
-    let mut resp = next.run(req).await;
+    let mut resp = REQUEST_RECORDER
+        .scope(recorder.clone(), next.run(req))
+        .await;
     apply_warning_headers(&recorder, &mut resp);
     resp
 }

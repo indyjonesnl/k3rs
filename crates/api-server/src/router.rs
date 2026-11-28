@@ -3197,6 +3197,12 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
     ))
     .layer(TraceLayer::new_for_http())
     .with_state(state)
+    // `WithWarningRecorder` (server/config.go:1061): one recorder per request,
+    // shared by the route's AddWarningsHandler and every `AddWarning`; inside
+    // the timeout filter, outside authentication.
+    .layer(axum::middleware::from_fn(
+        kubernetes_rs_middleware::warning::with_warning_recorder,
+    ))
     // `WithRequestDeadline` + `WithTimeoutForNonLongRunningRequests`: inside
     // request-info, outside every other filter (server/config.go:1065-1071).
     .layer(axum::middleware::from_fn(

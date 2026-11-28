@@ -66,8 +66,11 @@ pub fn parse_warning_header(value: &str) -> Option<(String, String)> {
     Some((agent.to_string(), text))
 }
 
-/// `AddWarningsHandler`: add the route's warnings before the handler runs
-/// and merge them with the handler's own through the recorder.
+/// `AddWarningsHandler` (installer.go:814): add the route's warnings to the
+/// request's recorder before the handler runs, so they come first and every
+/// later `AddWarning` is de-duplicated against them. Without a recorder on the
+/// request (a router built without `WithWarningRecorder`) the route's warnings
+/// are merged into the response headers instead.
 pub async fn add_endpoint_warnings(req: Request, next: Next) -> Response {
     let meta = crate::apiserver_request_metrics::request_meta(&req);
     let warnings = if meta.is_resource_request {
@@ -80,6 +83,12 @@ pub async fn add_endpoint_warnings(req: Request, next: Next) -> Response {
     } else {
         Vec::new()
     };
+    if kubernetes_rs_middleware::warning::has_current_request_recorder() {
+        for w in &warnings {
+            kubernetes_rs_middleware::warning::add_warning_to_current_request("", w);
+        }
+        return next.run(req).await;
+    }
     let mut resp = next.run(req).await;
     if warnings.is_empty() {
         return resp;
