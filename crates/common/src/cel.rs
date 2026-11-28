@@ -473,6 +473,67 @@ pub fn json_to_cel_value(value: &serde_json::Value) -> Result<Value> {
     }
 }
 
+/// `strfmt.ParseDuration` (`k8s.io/kube-openapi/pkg/validation/strfmt/duration.go`):
+/// Go's `time.ParseDuration` first, else scala-style `<int><unit>` groups
+/// (`ns|nano`, `us|µs|micro`, `ms|milli`, `s|sec`, `m|min`, `h|hr|hour`,
+/// `d|day`, `w|wk|week`; the last variant of a unit matches as a prefix).
+/// Returns nanoseconds.
+fn strfmt_parse_duration(cand: &str) -> std::result::Result<i64, String> {
+    if let Ok(n) = crate::go_duration::parse_go_duration(cand) {
+        return Ok(n);
+    }
+    const UNITS: [(&[&str], i64); 8] = [
+        (&["ns", "nano"], 1),
+        (&["us", "µs", "micro"], 1_000),
+        (&["ms", "milli"], 1_000_000),
+        (&["s", "sec"], 1_000_000_000),
+        (&["m", "min"], 60_000_000_000),
+        (&["h", "hr", "hour"], 3_600_000_000_000),
+        (&["d", "day"], 86_400_000_000_000),
+        (&["w", "wk", "week"], 604_800_000_000_000),
+    ];
+    static MATCHER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = MATCHER.get_or_init(|| regex::Regex::new(r"((\d+)\s*([A-Za-zµ]+))").expect("valid"));
+    let mut dur: i64 = 0;
+    let mut ok = false;
+    for m in re.captures_iter(cand) {
+        let factor: i64 = m[2].parse().map_err(|e| format!("{e}"))?;
+        let unit = m[3].trim().to_lowercase();
+        for (variants, multiplier) in UNITS {
+            let last = variants.len() - 1;
+            for (i, variant) in variants.iter().enumerate() {
+                if (i == last && unit.starts_with(variant)) || variant.to_lowercase() == unit {
+                    ok = true;
+                    dur = dur.wrapping_add(factor.wrapping_mul(multiplier));
+                }
+            }
+        }
+    }
+    if ok {
+        Ok(dur)
+    } else {
+        Err(format!("unable to parse {cand} as duration"))
+    }
+}
+
+/// `strfmt.ParseDateTime` (`.../strfmt/time.go:67-81`): "" is the Unix epoch;
+/// otherwise RFC3339 (with or without fractional seconds) or
+/// `2006-01-02T15:04:05` (no zone, UTC).
+fn strfmt_parse_date_time(
+    s: &str,
+) -> std::result::Result<chrono::DateTime<chrono::FixedOffset>, String> {
+    if s.is_empty() {
+        return Ok(chrono::DateTime::UNIX_EPOCH.fixed_offset());
+    }
+    chrono::DateTime::parse_from_rfc3339(s)
+        .or_else(|e| {
+            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+                .map(|n| n.and_utc().fixed_offset())
+                .map_err(|_| e)
+        })
+        .map_err(|e| e.to_string())
+}
+
 /// Schema-aware conversion of an unstructured value to a CEL value. Port of
 /// `UnstructuredToVal`
 /// (`staging/src/k8s.io/apiserver/pkg/cel/common/valuesunstructured.go:38-210`):
@@ -491,8 +552,6 @@ pub fn json_to_cel_value(value: &serde_json::Value) -> Result<Value> {
 ///   upstream wraps them in an opaque `unknownPreserved` value.
 /// - `x-kubernetes-list-type` map/set list equality semantics are not
 ///   modelled; lists are plain CEL lists.
-/// - `duration` accepts what Go's `time.ParseDuration` accepts; strfmt's
-///   extra units (`d`, `w`, long names) are not supported yet.
 pub fn json_to_cel_value_with_schema(
     value: &serde_json::Value,
     schema: &JSONSchemaProps,
@@ -569,7 +628,7 @@ pub fn json_to_cel_value_with_schema(
             })?;
             match schema.format.as_deref().unwrap_or("") {
                 "duration" => {
-                    let nanos = crate::go_duration::parse_go_duration(s)
+                    let nanos = strfmt_parse_duration(s)
                         .map_err(|e| anyhow!("Invalid duration {s}: {e}"))?;
                     Ok(Value::Duration(chrono::Duration::nanoseconds(nanos)))
                 }
@@ -580,7 +639,7 @@ pub fn json_to_cel_value_with_schema(
                     Ok(Value::Timestamp(dt.fixed_offset()))
                 }
                 "date-time" => {
-                    let dt = chrono::DateTime::parse_from_rfc3339(s)
+                    let dt = strfmt_parse_date_time(s)
                         .map_err(|e| anyhow!("Invalid date-time formatted string {s}: {e}"))?;
                     Ok(Value::Timestamp(dt))
                 }

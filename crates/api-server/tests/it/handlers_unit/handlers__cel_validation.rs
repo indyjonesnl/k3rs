@@ -151,6 +151,7 @@ mod tests {
                 message_expression: String::new(),
                 path: vec!["spec".to_string()],
                 optional_old_self: false,
+                schema: None,
             })
             .collect()
     }
@@ -380,6 +381,7 @@ mod tests {
                 message_expression: me.to_string(),
                 path: vec!["spec".to_string()],
                 optional_old_self: false,
+                schema: None,
             }]
         };
         let e = validate_cr_rules(&mk("'got ' + string(self.nums.size())"), &cr, None)

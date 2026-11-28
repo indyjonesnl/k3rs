@@ -125,3 +125,36 @@ fn cel_schema_values_invalid_values_are_errors() {
         );
     }
 }
+
+/// `strfmt.ParseDuration` (kube-openapi `strfmt/duration.go`): the scala-style
+/// units on top of `time.ParseDuration`.
+#[test]
+fn cel_schema_values_strfmt_duration_units() {
+    let s = obj(json!({"d": {"type": "string", "format": "duration"}}));
+    for (v, secs) in [
+        ("1d", 86_400),
+        ("2w", 14 * 86_400),
+        ("1d 2h", 86_400 + 7_200),
+        ("3 days", 3 * 86_400),
+        ("5min", 300),
+        ("1hour30min", 5_400),
+        ("1h30m", 5_400),
+    ] {
+        let rule = format!("self.d.getSeconds() == {secs}");
+        assert!(eval(&rule, json!({"d": v}), s.clone()).unwrap(), "{v}");
+    }
+}
+
+/// `strfmt.ParseDateTime`: zone-less `2006-01-02T15:04:05` is accepted, the
+/// empty string is the epoch.
+#[test]
+fn cel_schema_values_strfmt_date_time_layouts() {
+    let s = obj(json!({"t": {"type": "string", "format": "date-time"}}));
+    assert!(eval(
+        "self.t.getFullYear() == 2024",
+        json!({"t": "2024-03-05T10:20:30"}),
+        s.clone()
+    )
+    .unwrap());
+    assert!(eval("self.t.getFullYear() == 1970", json!({"t": ""}), s).unwrap());
+}
