@@ -174,6 +174,7 @@ mod events_v1_response_schema_test;
 mod events_v1_warn_warnings_test;
 mod eviction_grace_period_test;
 mod fieldref_apiversion_default_before_validate_test;
+mod filter_latency_router_test;
 mod finalizer_drain_guard_test;
 mod flowcontrol_store_test;
 mod flowschema_watch_from_list_rv_test;

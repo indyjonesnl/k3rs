@@ -981,6 +981,20 @@ async fn custom_resource_fallback(
     Ok(response)
 }
 
+/// `filterlatency.TrackStarted(handler, tp, name)` (filterlatency.go:36): a
+/// layer immediately outside the filter `name`.
+macro_rules! filter_latency_started {
+    ($name:literal) => {
+        axum_middleware::from_fn(|req: axum::extract::Request, next: axum_middleware::Next| {
+            kubernetes_rs_middleware::filter_latency::track_started($name, req, next)
+        })
+    };
+}
+
+/// `filterlatency.TrackCompleted` (filterlatency.go:46): a layer immediately
+/// inside the filter, observing `apiserver_request_filter_duration_seconds`.
+use kubernetes_rs_middleware::filter_latency::track_completed as filter_latency_completed;
+
 pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> Router {
     // Every Service write allocates through the router's own handlers, so
     // the allocators' loopback is installed where the finished state lands.
@@ -3019,17 +3033,23 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
         // WithAuthorization is the innermost filter: after authentication,
         // audit, impersonation and priority-and-fairness, around the handler
         // (server/config.go:1015-1043).
-        protected_routes = protected_routes.layer(axum_middleware::from_fn_with_state(
-            state.authorizer.clone(),
-            crate::authorization_filter::with_authorization,
-        ));
+        protected_routes = protected_routes
+            .layer(axum_middleware::from_fn(filter_latency_completed))
+            .layer(axum_middleware::from_fn_with_state(
+                state.authorizer.clone(),
+                crate::authorization_filter::with_authorization,
+            ))
+            .layer(filter_latency_started!("authorization"));
         if let Some(apf) = crate::flow_control_filter::installed() {
-            protected_routes = protected_routes.layer(axum_middleware::from_fn_with_state(
-                apf,
-                crate::flow_control_filter::priority_and_fairness::<
-                    kubernetes_rs_storage::StorageBackend,
-                >,
-            ));
+            protected_routes = protected_routes
+                .layer(axum_middleware::from_fn(filter_latency_completed))
+                .layer(axum_middleware::from_fn_with_state(
+                    apf,
+                    crate::flow_control_filter::priority_and_fairness::<
+                        kubernetes_rs_storage::StorageBackend,
+                    >,
+                ))
+                .layer(filter_latency_started!("priorityandfairness"));
         }
         // `c.FlowControl == nil`: WithMaxInFlightLimit stands in for APF
         // (server/config.go:1033).
@@ -3042,7 +3062,9 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
         protected_routes = protected_routes
             // WithAudit sits after authentication and before the handler's
             // authorization/admission (server/config.go DefaultBuildHandlerChain).
+            .layer(axum_middleware::from_fn(filter_latency_completed))
             .layer(axum_middleware::from_fn(crate::audit::audit_middleware))
+            .layer(filter_latency_started!("audit"))
             // The field manager names an Update's manager after the user agent
             // (handlers/create.go:259-282 `managerOrUserAgent`).
             .layer(axum_middleware::from_fn(
@@ -3057,7 +3079,9 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
             .layer(axum_middleware::from_fn(
                 kubernetes_rs_middleware::compression::gzip_response_middleware,
             ))
+            .layer(axum_middleware::from_fn(filter_latency_completed))
             .layer(axum_middleware::from_fn(middleware::skip_auth_middleware))
+            .layer(filter_latency_started!("authentication"))
             .layer(axum_middleware::from_fn(
                 crate::apiserver_request_metrics::with_latency_trackers_filter,
             ))
@@ -3112,17 +3136,23 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
         // WithAuthorization is the innermost filter: after authentication,
         // audit, impersonation and priority-and-fairness, around the handler
         // (server/config.go:1015-1043).
-        protected_routes = protected_routes.layer(axum_middleware::from_fn_with_state(
-            state.authorizer.clone(),
-            crate::authorization_filter::with_authorization,
-        ));
+        protected_routes = protected_routes
+            .layer(axum_middleware::from_fn(filter_latency_completed))
+            .layer(axum_middleware::from_fn_with_state(
+                state.authorizer.clone(),
+                crate::authorization_filter::with_authorization,
+            ))
+            .layer(filter_latency_started!("authorization"));
         if let Some(apf) = crate::flow_control_filter::installed() {
-            protected_routes = protected_routes.layer(axum_middleware::from_fn_with_state(
-                apf,
-                crate::flow_control_filter::priority_and_fairness::<
-                    kubernetes_rs_storage::StorageBackend,
-                >,
-            ));
+            protected_routes = protected_routes
+                .layer(axum_middleware::from_fn(filter_latency_completed))
+                .layer(axum_middleware::from_fn_with_state(
+                    apf,
+                    crate::flow_control_filter::priority_and_fairness::<
+                        kubernetes_rs_storage::StorageBackend,
+                    >,
+                ))
+                .layer(filter_latency_started!("priorityandfairness"));
         }
         // `c.FlowControl == nil`: WithMaxInFlightLimit stands in for APF
         // (server/config.go:1033).
@@ -3135,7 +3165,9 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
         protected_routes = protected_routes
             // WithAudit sits after authentication and before the handler's
             // authorization/admission (server/config.go DefaultBuildHandlerChain).
+            .layer(axum_middleware::from_fn(filter_latency_completed))
             .layer(axum_middleware::from_fn(crate::audit::audit_middleware))
+            .layer(filter_latency_started!("audit"))
             // The field manager names an Update's manager after the user agent
             // (handlers/create.go:259-282 `managerOrUserAgent`).
             .layer(axum_middleware::from_fn(
@@ -3150,7 +3182,9 @@ pub fn build_router(state: Arc<ApiServerState>, console_dir: Option<&Path>) -> R
             .layer(axum_middleware::from_fn(
                 kubernetes_rs_middleware::compression::gzip_response_middleware,
             ))
+            .layer(axum_middleware::from_fn(filter_latency_completed))
             .layer(axum_middleware::from_fn(middleware::auth_middleware))
+            .layer(filter_latency_started!("authentication"))
             // `WithLatencyTrackers` wraps authentication (server/config.go:1084).
             .layer(axum_middleware::from_fn(
                 crate::apiserver_request_metrics::with_latency_trackers_filter,
