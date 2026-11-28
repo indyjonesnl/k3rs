@@ -571,6 +571,10 @@ fn validate_pod_spec_for(
 
     // `validateHostUsers(spec, fldPath, opts)` (validation.go:4661).
     errs.extend(validate_host_users(spec, fld_path, opts));
+    // validatePodHostName (upstream `:4662`).
+    errs.extend(crate::validation::pod_spec_linux::validate_pod_host_name(
+        spec, fld_path,
+    ));
 
     // securityContext.sysctls name format / uniqueness, plus the pod-level
     // seccomp/AppArmor profiles (upstream `validatePodSecurityContext`,
@@ -681,7 +685,16 @@ fn validate_pod_spec_for(
 
     // os (upstream `:4717`).
     if let Some(pod_os) = spec.os.as_ref() {
-        errs.extend(validate_os(pod_os, &fld_path.child("os")));
+        let os_errs = validate_os(pod_os, &fld_path.child("os"));
+        if !os_errs.is_empty() {
+            errs.extend(os_errs);
+        } else if pod_os.name == "linux" {
+            // validateLinux runs only for an explicit, valid `spec.os.name: linux`
+            // (validation.go:4717-4725); validateWindows is out of scope.
+            errs.extend(crate::validation::pod_spec_linux::validate_linux(
+                spec, fld_path,
+            ));
+        }
     }
 
     // affinity (upstream `validatePodSpec`,
