@@ -8,6 +8,7 @@ mod controllers__cert_authority;
 mod controllers__certificate_signing_request;
 mod controllers__cidrset_metrics;
 mod controllers__clustertrustbundle_publisher;
+mod controllers__controller_ref_manager;
 mod controllers__controller_utils;
 mod controllers__cronjob;
 mod controllers__csi_attacher;
