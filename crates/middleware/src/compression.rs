@@ -17,7 +17,7 @@
 //! Deviations of expression only: Go's `gzipPool` is not ported (flate2 has no
 //! reusable `Reset`; the encoder is created per response), and the tracing
 //! span events are `tracing::debug!`. Wiring into the handlers is a separate
-//! task.
+//! task (`gzip_response_middleware`, below, wires it into the API chain).
 
 use std::io::{self, Write};
 
@@ -209,4 +209,110 @@ impl<W: ResponseWriter> DeferredResponseWriter<W> {
         }
         Ok(())
     }
+}
+
+/// The API serializations `SerializeObject` writes through the deferred
+/// writer (JSON, YAML, CBOR and Kubernetes protobuf, incl. `;as=` variants).
+fn is_api_media_type(content_type: &str) -> bool {
+    [
+        "application/json",
+        "application/yaml",
+        "application/cbor",
+        "application/vnd.kubernetes.protobuf",
+    ]
+    .iter()
+    .any(|p| content_type.starts_with(p))
+}
+
+/// A buffered axum response as the `http.ResponseWriter` the deferred writer
+/// drives.
+struct BufferedResponse {
+    headers: HeaderMap,
+    body: Vec<u8>,
+}
+
+impl ResponseWriter for BufferedResponse {
+    fn headers_mut(&mut self) -> &mut HeaderMap {
+        &mut self.headers
+    }
+    fn write_header(&mut self, _status_code: u16) {}
+    fn write(&mut self, p: &[u8]) -> io::Result<usize> {
+        self.body.extend_from_slice(p);
+        Ok(p.len())
+    }
+}
+
+/// `SerializeObject` (responsewriters/writers.go:92-139): the encoded object
+/// goes through a [`DeferredResponseWriter`] whose `contentEncoding` is
+/// `negotiateContentEncoding(req)`, so a response above
+/// [`DEFAULT_GZIP_THRESHOLD_BYTES`] is gzipped (`Content-Encoding: gzip`,
+/// `Vary: Accept-Encoding`) and a smaller one is not.
+///
+/// Our handlers return the serialized body (already protobuf-wrapped by the
+/// content-negotiation middleware when asked for), so this layer sits outside
+/// it and feeds the finished body to the writer as its first and only write.
+/// Not applied (upstream never passes these through `SerializeObject`):
+/// streaming bodies such as watches (no exact size), responses that already
+/// carry a `Content-Encoding`, and non-API media types.
+pub async fn gzip_response_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::body::{Body, HttpBody};
+
+    let content_encoding = negotiate_content_encoding(req.headers());
+    let resp = next.run(req).await;
+    if content_encoding != "gzip" || resp.headers().contains_key(header::CONTENT_ENCODING) {
+        return resp;
+    }
+    let is_api_body = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(is_api_media_type);
+    let Some(size) = resp.body().size_hint().exact() else {
+        return resp; // streaming
+    };
+    if !is_api_body || size as usize <= DEFAULT_GZIP_THRESHOLD_BYTES {
+        return resp;
+    }
+
+    let (mut parts, body) = resp.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, usize::MAX).await else {
+        return axum::response::Response::builder()
+            .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::empty())
+            .unwrap();
+    };
+    let media_type = parts
+        .headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let mut w = DeferredResponseWriter::new(
+        BufferedResponse {
+            headers: std::mem::take(&mut parts.headers),
+            body: Vec::new(),
+        },
+        media_type,
+        parts.status.as_u16(),
+        content_encoding,
+    );
+    let written = w.write(&bytes).and_then(|_| w.close());
+    let out = w.into_inner();
+    parts.headers = out.headers;
+    if let Err(e) = written {
+        // `apiserver was unable to close cleanly the response writer`
+        tracing::error!(%e, "apiserver was unable to write a gzip response");
+        return axum::response::Response::builder()
+            .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::empty())
+            .unwrap();
+    }
+    if parts.headers.contains_key(header::CONTENT_ENCODING) {
+        // the compressed length replaces the original
+        parts.headers.remove(header::CONTENT_LENGTH);
+    }
+    axum::response::Response::from_parts(parts, Body::from(out.body))
 }
