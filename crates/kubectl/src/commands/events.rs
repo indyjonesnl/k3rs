@@ -55,16 +55,7 @@ pub async fn execute(
         return execute_watch(client, &path, &type_filters, all_namespaces, no_headers).await;
     }
 
-    let events: Value = client
-        .get(&path)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to list events: {}", e))?;
-
-    let items = events
-        .get("items")
-        .and_then(|i| i.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let items = list_all_events(client, &path).await?;
 
     // Filter by type if specified
     let filtered: Vec<&Value> = items
@@ -94,11 +85,7 @@ pub async fn execute(
 
     // Sort events by lastTimestamp (or eventTime)
     let mut sorted: Vec<&Value> = filtered;
-    sorted.sort_by(|a, b| {
-        let time_a = get_event_time(a);
-        let time_b = get_event_time(b);
-        time_a.cmp(&time_b)
-    });
+    sorted.sort_by_key(|e| event_time(e));
 
     match output {
         Some("json") => {
@@ -272,15 +259,80 @@ pub fn parse_for_object(for_obj: &str) -> Result<(String, &str)> {
     Ok((kind.to_string(), name))
 }
 
+/// `cmdutil.DefaultChunkSize` (`kubectl/pkg/cmd/util/helpers.go:55`).
+pub const DEFAULT_CHUNK_SIZE: i64 = 500;
+
+/// `with ListOptions{Limit, Continue}` as a query string appended to `path`.
+pub fn list_path(path: &str, limit: i64, continue_token: &str) -> String {
+    let sep = if path.contains('?') { '&' } else { '?' };
+    let mut p = format!("{path}{sep}limit={limit}");
+    if !continue_token.is_empty() {
+        p.push_str("&continue=");
+        p.push_str(&urlencoding(continue_token));
+    }
+    p
+}
+
+/// `EventsOptions.Run` list step (`events.go:228-258`): list with
+/// `Limit: DefaultChunkSize` and follow `metadata.continue`
+/// (`runtimeresource.FollowContinue`), concatenating all items.
+async fn list_all_events(client: &ApiClient, path: &str) -> Result<Vec<Value>> {
+    let mut items = Vec::new();
+    let mut token = String::new();
+    loop {
+        let page: Value = client
+            .get(&list_path(path, DEFAULT_CHUNK_SIZE, &token))
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to list events: {}", e))?;
+        if let Some(a) = page.get("items").and_then(|i| i.as_array()) {
+            items.extend(a.iter().cloned());
+        }
+        token = page
+            .pointer("/metadata/continue")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string();
+        if token.is_empty() {
+            return Ok(items);
+        }
+    }
+}
+
+fn parse_time(v: Option<&Value>) -> Option<DateTime<Utc>> {
+    v.and_then(|t| t.as_str())
+        .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+        .map(|t| t.with_timezone(&Utc))
+}
+
+/// `eventTime` (`events.go:366`): `series.lastObservedTime` when a series
+/// exists, else `lastTimestamp` when set, else `eventTime`.
+pub fn event_time(event: &Value) -> DateTime<Utc> {
+    let zero = DateTime::<Utc>::MIN_UTC;
+    if let Some(series) = event.get("series").filter(|s| !s.is_null()) {
+        return parse_time(series.get("lastObservedTime")).unwrap_or(zero);
+    }
+    if let Some(t) = parse_time(event.get("lastTimestamp")) {
+        return t;
+    }
+    parse_time(event.get("eventTime")).unwrap_or(zero)
+}
+
+/// The timestamp string shown as LAST SEEN, chosen like [`event_time`].
 pub fn get_event_time(event: &Value) -> String {
-    // Prefer eventTime, then lastTimestamp, then firstTimestamp
-    event
-        .get("eventTime")
-        .or_else(|| event.get("lastTimestamp"))
-        .or_else(|| event.get("firstTimestamp"))
-        .and_then(|t| t.as_str())
-        .unwrap_or("")
-        .to_string()
+    let pick = |v: Option<&Value>| v.and_then(|t| t.as_str()).unwrap_or("").to_string();
+    if let Some(series) = event.get("series").filter(|s| !s.is_null()) {
+        return pick(series.get("lastObservedTime"));
+    }
+    let last = pick(event.get("lastTimestamp"));
+    if !last.is_empty() {
+        return last;
+    }
+    let et = pick(event.get("eventTime"));
+    if !et.is_empty() {
+        return et;
+    }
+    // Display only: not part of upstream eventTime(), kept for old events.
+    pick(event.get("firstTimestamp"))
 }
 
 pub fn format_age(timestamp: &str) -> String {
