@@ -52,6 +52,7 @@ mod kubelet_predicates_test;
 mod machine_info_test;
 mod node_registration_preserves_spec;
 mod nodeshutdown;
+mod oom_watcher;
 mod pc_unit;
 mod pluginmanager_unit;
 mod pod_overhead_test;
