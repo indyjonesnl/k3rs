@@ -25,8 +25,10 @@ fn has(errs: &[Error], field: &str, ty: ErrorType) -> bool {
 #[test]
 fn valid_quota_passes() {
     let errs = validate_resource_quota(&rq(json!({
+        // BestEffort covers only pod counts (helpers.go:157-158); the compute
+        // resources need NotBestEffort.
         "hard": {"cpu": "10", "memory": "20Gi", "pods": "100"},
-        "scopes": ["BestEffort"]
+        "scopes": ["NotBestEffort"]
     })));
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
@@ -120,4 +122,151 @@ fn priority_class_scope_ok() {
         "scopes": ["PriorityClass"]
     })));
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+// Ports of TestValidateResourceQuota (validation.go test :21576) scope cases,
+// `validateResourceQuotaScopes` / `validateScopedResourceSelectorRequirement`
+// (validation.go:7966-8055) and `IsResourceQuotaScopeValidForResource`
+// (helpers.go:151-164).
+
+fn details(errs: &[Error]) -> Vec<String> {
+    errs.iter().map(|e| e.detail.clone()).collect()
+}
+
+#[test]
+fn resourcequota_scopes_valid_combinations_pass() {
+    for spec in [
+        // terminatingSpec / nonTerminatingSpec / nonBestEffortSpec
+        json!({"hard": {"cpu": "100", "limits.cpu": "200"}, "scopes": ["Terminating"]}),
+        json!({"hard": {"cpu": "100"}, "scopes": ["NotTerminating"]}),
+        json!({"hard": {"cpu": "100"}, "scopes": ["NotBestEffort"]}),
+        // bestEffortSpec: only pods count
+        json!({"hard": {"pods": "100"}, "scopes": ["BestEffort"]}),
+        // crossNamespaceAffinitySpec
+        json!({"hard": {"cpu": "100", "limits.cpu": "200"}, "scopes": ["CrossNamespacePodAffinity"]}),
+        // scopeSelectorSpec (PriorityClass In)
+        json!({"scopeSelector": {"matchExpressions": [
+            {"scopeName": "PriorityClass", "operator": "In", "values": ["cluster-services"]}]}}),
+        // VolumeAttributesClass applies to PVC count and storage only
+        json!({"hard": {"persistentvolumeclaims": "1", "requests.storage": "1Gi"},
+               "scopes": ["VolumeAttributesClass"]}),
+        // unknown (non-standard) resource names are not checked against scopes
+        json!({"hard": {"example.com/foo": "1"}, "scopes": ["BestEffort"]}),
+    ] {
+        let errs = validate_resource_quota(&rq(spec.clone()));
+        assert!(errs.is_empty(), "{spec}: {errs:?}");
+    }
+}
+
+#[test]
+fn resourcequota_scopes_resource_not_valid_for_scope() {
+    // BestEffort covers only pods; cpu is a pod compute resource.
+    let errs =
+        validate_resource_quota(&rq(json!({"hard": {"cpu": "1"}, "scopes": ["BestEffort"]})));
+    assert!(
+        errs.iter().any(|e| e.field == "spec.scopes"
+            && e.error_type == ErrorType::Invalid
+            && e.detail == "unsupported scope applied to resource"),
+        "{errs:?}"
+    );
+    // VolumeAttributesClass does not cover pods.
+    let errs = validate_resource_quota(&rq(
+        json!({"hard": {"pods": "1"}, "scopes": ["VolumeAttributesClass"]}),
+    ));
+    assert!(
+        details(&errs).contains(&"unsupported scope applied to resource".to_string()),
+        "{errs:?}"
+    );
+    // Pod scopes do not cover services.
+    let errs = validate_resource_quota(&rq(
+        json!({"hard": {"services": "1"}, "scopes": ["Terminating"]}),
+    ));
+    assert!(
+        details(&errs).contains(&"unsupported scope applied to resource".to_string()),
+        "{errs:?}"
+    );
+}
+
+#[test]
+fn resourcequota_scopes_selector_resource_not_valid_for_scope() {
+    let errs = validate_resource_quota(&rq(json!({
+        "hard": {"services": "1"},
+        "scopeSelector": {"matchExpressions": [{"scopeName": "NotBestEffort", "operator": "Exists"}]}
+    })));
+    assert!(
+        errs.iter()
+            .any(|e| e.field == "spec.scopeSelector.matchExpressions"
+                && e.detail == "unsupported scope applied to resource"),
+        "{errs:?}"
+    );
+}
+
+#[test]
+fn resourcequota_scopes_volume_attributes_class_is_a_standard_scope() {
+    let errs = validate_resource_quota(&rq(json!({"scopes": ["VolumeAttributesClass"]})));
+    assert!(errs.is_empty(), "{errs:?}");
+    let errs = validate_resource_quota(&rq(json!({"scopes": ["Bogus"]})));
+    assert!(
+        errs.iter()
+            .any(|e| e.field == "spec.scopes" && e.detail == "unsupported scope"),
+        "{errs:?}"
+    );
+}
+
+#[test]
+fn resourcequota_scopes_selector_operator_rules() {
+    let sel = |scope: &str, op: &str, values: serde_json::Value| {
+        validate_resource_quota(&rq(json!({"scopeSelector": {"matchExpressions": [
+            {"scopeName": scope, "operator": op, "values": values}]}})))
+    };
+    // invalid-cross-namespace-affinity
+    let errs = sel("CrossNamespacePodAffinity", "In", json!(["a"]));
+    assert!(
+        errs.iter().any(
+            |e| e.field == "spec.scopeSelector.matchExpressions.operator"
+                && e.detail
+                    .starts_with("must be 'Exists' when scope is any of")
+        ),
+        "{errs:?}"
+    );
+    // In/NotIn need values.
+    let errs = sel("PriorityClass", "NotIn", json!([]));
+    assert!(
+        errs.iter().any(|e| e.error_type == ErrorType::Required
+            && e.field == "spec.scopeSelector.matchExpressions.values"
+            && e.detail
+                == "must be at least one value when `operator` is 'In' or 'NotIn' for scope selector"),
+        "{errs:?}"
+    );
+    // Exists/DoesNotExist take no values.
+    let errs = sel("PriorityClass", "DoesNotExist", json!(["a"]));
+    assert!(
+        details(&errs).contains(
+            &"must be no value when `operator` is 'Exist' or 'DoesNotExist' for scope selector"
+                .to_string()
+        ),
+        "{errs:?}"
+    );
+    // Unknown operator.
+    let errs = sel("PriorityClass", "Gt", json!(["1"]));
+    assert!(
+        errs.iter().any(
+            |e| e.field == "spec.scopeSelector.matchExpressions.operator"
+                && e.detail == "not a valid selector operator"
+        ),
+        "{errs:?}"
+    );
+}
+
+#[test]
+fn resourcequota_scopes_selector_conflicting_scopes() {
+    let errs = validate_resource_quota(&rq(json!({"scopeSelector": {"matchExpressions": [
+        {"scopeName": "Terminating", "operator": "Exists"},
+        {"scopeName": "NotTerminating", "operator": "Exists"}]}})));
+    assert!(
+        errs.iter()
+            .any(|e| e.field == "spec.scopeSelector.matchExpressions"
+                && e.detail == "conflicting scopes"),
+        "{errs:?}"
+    );
 }

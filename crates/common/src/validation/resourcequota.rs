@@ -26,6 +26,7 @@ const VALID_SCOPES: &[&str] = &[
     "NotBestEffort",
     "PriorityClass",
     "CrossNamespacePodAffinity",
+    "VolumeAttributesClass",
 ];
 
 /// Standard resource names known to the quota tracking system. Mirrors
@@ -88,6 +89,50 @@ fn is_extended_resource_name(name: &str) -> bool {
 /// `helper.IsIntegerResourceName`.
 pub(crate) fn is_integer_resource_name(name: &str) -> bool {
     INTEGER_RESOURCES.contains(&name) || is_extended_resource_name(name)
+}
+
+/// `helper.IsResourceQuotaScopeValidForResource`
+/// (`pkg/apis/core/helper/helpers.go:151-164`): does `resource` apply to
+/// `scope`.
+fn is_resource_quota_scope_valid_for_resource(scope: &str, resource: &str) -> bool {
+    const POD_OBJECT_COUNT: &[&str] = &["pods"];
+    const POD_COMPUTE: &[&str] = &[
+        "cpu",
+        "memory",
+        "limits.cpu",
+        "limits.memory",
+        "requests.cpu",
+        "requests.memory",
+    ];
+    const PVC_OBJECT_COUNT: &[&str] = &["persistentvolumeclaims"];
+    const PVC_STORAGE: &[&str] = &["requests.storage"];
+    match scope {
+        "Terminating"
+        | "NotTerminating"
+        | "NotBestEffort"
+        | "PriorityClass"
+        | "CrossNamespacePodAffinity" => {
+            POD_OBJECT_COUNT.contains(&resource) || POD_COMPUTE.contains(&resource)
+        }
+        "BestEffort" => POD_OBJECT_COUNT.contains(&resource),
+        "VolumeAttributesClass" => {
+            PVC_OBJECT_COUNT.contains(&resource) || PVC_STORAGE.contains(&resource)
+        }
+        _ => true,
+    }
+}
+
+/// The sorted standard quota resource names among `hard`
+/// (`sets.List(hardLimits)` filtered by `IsStandardQuotaResourceName`).
+fn sorted_standard_hard_limits(spec: &ResourceQuotaSpec) -> Vec<&str> {
+    let mut keys: Vec<&str> = spec
+        .hard
+        .iter()
+        .flat_map(|h| h.keys().map(String::as_str))
+        .filter(|k| is_standard_quota_resource_name(k))
+        .collect();
+    keys.sort_unstable();
+    keys
 }
 
 /// Port of upstream `ValidateResourceQuotaResourceName`: the key is a valid
@@ -174,29 +219,41 @@ pub fn validate_resource_quota_spec(spec: &ResourceQuotaSpec, fld_path: &Path) -
         ));
     }
 
-    // scopes: each must be a known value; certain pairs conflict.
+    // `validateResourceQuotaScopes` (validation.go:7966-7997): every
+    // problem is reported against the whole `scopes` list.
     if let Some(scopes) = &spec.scopes {
         if !scopes.is_empty() {
             let scopes_path = fld_path.child("scopes");
-            for s in scopes {
-                if !VALID_SCOPES.contains(&s.as_str()) {
-                    errs.push(Error::invalid(&scopes_path, s.clone(), "unsupported scope"));
+            let all = scopes.join(",");
+            let hard_limits = sorted_standard_hard_limits(spec);
+            for scope in scopes {
+                if !VALID_SCOPES.contains(&scope.as_str()) {
+                    errs.push(Error::invalid(
+                        &scopes_path,
+                        all.clone(),
+                        "unsupported scope",
+                    ));
+                }
+                for k in &hard_limits {
+                    if !is_resource_quota_scope_valid_for_resource(scope, k) {
+                        errs.push(Error::invalid(
+                            &scopes_path,
+                            all.clone(),
+                            "unsupported scope applied to resource",
+                        ));
+                    }
                 }
             }
             let has = |x: &str| scopes.iter().any(|s| s == x);
             if has("BestEffort") && has("NotBestEffort") {
                 errs.push(Error::invalid(
                     &scopes_path,
-                    "BestEffort,NotBestEffort".to_string(),
+                    all.clone(),
                     "conflicting scopes",
                 ));
             }
             if has("Terminating") && has("NotTerminating") {
-                errs.push(Error::invalid(
-                    &scopes_path,
-                    "Terminating,NotTerminating".to_string(),
-                    "conflicting scopes",
-                ));
+                errs.push(Error::invalid(&scopes_path, all, "conflicting scopes"));
             }
         }
     }
@@ -228,6 +285,8 @@ fn validate_scope_selector(spec: &ResourceQuotaSpec, fld_path: &Path) -> ErrorLi
     };
     let me_path = fld_path.child("scopeSelector").child("matchExpressions");
     let mut seen_scopes: Vec<&str> = Vec::new();
+    let hard_limits = sorted_standard_hard_limits(spec);
+    let selector_value = serde_json::to_string(sel).unwrap_or_default();
 
     for req in &sel.match_expressions {
         if !VALID_SCOPES.contains(&req.scope_name.as_str()) {
@@ -236,6 +295,15 @@ fn validate_scope_selector(spec: &ResourceQuotaSpec, fld_path: &Path) -> ErrorLi
                 req.scope_name.clone(),
                 "unsupported scope",
             ));
+        }
+        for k in &hard_limits {
+            if !is_resource_quota_scope_valid_for_resource(&req.scope_name, k) {
+                errs.push(Error::invalid(
+                    &me_path,
+                    selector_value.clone(),
+                    "unsupported scope applied to resource",
+                ));
+            }
         }
         // Exists-only scopes reject any other operator.
         if EXISTS_ONLY_SCOPES.contains(&req.scope_name.as_str()) && req.operator != "Exists" {
@@ -275,13 +343,21 @@ fn validate_scope_selector(spec: &ResourceQuotaSpec, fld_path: &Path) -> ErrorLi
         seen_scopes.push(req.scope_name.as_str());
     }
 
+    // The value is `resourceQuotaSpec.Scopes` (validation.go:8050), once per
+    // conflicting pair.
     let has = |x: &str| seen_scopes.contains(&x);
-    if has("BestEffort") && has("NotBestEffort") || has("Terminating") && has("NotTerminating") {
-        errs.push(Error::invalid(
-            &me_path,
-            String::new(),
-            "conflicting scopes",
-        ));
+    let all_scopes = spec.scopes.as_ref().map_or(String::new(), |s| s.join(","));
+    for (a, b) in [
+        ("BestEffort", "NotBestEffort"),
+        ("Terminating", "NotTerminating"),
+    ] {
+        if has(a) && has(b) {
+            errs.push(Error::invalid(
+                &me_path,
+                all_scopes.clone(),
+                "conflicting scopes",
+            ));
+        }
     }
 
     errs
