@@ -28,6 +28,56 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tracing::{debug, info, warn};
 
+/// `MaxRequestBodyBytes` default: 3 MiB, "the same as etcd's maximum request
+/// size" (staging/src/k8s.io/apiserver/pkg/server/config.go:253, :466).
+pub const MAX_REQUEST_BODY_BYTES: i64 = 3 * 1024 * 1024;
+
+/// Port of `limitedReadBody` (staging/src/k8s.io/apiserver/pkg/endpoints/
+/// handlers/rest.go:372-390) for the request-decoding middleware: read at
+/// most `limit + 1` bytes and refuse a body of more than `limit` bytes with
+/// the 413 `errors.NewRequestEntityTooLargeError(fmt.Sprintf("limit is %d",
+/// limit))` Status. The stream is never read past `limit + 1` bytes, so an
+/// oversized body is not buffered whole. `limit <= 0` reads without bound.
+/// Mirrors `api-server`'s `endpoints::handlers::rest::limited_read_body`
+/// (this crate cannot depend on api-server). Fails closed.
+#[allow(clippy::result_large_err)] // `Response` is the middleware error type, as in `Next` filters.
+pub async fn limited_read_request_body(
+    body: Body,
+    limit: i64,
+) -> Result<axum::body::Bytes, Response> {
+    use futures::StreamExt;
+    let bad = |e: String| kubernetes_rs_common::Error::BadRequest(e).into_response();
+    if limit <= 0 {
+        return axum::body::to_bytes(body, usize::MAX)
+            .await
+            .map_err(|e| bad(e.to_string()));
+    }
+    let cap = limit as usize + 1;
+    let mut stream = body.into_data_stream();
+    let mut data = Vec::new();
+    while data.len() < cap {
+        match stream.next().await {
+            Some(Ok(chunk)) => {
+                let take = chunk.len().min(cap - data.len());
+                data.extend_from_slice(&chunk[..take]);
+            }
+            Some(Err(e)) => return Err(bad(e.to_string())),
+            None => break,
+        }
+    }
+    if data.len() > limit as usize {
+        return Err(kubernetes_rs_common::Error::Status(Box::new(
+            kubernetes_rs_common::types::Status::failure(
+                format!("Request entity too large: limit is {limit}"),
+                "RequestEntityTooLarge",
+                413,
+            ),
+        ))
+        .into_response());
+    }
+    Ok(axum::body::Bytes::from(data))
+}
+
 /// Global protobuf schema registry — initialized once on first use
 static PROTO_REGISTRY: LazyLock<kubernetes_rs_protobuf::ProtoRegistry> =
     LazyLock::new(kubernetes_rs_protobuf::ProtoRegistry::new);
@@ -1297,14 +1347,9 @@ pub async fn normalize_content_type_middleware(
             );
 
             let (parts, body) = request.into_parts();
-            let body_bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
+            let body_bytes = match limited_read_request_body(body, MAX_REQUEST_BODY_BYTES).await {
                 Ok(b) => b,
-                Err(_) => {
-                    return Err(axum::response::Response::builder()
-                        .status(axum::http::StatusCode::BAD_REQUEST)
-                        .body(axum::body::Body::from("failed to read request body"))
-                        .unwrap());
-                }
+                Err(resp) => return Err(resp),
             };
 
             let json_body: Vec<u8> = match cbor::decode_cbor_to_json_bytes(&body_bytes) {
@@ -1366,14 +1411,9 @@ pub async fn normalize_content_type_middleware(
 
             // Read the body
             let (parts, body) = request.into_parts();
-            let body_bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
+            let body_bytes = match limited_read_request_body(body, MAX_REQUEST_BODY_BYTES).await {
                 Ok(b) => b,
-                Err(_) => {
-                    return Err(axum::response::Response::builder()
-                        .status(axum::http::StatusCode::BAD_REQUEST)
-                        .body(axum::body::Body::from("failed to read request body"))
-                        .unwrap());
-                }
+                Err(resp) => return Err(resp),
             };
 
             let json_body = decode_k8s_protobuf_request_body(&body_bytes);
