@@ -8172,11 +8172,11 @@ impl ProtoRegistry {
                     };
                     pos = new_pos;
                     let len = len as usize;
-                    if pos + len > data.len() {
+                    if len_exceeds(pos, len, data.len()) {
                         break;
                     }
                     let field_data = &data[pos..pos + len];
-                    pos += len;
+                    pos = pos.saturating_add(len);
 
                     if let Some((name, field_type)) = schema.fields.get(&field_num) {
                         match field_type {
@@ -8440,7 +8440,7 @@ impl ProtoRegistry {
                         };
                         pos = new_pos;
                         let len = len as usize;
-                        if pos + len <= data.len() {
+                        if !len_exceeds(pos, len, data.len()) {
                             let raw = &data[pos..pos + len];
                             if let Ok(v) = serde_json::from_slice(raw) {
                                 return v;
@@ -8459,7 +8459,7 @@ impl ProtoRegistry {
                             }
                             WIRE_LENGTH_DELIMITED => {
                                 if let Some((len, new_pos)) = read_varint(data, pos) {
-                                    pos = new_pos + len as usize;
+                                    pos = new_pos.saturating_add(len as usize);
                                 } else {
                                     break;
                                 }
@@ -8802,7 +8802,7 @@ impl ProtoRegistry {
                 };
                 pos = new_pos;
                 let len = len as usize;
-                if pos + len > data.len() {
+                if len_exceeds(pos, len, data.len()) {
                     break;
                 }
                 match field_num {
@@ -8825,7 +8825,7 @@ impl ProtoRegistry {
                     }
                     _ => {}
                 }
-                pos += len;
+                pos = pos.saturating_add(len);
             } else if wire_type == WIRE_VARINT {
                 let (_, new_pos) = match read_varint(data, pos) {
                     Some(v) => v,
@@ -8863,11 +8863,11 @@ impl ProtoRegistry {
                 let (len, new_pos) = read_varint(envelope, pos)?;
                 pos = new_pos;
                 let len = len as usize;
-                if pos + len > envelope.len() {
+                if len_exceeds(pos, len, envelope.len()) {
                     break;
                 }
                 let field_data = &envelope[pos..pos + len];
-                pos += len;
+                pos = pos.saturating_add(len);
 
                 match field_num {
                     1 => {
@@ -8882,7 +8882,7 @@ impl ProtoRegistry {
                                 let (slen, ntp) = read_varint(field_data, tp)?;
                                 tp = ntp;
                                 let slen = slen as usize;
-                                if tp + slen <= field_data.len() {
+                                if !len_exceeds(tp, slen, field_data.len()) {
                                     if let Ok(s) = std::str::from_utf8(&field_data[tp..tp + slen]) {
                                         match fnum {
                                             1 => api_version = s.to_string(),
@@ -8891,7 +8891,7 @@ impl ProtoRegistry {
                                         }
                                     }
                                 }
-                                tp += slen;
+                                tp = tp.saturating_add(slen);
                             } else if wt == WIRE_VARINT {
                                 let (_, ntp) = read_varint(field_data, tp)?;
                                 tp = ntp;
@@ -8975,6 +8975,14 @@ impl ProtoRegistry {
 
 // ========== Helper functions ==========
 
+/// True when a length-delimited field of `len` bytes starting at `pos` does not fit in
+/// `total` bytes. Checked arithmetic: a hostile varint near `usize::MAX` must not wrap
+/// (gogo-generated `Unmarshal`: `postIndex < 0 || postIndex > l` -> `ErrInvalidLength` /
+/// `io.ErrUnexpectedEOF`, e.g. k8s.io/api/core/v1/generated.pb.go).
+fn len_exceeds(pos: usize, len: usize, total: usize) -> bool {
+    pos.checked_add(len).is_none_or(|end| end > total)
+}
+
 /// Read a varint from data starting at pos. Returns (value, new_pos).
 fn read_varint(data: &[u8], mut pos: usize) -> Option<(u64, usize)> {
     let mut value: u64 = 0;
@@ -9022,14 +9030,14 @@ fn decode_quantity(data: &[u8]) -> String {
             };
             pos = new_pos;
             let len = len as usize;
-            if pos + len > data.len() {
+            if len_exceeds(pos, len, data.len()) {
                 break;
             }
             if field_num == 1 {
                 // Field 1 is the canonical string form of the quantity
                 return String::from_utf8_lossy(&data[pos..pos + len]).to_string();
             }
-            pos += len;
+            pos = pos.saturating_add(len);
         } else if wire_type == WIRE_VARINT {
             let (_, new_pos) = match read_varint(data, pos) {
                 Some(v) => v,
@@ -9064,7 +9072,7 @@ fn decode_quantity_map_entry(data: &[u8]) -> (String, String) {
             };
             pos = new_pos;
             let len = len as usize;
-            if pos + len > data.len() {
+            if len_exceeds(pos, len, data.len()) {
                 break;
             }
             match field_num {
@@ -9077,7 +9085,7 @@ fn decode_quantity_map_entry(data: &[u8]) -> (String, String) {
                 }
                 _ => {}
             }
-            pos += len;
+            pos = pos.saturating_add(len);
         } else if wire_type == WIRE_VARINT {
             let (_, new_pos) = match read_varint(data, pos) {
                 Some(v) => v,
@@ -9112,7 +9120,7 @@ fn decode_string_list_map_entry(data: &[u8]) -> (String, Vec<Value>) {
                 };
                 pos = new_pos;
                 let len = len as usize;
-                if pos + len > data.len() {
+                if len_exceeds(pos, len, data.len()) {
                     break;
                 }
                 let body = &data[pos..pos + len];
@@ -9121,7 +9129,7 @@ fn decode_string_list_map_entry(data: &[u8]) -> (String, Vec<Value>) {
                     2 => items = decode_extra_value_items(body),
                     _ => {}
                 }
-                pos += len;
+                pos = pos.saturating_add(len);
             }
             WIRE_VARINT => match read_varint(data, pos) {
                 Some((_, new_pos)) => pos = new_pos,
@@ -9149,7 +9157,7 @@ fn decode_extra_value_items(data: &[u8]) -> Vec<Value> {
                 };
                 pos = new_pos;
                 let len = len as usize;
-                if pos + len > data.len() {
+                if len_exceeds(pos, len, data.len()) {
                     break;
                 }
                 if tag >> 3 == 1 {
@@ -9157,7 +9165,7 @@ fn decode_extra_value_items(data: &[u8]) -> Vec<Value> {
                         String::from_utf8_lossy(&data[pos..pos + len]).to_string(),
                     ));
                 }
-                pos += len;
+                pos = pos.saturating_add(len);
             }
             WIRE_VARINT => match read_varint(data, pos) {
                 Some((_, new_pos)) => pos = new_pos,
@@ -9193,7 +9201,7 @@ fn decode_bytes_map_entry(data: &[u8]) -> (String, String) {
             };
             pos = new_pos;
             let len = len as usize;
-            if pos + len > data.len() {
+            if len_exceeds(pos, len, data.len()) {
                 break;
             }
             match field_num {
@@ -9205,7 +9213,7 @@ fn decode_bytes_map_entry(data: &[u8]) -> (String, String) {
                 }
                 _ => {}
             }
-            pos += len;
+            pos = pos.saturating_add(len);
         } else if wire_type == WIRE_VARINT {
             let (_, new_pos) = match read_varint(data, pos) {
                 Some(v) => v,
@@ -9238,7 +9246,7 @@ fn decode_map_entry(data: &[u8]) -> (String, String) {
             };
             pos = new_pos;
             let len = len as usize;
-            if pos + len > data.len() {
+            if len_exceeds(pos, len, data.len()) {
                 break;
             }
             if let Ok(s) = std::str::from_utf8(&data[pos..pos + len]) {
@@ -9248,7 +9256,7 @@ fn decode_map_entry(data: &[u8]) -> (String, String) {
                     _ => {}
                 }
             }
-            pos += len;
+            pos = pos.saturating_add(len);
         } else if wire_type == WIRE_VARINT {
             let (_, new_pos) = match read_varint(data, pos) {
                 Some(v) => v,
@@ -9345,13 +9353,13 @@ fn decode_int_or_string(data: &[u8]) -> Value {
             };
             pos = new_pos;
             let len = len as usize;
-            if pos + len > data.len() {
+            if len_exceeds(pos, len, data.len()) {
                 break;
             }
             if field_num == 3 {
                 str_val = String::from_utf8_lossy(&data[pos..pos + len]).to_string();
             }
-            pos += len;
+            pos = pos.saturating_add(len);
         } else {
             break;
         }
