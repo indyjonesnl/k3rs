@@ -432,3 +432,87 @@ mod tests {
         );
     }
 }
+
+// Ports pkg/kubelet/nodestatus/setters_test.go TestNodeFeatures and
+// TestRuntimeHandlers.
+mod node_runtime_handlers_tests {
+    use kubernetes_rs_common::resources::{Node, NodeStatus};
+    use kubernetes_rs_kubelet::node_status::{set_node_features, set_runtime_handlers};
+    use kubernetes_rs_kubelet::runtime_state::{RuntimeFeatures, RuntimeHandler};
+
+    fn node() -> Node {
+        let mut n = Node::new("n");
+        n.status = Some(NodeStatus::default());
+        n
+    }
+
+    #[test]
+    fn node_runtime_handlers_features_set_from_runtime_features() {
+        for supplemental in [false, true] {
+            let mut n = node();
+            set_node_features(
+                &mut n,
+                Some(RuntimeFeatures {
+                    supplemental_groups_policy: supplemental,
+                }),
+            );
+            let f = n.status.unwrap().features.expect("features set");
+            assert_eq!(f.supplemental_groups_policy, Some(supplemental));
+        }
+    }
+
+    #[test]
+    fn node_runtime_handlers_features_untouched_without_runtime_features() {
+        let mut n = node();
+        set_node_features(&mut n, None);
+        assert!(n.status.unwrap().features.is_none());
+    }
+
+    #[test]
+    fn node_runtime_handlers_listed_with_their_features() {
+        let mut n = node();
+        set_runtime_handlers(
+            &mut n,
+            &[
+                RuntimeHandler {
+                    name: String::new(),
+                    supports_recursive_read_only_mounts: true,
+                    supports_user_namespaces: false,
+                },
+                RuntimeHandler {
+                    name: "gvisor".into(),
+                    supports_recursive_read_only_mounts: false,
+                    supports_user_namespaces: true,
+                },
+            ],
+        );
+        let hs = n.status.unwrap().runtime_handlers.expect("handlers set");
+        assert_eq!(hs.len(), 2);
+        assert_eq!(hs[0].name, "");
+        let f = hs[0].features.as_ref().unwrap();
+        assert_eq!(
+            (f.recursive_read_only_mounts, f.user_namespaces),
+            (Some(true), Some(false))
+        );
+        assert_eq!(hs[1].name, "gvisor");
+        let f = hs[1].features.as_ref().unwrap();
+        assert_eq!(
+            (f.recursive_read_only_mounts, f.user_namespaces),
+            (Some(false), Some(true))
+        );
+    }
+
+    #[test]
+    fn node_runtime_handlers_empty_list_clears_the_field() {
+        let mut n = node();
+        set_runtime_handlers(
+            &mut n,
+            &[RuntimeHandler {
+                name: "x".into(),
+                ..Default::default()
+            }],
+        );
+        set_runtime_handlers(&mut n, &[]);
+        assert!(n.status.unwrap().runtime_handlers.is_none());
+    }
+}

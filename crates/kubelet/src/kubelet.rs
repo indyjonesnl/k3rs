@@ -2128,6 +2128,10 @@ impl Kubelet {
         // NodeAddress setter so the Node is created with its addresses and
         // (external provider) the provided-node-ip annotation.
         self.run_node_address_setter(&mut node);
+        // setNodeStatus also runs the NodeFeatures and RuntimeHandlers setters
+        // (kubelet_node_status.go:685-686).
+        crate::node_status::set_runtime_handlers(&mut node, &self.runtime_state.runtime_handlers());
+        crate::node_status::set_node_features(&mut node, self.runtime_state.runtime_features());
 
         let key = build_key("nodes", None, &self.node_name);
 
@@ -2375,6 +2379,11 @@ impl Kubelet {
         // maintains the provided-node-ip annotation and, with an external
         // cloud provider, leaves provider-set addresses alone.
         self.run_node_address_setter(&mut node);
+
+        // `nodestatus.RuntimeHandlers` and `nodestatus.NodeFeatures`
+        // (kubelet_node_status.go:685-686), from the CRI Status response.
+        crate::node_status::set_runtime_handlers(&mut node, &self.runtime_state.runtime_handlers());
+        crate::node_status::set_node_features(&mut node, self.runtime_state.runtime_features());
 
         // `nodestatus.Images(kl.nodeStatusMaxImages, kl.imageManager.GetImageList)`
         // (kubelet_node_status.go:683): publish the image cache.
