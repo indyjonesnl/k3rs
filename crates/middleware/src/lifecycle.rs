@@ -6,7 +6,9 @@
 //! ordering of `preparedGenericAPIServer.RunWithContext`
 //! (`genericapiserver.go:525-700`).
 //!
-//! Library only: no server is wired to these yet. The caller supplies the
+//! Library only: no server is wired to these yet (the `WithWaitGroup` and
+//! `WithRetryAfter` filters at the end of this file are ready to be layered;
+//! the api-server run loop wiring and readyz are follow-ups). The caller supplies the
 //! parts of `RunWithContext` that are server specific (running pre-shutdown
 //! hooks, waiting for in-flight requests / watches, the listener stopping) as
 //! futures in [`ShutdownHooks`]; [`ShutdownSequence::run`] implements the
@@ -288,4 +290,187 @@ impl ShutdownSequence {
         s.in_flight_requests_drained.signaled().await;
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------
+// WithWaitGroup / WithRetryAfter
+// ---------------------------------------------------------------------
+
+/// `SafeWaitGroup` (apimachinery/pkg/util/waitgroup/waitgroup.go:25-57): a
+/// wait group whose `Add` fails once `Wait` has been called, so a request can
+/// never join the group after the drain began.
+#[derive(Clone, Default)]
+pub struct SafeWaitGroup {
+    inner: Arc<WaitGroupInner>,
+}
+
+#[derive(Default)]
+struct WaitGroupInner {
+    /// `(counter, wait)`.
+    state: std::sync::Mutex<(usize, bool)>,
+    zero: tokio::sync::Notify,
+}
+
+/// `Add` after `Wait`: "add with positive delta after Wait is forbidden".
+#[derive(Debug, PartialEq, Eq)]
+pub struct WaitGroupWaiting;
+
+/// `Add(1)` held until dropped (`Done()`).
+pub struct WaitGroupGuard(Arc<WaitGroupInner>);
+
+impl Drop for WaitGroupGuard {
+    fn drop(&mut self) {
+        let mut st = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        st.0 -= 1;
+        if st.0 == 0 {
+            self.0.zero.notify_waiters();
+        }
+    }
+}
+
+impl SafeWaitGroup {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `Add(1)`: fails once [`Self::wait`] has been called.
+    pub fn add(&self) -> Result<WaitGroupGuard, WaitGroupWaiting> {
+        let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        if st.1 {
+            return Err(WaitGroupWaiting);
+        }
+        st.0 += 1;
+        Ok(WaitGroupGuard(self.inner.clone()))
+    }
+
+    /// `Wait`: forbids further `add`s and blocks until the counter is zero.
+    pub async fn wait(&self) {
+        self.inner.state.lock().unwrap_or_else(|e| e.into_inner()).1 = true;
+        loop {
+            let notified = self.inner.zero.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.inner.state.lock().unwrap_or_else(|e| e.into_inner()).0 == 0 {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+/// `pathPrefixesExemptFromRetryAfter` (with_retry_after.go:25-31).
+const PATH_PREFIXES_EXEMPT_FROM_RETRY_AFTER: [&str; 4] =
+    ["/readyz", "/livez", "/healthz", "/metrics"];
+
+/// `isRequestExemptFromRetryAfter` (with_retry_after.go:113-131): the local
+/// loopback user agent (`kube-apiserver/`) and the health and metrics paths
+/// are neither rejected nor tracked. `WithWaitGroup` and `WithRetryAfter`
+/// must use this same function, or the wait group could wait forever.
+pub fn is_request_exempt_from_retry_after(req: &axum::extract::Request) -> bool {
+    let ua = req
+        .headers()
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    ua.starts_with("kube-apiserver/")
+        || PATH_PREFIXES_EXEMPT_FROM_RETRY_AFTER
+            .iter()
+            .any(|p| req.uri().path().starts_with(p))
+}
+
+/// State of [`with_retry_after`].
+#[derive(Clone)]
+pub struct RetryAfterState {
+    /// `shutdownDelayDurationElapsedCh`: `AfterShutdownDelayDuration`.
+    pub shutdown_delay_duration_elapsed: LifecycleSignal,
+}
+
+/// `WithRetryAfter` (with_retry_after.go:57-110): once the shutdown delay has
+/// elapsed, a new request that is not exempt gets `429`, `Retry-After: 5`
+/// and `Connection: close`. Use with `axum::middleware::from_fn_with_state`.
+pub async fn with_retry_after(
+    axum::extract::State(state): axum::extract::State<RetryAfterState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{header, HeaderValue, StatusCode};
+    if !state.shutdown_delay_duration_elapsed.is_signaled()
+        || is_request_exempt_from_retry_after(&req)
+    {
+        return next.run(req).await;
+    }
+    // http.Error: text/plain body, `nosniff`, trailing newline.
+    let mut resp = axum::response::Response::new(axum::body::Body::from(
+        "The apiserver is shutting down, please try again later.\n",
+    ));
+    *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+    let h = resp.headers_mut();
+    h.insert(header::CONNECTION, HeaderValue::from_static("close"));
+    h.insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    resp
+}
+
+/// `LongRunningRequestCheck` over the request.
+pub type LongRunningCheck = Arc<dyn Fn(&axum::extract::Request) -> bool + Send + Sync>;
+
+/// State of [`with_wait_group`].
+#[derive(Clone)]
+pub struct WaitGroupState {
+    /// `NonLongRunningRequestWaitGroup`.
+    pub wait_group: SafeWaitGroup,
+    pub long_running: LongRunningCheck,
+}
+
+/// `WithWaitGroup` (waitgroup.go:49-95): every non-long-running request joins
+/// the wait group until its handler returns (axum returns at the response
+/// head, so a streamed body is not tracked: more permissive than upstream). Once the group is waiting (`WithRetryAfter`
+/// has started rejecting), a non-exempt request gets `503` + `Retry-After: 1`
+/// with the `apiserver is shutting down` Status; exempt requests are served.
+pub async fn with_wait_group(
+    axum::extract::State(state): axum::extract::State<WaitGroupState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{header, HeaderValue, StatusCode};
+    if (state.long_running)(&req) {
+        return next.run(req).await;
+    }
+    let _guard = match state.wait_group.add() {
+        Ok(g) => g,
+        Err(WaitGroupWaiting) => {
+            if is_request_exempt_from_retry_after(&req) {
+                return next.run(req).await;
+            }
+            // NewServiceUnavailable("apiserver is shutting down")
+            let status = kubernetes_rs_common::types::Status::failure(
+                "apiserver is shutting down",
+                "ServiceUnavailable",
+                503,
+            );
+            let mut body = serde_json::to_vec(&status).unwrap_or_default();
+            body.push(b'\n');
+            let mut resp = axum::response::Response::new(axum::body::Body::from(body));
+            *resp.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
+            let h = resp.headers_mut();
+            h.insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+            h.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
+            h.insert(
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
+            return resp;
+        }
+    };
+    next.run(req).await
 }
