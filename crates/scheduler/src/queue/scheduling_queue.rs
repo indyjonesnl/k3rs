@@ -747,6 +747,11 @@ impl PriorityQueue {
             return s;
         }
         p_info.unschedulable_plugins.insert(pl.name().to_string());
+        // `metrics.UnschedulableReason(pl.Name(), pod.Spec.SchedulerName).Inc()`
+        // (`scheduling_queue.go:614`).
+        crate::metrics::metrics()
+            .unschedulable_reason(pl.name(), pod_scheduler_name(&p_info.pod))
+            .inc();
         p_info.gating_plugin = pl.name().to_string();
         p_info.gating_plugin_events = self
             .plugin_to_events_map
@@ -1004,6 +1009,14 @@ impl PriorityQueue {
                 .union(&p_info.pending_plugins)
                 .cloned()
                 .collect();
+            // `metrics.UnschedulableReason(plugin, schedulerName).Inc()` for
+            // every rejector plugin (`scheduling_queue.go:907`).
+            let profile = pod_scheduler_name(&p_info.pod).to_string();
+            for plugin in &rejector_plugins {
+                crate::metrics::metrics()
+                    .unschedulable_reason(plugin, &profile)
+                    .inc();
+            }
 
             // Check whether any event that happened during scheduling may
             // change this Pod's scheduling result.
@@ -1534,7 +1547,14 @@ impl Inner {
         self.in_flight_pods.insert(uid, seq);
         self.sched_cycle += 1;
 
-        // Reset the set of unschedulable plugins for the next attempt.
+        // Update metrics and reset the set of unschedulable plugins for the
+        // next attempt (`active_queue.go:326-331`).
+        let profile = pod_scheduler_name(&p_info.pod).to_string();
+        for plugin in p_info.unschedulable_plugins.union(&p_info.pending_plugins) {
+            crate::metrics::metrics()
+                .unschedulable_reason(plugin, &profile)
+                .dec();
+        }
         p_info.unschedulable_plugins.clear();
         p_info.pending_plugins.clear();
         p_info.gating_plugin.clear();
