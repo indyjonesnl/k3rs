@@ -84,6 +84,33 @@ pub async fn track_completed_with(
     next.run(req).await
 }
 
+/// `failedHandler = filterlatency.TrackCompleted(failedHandler)`
+/// (server/config.go:1052): a request rejected by the filter that was just
+/// started still observes that filter's latency, though the rest of the chain
+/// never runs.
+pub fn track_failed(req: &Request) {
+    let completed_at = Instant::now();
+    if let Some(fr) = req.extensions().get::<SharedRecord>() {
+        let fr = fr.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        record_filter_latency(fr.name, completed_at.duration_since(fr.started_timestamp));
+    }
+}
+
+/// Finish the `impersonation` filter (`TrackStarted(handler, "impersonation")`
+/// ... `TrackCompleted`, server/config.go:1043-1048). Impersonation runs inside
+/// the authentication middleware here rather than as its own layer, so its
+/// duration since `started` is recorded under `impersonation` and taken out of
+/// the enclosing filter's record (`authentication`), which upstream ends before
+/// impersonation begins.
+pub fn track_impersonation_completed(req: &Request, started: Instant) {
+    let elapsed = started.elapsed();
+    record_filter_latency("impersonation", elapsed);
+    if let Some(fr) = req.extensions().get::<SharedRecord>() {
+        let mut fr = fr.lock().unwrap_or_else(|e| e.into_inner());
+        fr.started_timestamp += elapsed;
+    }
+}
+
 /// `TrackCompleted`: observe `apiserver_request_filter_duration_seconds`.
 pub async fn track_completed(req: Request, next: Next) -> Response {
     track_completed_with(
