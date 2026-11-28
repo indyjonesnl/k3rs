@@ -2923,6 +2923,7 @@ dependencies = [
  "rcgen",
  "rustls",
  "rustls-pemfile",
+ "serde_json",
  "serial_test",
  "tempfile",
  "tokio",
