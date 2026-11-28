@@ -1,4 +1,6 @@
+pub mod core_a;
 pub mod events;
+pub mod workloads;
 
 use anyhow::Result;
 use chrono::Utc;

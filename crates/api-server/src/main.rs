@@ -636,6 +636,11 @@ async fn main() -> Result<()> {
         .unwrap();
     args.authorization.mark_legacy_flags_set(&matches);
     args.upstream.validate()?;
+    // `--tls-min-version` / `--tls-cipher-suites` (serving.go:186-193): a bad
+    // value stops startup; a good one constrains every serving listener.
+    if let Some(policy) = args.upstream.tls_policy().map_err(|e| anyhow::anyhow!(e))? {
+        kubernetes_rs_common::tls::set_serving_tls_policy(policy);
+    }
     args.bind_address =
         upstream_flags::resolve_bind_address(&args.bind_address, args.upstream.secure_port)?;
     // Upstream serves TLS whenever a serving cert/key is configured.
@@ -691,6 +696,10 @@ async fn main() -> Result<()> {
         kubernetes_rs_streamproxy::kubelet_ca_roots()
             .map_err(|e| anyhow::anyhow!("--kubelet-certificate-authority: {e}"))?;
     }
+
+    kubernetes_rs_api_server::handlers::node_conn::set_preferred_address_types(
+        args.upstream.kubelet_preferred_address_types.clone(),
+    );
 
     let mut image_policy_config = None;
     if let Some(path) = &args.admission_control_config_file {

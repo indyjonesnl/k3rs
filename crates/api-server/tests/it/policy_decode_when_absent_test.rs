@@ -60,7 +60,7 @@ fn cases() -> Vec<(&'static str, &'static str, Value, &'static str)> {
                 "metadata": { "name": "lr", "namespace": "default" },
                 "spec": { "limits": [{ "max": { "cpu": "1" } }] }
             }),
-            "spec.limits[0].type: Unsupported value",
+            "spec.limits[0].type: Invalid value: \"\"",
         ),
         (
             "a PDB selector requirement with no key",
