@@ -209,7 +209,10 @@ pub fn new_store(storage: Arc<StorageBackend>) -> Store<ResourceSlice, StorageBa
         storage,
         GroupResource::new("resource.k8s.io", "resourceslices"),
         Arc::new(Strategy),
-    );
+    )
+    // `SetObjectDefaults_ResourceSlice` (pkg/apis/resource/v1/
+    // zz_generated.defaults.go:121): `timeAdded` of every device taint.
+    .with_decode_defaulter(kubernetes_rs_common::defaults::default_resource_slice);
     store.return_deleted_object = true;
     store
 }

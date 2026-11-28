@@ -62,17 +62,9 @@ fn cases() -> Vec<(&'static str, Value, &'static str)> {
             })),
             "spec.devices.requests[0].exactly.selectors[0].cel.expression: Required value",
         ),
-        (
-            "a toleration with no operator",
-            claim_with_request(json!({
-                "name": "req",
-                "exactly": {
-                    "deviceClassName": "class",
-                    "tolerations": [{ "key": "example.com/taint" }]
-                }
-            })),
-            "spec.devices.requests[0].exactly.tolerations[0].operator: Required value",
-        ),
+        // A toleration with no operator is not invalid: decoding defaults it
+        // to `Equal` (pkg/apis/resource/v1/zz_generated.defaults.go:46-77);
+        // see `dra_defaults_applied_on_read_of_stored_claim_and_template`.
         (
             "a toleration with operator Exists and a value",
             claim_with_request(json!({

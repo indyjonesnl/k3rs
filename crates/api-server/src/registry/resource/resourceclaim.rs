@@ -344,7 +344,11 @@ pub fn new_stores(
         Arc::new(Strategy {
             storage: storage.clone(),
         }),
-    );
+    )
+    // The scheme defaulter of the storage codec (`SetObjectDefaults_ResourceClaim`,
+    // pkg/apis/resource/v1/zz_generated.defaults.go:46): objects read back
+    // from storage are defaulted too.
+    .with_decode_defaulter(kubernetes_rs_common::defaults::default_resource_claim);
     store.return_deleted_object = true;
     let status = store.with_update_strategy(Arc::new(StatusStrategy { storage }));
     (store, status)

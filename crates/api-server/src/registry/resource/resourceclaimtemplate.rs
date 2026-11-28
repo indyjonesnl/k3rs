@@ -120,7 +120,10 @@ pub fn new_store(storage: Arc<StorageBackend>) -> Store<ResourceClaimTemplate, S
         storage.clone(),
         GroupResource::new("resource.k8s.io", "resourceclaimtemplates"),
         Arc::new(Strategy { storage }),
-    );
+    )
+    // `SetObjectDefaults_ResourceClaimTemplate` (pkg/apis/resource/v1/
+    // zz_generated.defaults.go:86) runs on every decode.
+    .with_decode_defaulter(kubernetes_rs_common::defaults::default_resource_claim_template);
     store.return_deleted_object = true;
     store
 }

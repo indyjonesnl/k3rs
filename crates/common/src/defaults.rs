@@ -221,9 +221,60 @@ pub fn default_resource_claim_spec(spec: &mut crate::resources::dra::ResourceCla
     for req in &mut spec.devices.requests {
         if let Some(exactly) = req.exactly.as_mut() {
             default_request(&mut exactly.allocation_mode, &mut exactly.count);
+            default_device_tolerations(&mut exactly.tolerations);
         }
         for sub in &mut req.first_available {
             default_request(&mut sub.allocation_mode, &mut sub.count);
+            default_device_tolerations(&mut sub.tolerations);
+        }
+    }
+}
+
+/// The toleration default of `SetObjectDefaults_ResourceClaim` /
+/// `_ResourceClaimTemplate` (`pkg/apis/resource/v1/zz_generated.defaults.go:46-114`):
+/// an empty `operator` is `Equal`.
+fn default_device_tolerations(tolerations: &mut [crate::resources::dra::DeviceToleration]) {
+    use crate::resources::dra::TolerationOperator;
+    for t in tolerations {
+        if t.operator.is_none() {
+            t.operator = Some(TolerationOperator::Equal);
+        }
+    }
+}
+
+/// `SetObjectDefaults_ResourceClaim` (zz_generated.defaults.go:46-77): the
+/// spec defaults, plus the `Equal` operator default on the tolerations the
+/// allocation copied into `status.allocation.devices.results`.
+pub fn default_resource_claim(claim: &mut crate::resources::dra::ResourceClaim) {
+    default_resource_claim_spec(&mut claim.spec);
+    if let Some(allocation) = claim.status.as_mut().and_then(|s| s.allocation.as_mut()) {
+        for result in &mut allocation.devices.results {
+            default_device_tolerations(&mut result.tolerations);
+        }
+    }
+}
+
+/// `SetObjectDefaults_ResourceClaimTemplate` (zz_generated.defaults.go:86-108).
+pub fn default_resource_claim_template(
+    template: &mut crate::resources::dra::ResourceClaimTemplate,
+) {
+    default_resource_claim_spec(&mut template.spec.spec);
+}
+
+/// `SetDefaults_DeviceTaint` (`pkg/apis/resource/v1/defaults.go:51-56`): an
+/// unset `timeAdded` is now, truncated to the second.
+pub fn default_device_taint(taint: &mut crate::resources::dra::DeviceTaint) {
+    if taint.time_added.is_none() {
+        taint.time_added = chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp(), 0);
+    }
+}
+
+/// `SetObjectDefaults_ResourceSlice` (zz_generated.defaults.go:121-129):
+/// `SetDefaults_DeviceTaint` on every device taint.
+pub fn default_resource_slice(slice: &mut crate::resources::ResourceSlice) {
+    for device in &mut slice.spec.devices {
+        for taint in &mut device.taints {
+            default_device_taint(taint);
         }
     }
 }
