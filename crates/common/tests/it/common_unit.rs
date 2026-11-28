@@ -14,6 +14,7 @@ mod cel_authz;
 mod cel_cost;
 mod cel_dra;
 mod cel_env;
+mod cel_metrics;
 mod cel_versions;
 mod clusterauthenticationtrust;
 mod compat_version_metrics;
