@@ -121,3 +121,127 @@ fn out_of_range_port_rejected() {
         "got: {errs:?}"
     );
 }
+
+// TestValidateEndpointSlice (discovery/validation/validation_test.go:34-): nodeName,
+// hostname, deprecatedTopology and hints.
+fn ep(v: serde_json::Value) -> EndpointSlice {
+    es(json!({"addressType": "IPv4", "endpoints": [v]}))
+}
+
+#[test]
+fn endpointslice_endpoints_node_name_and_hostname() {
+    let errs = validate_endpoint_slice(&ep(json!({
+        "addresses": ["10.1.2.3"], "nodeName": "Bad_Node", "hostname": "bad.host"
+    })));
+    assert!(
+        has(&errs, "endpoints[0].nodeName", ErrorType::Invalid),
+        "{errs:?}"
+    );
+    assert!(
+        has(&errs, "endpoints[0].hostname", ErrorType::Invalid),
+        "{errs:?}"
+    );
+    let ok = validate_endpoint_slice(&ep(json!({
+        "addresses": ["10.1.2.3"], "nodeName": "node-1.example", "hostname": "pod-1"
+    })));
+    assert!(ok.is_empty(), "{ok:?}");
+}
+
+#[test]
+fn endpointslice_endpoints_deprecated_topology() {
+    let errs = validate_endpoint_slice(&ep(json!({
+        "addresses": ["10.1.2.3"],
+        "deprecatedTopology": {"topology.kubernetes.io/zone": "a", "bad key!": "v"}
+    })));
+    assert!(
+        has(
+            &errs,
+            "endpoints[0].deprecatedTopology[topology.kubernetes.io/zone]",
+            ErrorType::Internal
+        ),
+        "{errs:?}"
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.field == "endpoints[0].deprecatedTopology"
+                && e.error_type == ErrorType::Invalid),
+        "{errs:?}"
+    );
+    let many: serde_json::Map<String, serde_json::Value> =
+        (0..17).map(|i| (format!("k{i}"), json!("v"))).collect();
+    let errs = validate_endpoint_slice(&ep(json!({
+        "addresses": ["10.1.2.3"], "deprecatedTopology": many
+    })));
+    assert!(
+        has(&errs, "endpoints[0].deprecatedTopology", ErrorType::TooMany),
+        "{errs:?}"
+    );
+}
+
+#[test]
+fn endpointslice_endpoints_hints() {
+    let ok = validate_endpoint_slice(&ep(json!({
+        "addresses": ["10.1.2.3"],
+        "hints": {"forZones": [{"name": "zone-a"}], "forNodes": [{"name": "node-1"}]}
+    })));
+    assert!(ok.is_empty(), "{ok:?}");
+    let errs = validate_endpoint_slice(&ep(json!({
+        "addresses": ["10.1.2.3"],
+        "hints": {"forZones": [{"name": "a"}, {"name": "a"}, {"name": "bad zone"}],
+                  "forNodes": [{"name": "n"}, {"name": "n"}, {"name": "Bad_Node"}]}
+    })));
+    assert!(
+        has(
+            &errs,
+            "endpoints[0].hints.forZones[1].name",
+            ErrorType::Duplicate
+        ),
+        "{errs:?}"
+    );
+    assert!(
+        has(
+            &errs,
+            "endpoints[0].hints.forZones[2].name",
+            ErrorType::Invalid
+        ),
+        "{errs:?}"
+    );
+    assert!(
+        has(
+            &errs,
+            "endpoints[0].hints.forNodes[1].name",
+            ErrorType::Duplicate
+        ),
+        "{errs:?}"
+    );
+    assert!(
+        has(
+            &errs,
+            "endpoints[0].hints.forNodes[2].name",
+            ErrorType::Invalid
+        ),
+        "{errs:?}"
+    );
+    // A cap violation returns before forNodes is looked at.
+    let zones: Vec<_> = (0..9).map(|i| json!({"name": format!("z{i}")})).collect();
+    let errs = validate_endpoint_slice(&ep(json!({
+        "addresses": ["10.1.2.3"],
+        "hints": {"forZones": zones, "forNodes": [{"name": "Bad_Node"}]}
+    })));
+    assert!(
+        has(&errs, "endpoints[0].hints.forZones", ErrorType::TooMany),
+        "{errs:?}"
+    );
+    assert!(
+        !errs.iter().any(|e| e.field.contains("forNodes")),
+        "{errs:?}"
+    );
+    let nodes: Vec<_> = (0..9).map(|i| json!({"name": format!("n{i}")})).collect();
+    let errs = validate_endpoint_slice(&ep(json!({
+        "addresses": ["10.1.2.3"], "hints": {"forNodes": nodes}
+    })));
+    assert!(
+        has(&errs, "endpoints[0].hints.forNodes", ErrorType::TooMany),
+        "{errs:?}"
+    );
+}
