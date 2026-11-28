@@ -15,6 +15,7 @@ mod create_subcommand_flags;
 mod describe_core_a;
 mod describe_events_tests;
 mod describe_tests;
+mod describe_wiring;
 mod describe_workloads;
 mod drain_tests;
 mod edit_editor_tests;
