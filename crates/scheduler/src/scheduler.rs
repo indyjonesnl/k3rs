@@ -492,6 +492,29 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         use futures::StreamExt;
 
         let _ = self.weak_self.set(Arc::downgrade(&self));
+        // `cache.run` (cache.go:47-48, :731-735): `go wait.Until(func() {
+        // cache.cleanupAssumedPods(logger, time.Now()) }, cache.period,
+        // cache.stop)` with `cleanAssumedPeriod` (cache.go:38). The sweep also
+        // reports the cache-size metrics. `cache.stop` is the sender below:
+        // dropping this future (the scheduler stopping) closes it.
+        let (_cache_stop_tx, cache_stop_rx) = tokio::sync::oneshot::channel::<()>();
+        {
+            let weak = Arc::downgrade(&self);
+            tokio::spawn(kubernetes_rs_common::wait::until(
+                move || {
+                    let weak = weak.clone();
+                    async move {
+                        if let Some(s) = weak.upgrade() {
+                            s.cache.cleanup_assumed_pods(std::time::Instant::now());
+                        }
+                    }
+                },
+                crate::cache::CLEAN_ASSUMED_PERIOD,
+                async move {
+                    let _ = cache_stop_rx.await;
+                },
+            ));
+        }
         info!(
             "Scheduler profiles {:?} started (watch-based, resync every {:?})",
             self.profiles.names(),
