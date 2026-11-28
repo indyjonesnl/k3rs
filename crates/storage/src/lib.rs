@@ -1308,9 +1308,25 @@ fn objects_equal_ignoring_resource_version(a: &serde_json::Value, b: &serde_json
 impl StorageBackend {
     /// Create a new storage backend from the given configuration.
     pub async fn new(config: StorageConfig) -> Result<Self> {
+        Self::new_with_etcd_compaction_interval(config, etcd_compactor::DEFAULT_COMPACT_INTERVAL)
+            .await
+    }
+
+    /// [`StorageBackend::new`] with the `--etcd-compaction-interval` value
+    /// (`storagebackend.Config.CompactionInterval`, default
+    /// `DefaultCompactInterval` = 5m, zero disables). Only the etcd backend
+    /// compacts; the others ignore it.
+    pub async fn new_with_etcd_compaction_interval(
+        config: StorageConfig,
+        etcd_compaction_interval: std::time::Duration,
+    ) -> Result<Self> {
         match config {
             StorageConfig::Etcd { endpoints } => {
-                let storage = etcd::EtcdStorage::new(endpoints).await?;
+                let storage = etcd::EtcdStorage::new_with_compaction_interval(
+                    endpoints,
+                    etcd_compaction_interval,
+                )
+                .await?;
                 Ok(StorageBackend::Etcd(storage))
             }
             #[cfg(feature = "sqlite")]

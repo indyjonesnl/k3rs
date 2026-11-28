@@ -80,6 +80,20 @@ struct Args {
     #[arg(long, default_value = "http://localhost:2379")]
     etcd_servers: String,
 
+    /// `--etcd-compaction-interval` (server/options/etcd.go:193): the interval
+    /// of compaction requests; `0` disables the apiserver's compaction.
+    #[arg(
+        long,
+        default_value = "5m0s",
+        value_parser = |s: &str| -> Result<std::time::Duration, String> {
+            let ns = kubernetes_rs_common::go_duration::parse_go_duration(s)?;
+            u64::try_from(ns)
+                .map(std::time::Duration::from_nanos)
+                .map_err(|_| format!("negative duration {s:?} is not allowed"))
+        }
+    )]
+    etcd_compaction_interval: std::time::Duration,
+
     /// Log level
     #[arg(long, default_value = "info")]
     log_level: String,
@@ -756,7 +770,13 @@ async fn main() -> Result<()> {
             }
         }
     };
-    let storage = Arc::new(StorageBackend::new(storage_config).await?);
+    let storage = Arc::new(
+        StorageBackend::new_with_etcd_compaction_interval(
+            storage_config,
+            args.etcd_compaction_interval,
+        )
+        .await?,
+    );
 
     // Initialize TokenManager — prefer RSA keys for RS256 (K8s OIDC compatible),
     // fall back to HMAC HS256 if no RSA keys found.
@@ -1094,6 +1114,28 @@ async fn main() -> Result<()> {
 mod tests {
     use super::*;
     use kubernetes_rs_common::feature_gates::{self, Feature};
+
+    /// `--etcd-compaction-interval` (server/options/etcd.go:193): default
+    /// `DefaultCompactInterval` (5m), a Go duration, `0` disables.
+    #[test]
+    fn etcd_compaction_interval_flag() {
+        let d = |extra: &[&str]| {
+            let mut a = vec!["api-server"];
+            a.extend_from_slice(extra);
+            Args::try_parse_from(a).unwrap().etcd_compaction_interval
+        };
+        assert_eq!(d(&[]), std::time::Duration::from_secs(300));
+        assert_eq!(
+            d(&["--etcd-compaction-interval=10m"]),
+            std::time::Duration::from_secs(600)
+        );
+        assert_eq!(
+            d(&["--etcd-compaction-interval=0"]),
+            std::time::Duration::ZERO
+        );
+        assert!(Args::try_parse_from(["api-server", "--etcd-compaction-interval=-1s"]).is_err());
+        assert!(Args::try_parse_from(["api-server", "--etcd-compaction-interval=abc"]).is_err());
+    }
 
     /// `--feature-gates` must parse and be applicable (upstream
     /// `featureGate.AddFlag`, component-base/featuregate/feature_gate.go:912).
