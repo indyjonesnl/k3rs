@@ -146,134 +146,193 @@ pub fn parse_resource_arg(arg: &str) -> Result<(String, String)> {
     }
 }
 
-/// Update container images in a resource.
+/// Update the image of a pod template.
 ///
-/// Usage: `kubectl set image deployment/nginx nginx=nginx:1.9.1`
+/// Usage: `kubectl set image deployment/nginx busybox=busybox nginx=nginx:1.9.1`
+///
+/// Ports `SetImageOptions.Complete/Validate/Run` (set_image.go:130-290):
+/// `getResourcesAndImages`, the wildcard check, `setImage` over init containers
+/// and containers, and "no changes" being a no-op.
 pub async fn execute_image(
     client: &ApiClient,
     resource: &str,
     container_images: &[String],
     namespace: &str,
 ) -> Result<()> {
-    let (resource_type, name) = parse_resource_arg(resource)?;
+    // getResourcesAndImages(args) (set_image.go:296)
+    let mut args = vec![resource.to_string()];
+    args.extend(container_images.iter().cloned());
+    let (resources, image_args) = get_resources_and_pairs(&args, "image")?;
+    let images = parse_pairs(&image_args, "image")?;
+    validate_image_args(&resources, &images)?;
+
+    let (resource_type, name) = parse_resource_arg(&resources[0])?;
     let (path, mapping) = resolve_resource(client, &resource_type, &name, namespace).await?;
 
-    // Parse container=image pairs
-    let mut image_updates: Vec<(String, String)> = Vec::new();
-    for ci in container_images {
-        if let Some((container, image)) = ci.split_once('=') {
-            image_updates.push((container.to_string(), image.to_string()));
-        } else {
-            anyhow::bail!("Invalid image format: '{}'. Expected CONTAINER=IMAGE", ci);
-        }
-    }
-
-    if image_updates.is_empty() {
-        anyhow::bail!("At least one CONTAINER=IMAGE argument is required");
-    }
-
-    // Get the current resource to find container indices
     let current: Value = client
         .get(&path)
         .await
         .map_err(|e| anyhow::anyhow!("{}", e))
         .context("Failed to get resource")?;
 
-    // Find the containers array path (handles both pod and pod template specs)
-    let containers = if current
-        .get("spec")
-        .and_then(|s| s.get("template"))
-        .is_some()
-    {
-        // Deployment/StatefulSet/DaemonSet/ReplicaSet/Job/CronJob
-        current["spec"]["template"]["spec"]["containers"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-    } else {
-        // Pod
-        current["spec"]["containers"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-    };
-
-    // Build the strategic merge patch for containers
-    let mut patch_containers: Vec<Value> = Vec::new();
-    for (container_name, image) in &image_updates {
-        if container_name == "*" {
-            // Update all containers
-            for c in &containers {
-                if let Some(cname) = c.get("name").and_then(|n| n.as_str()) {
-                    patch_containers.push(json!({
-                        "name": cname,
-                        "image": image,
-                    }));
-                }
-            }
-        } else {
-            // Check container exists
-            let found = containers
-                .iter()
-                .any(|c| c.get("name").and_then(|n| n.as_str()) == Some(container_name));
-            if !found {
-                anyhow::bail!(
-                    "Container '{}' not found in resource {}/{}",
-                    container_name,
-                    resource_type,
-                    name
-                );
-            }
-            patch_containers.push(json!({
-                "name": container_name,
-                "image": image,
-            }));
-        }
+    let spec_ptr = pod_spec_pointer(&current);
+    let pod_spec = current.pointer(&spec_ptr).cloned().unwrap_or(Value::Null);
+    let (ops, errs) = image_patch_ops(&spec_ptr, &pod_spec, &images);
+    if !ops.is_empty() {
+        // patch the change
+        let _result: Value = client
+            .patch(&path, &Value::Array(ops), "application/json-patch+json")
+            .await
+            .context("failed to patch image update to pod template")?;
+        println!(
+            "{} image updated",
+            crate::ops::resource_label(&mapping, &name)
+        );
     }
-
-    // Build patch based on resource type
-    let patch_body = if current
-        .get("spec")
-        .and_then(|s| s.get("template"))
-        .is_some()
-    {
-        json!({
-            "spec": {
-                "template": {
-                    "spec": {
-                        "containers": patch_containers,
-                    }
-                }
-            }
-        })
-    } else {
-        json!({
-            "spec": {
-                "containers": patch_containers,
-            }
-        })
-    };
-
-    let _result: Value = client
-        .patch(&path, &patch_body, "application/strategic-merge-patch+json")
-        .await
-        .context("Failed to update image")?;
-
-    let label = crate::ops::resource_label(&mapping, &name);
-    for (container_name, image) in &image_updates {
-        if container_name == "*" {
-            println!("{label} image updated to {image} (all containers)");
-        } else {
-            println!("{label} container {container_name} image updated to {image}");
-        }
+    if !errs.is_empty() {
+        anyhow::bail!("{}", errs.join("\n"));
     }
-
     Ok(())
+}
+
+/// `cmdutil.GetResourcesAndPairs` (cmd/util/helpers.go:757): resources come
+/// first, then `KEY=VALUE` / `KEY-` pairs.
+pub fn get_resources_and_pairs(
+    args: &[String],
+    pair_type: &str,
+) -> Result<(Vec<String>, Vec<String>)> {
+    let (mut resources, mut pairs) = (Vec::new(), Vec::new());
+    let mut found_pair = false;
+    for s in args {
+        let non_resource =
+            (s.contains('=') && !s.starts_with('=')) || (s.ends_with('-') && s != "-");
+        match (found_pair, non_resource) {
+            (false, true) => {
+                found_pair = true;
+                pairs.push(s.clone());
+            }
+            (true, true) => pairs.push(s.clone()),
+            (false, false) => resources.push(s.clone()),
+            (true, false) => {
+                anyhow::bail!("all resources must be specified before {pair_type} changes: {s}")
+            }
+        }
+    }
+    Ok((resources, pairs))
+}
+
+/// `cmdutil.ParsePairs` with `supportRemove == false` (helpers.go:778). Later
+/// pairs for the same key win, as map assignment does.
+pub fn parse_pairs(
+    pair_args: &[String],
+    pair_type: &str,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut new_pairs = std::collections::BTreeMap::new();
+    let mut invalid: Vec<&str> = Vec::new();
+    for p in pair_args {
+        match p.split_once('=') {
+            Some((k, v)) if !p.starts_with('=') => {
+                new_pairs.insert(k.to_string(), v.to_string());
+            }
+            _ => invalid.push(p),
+        }
+    }
+    if !invalid.is_empty() {
+        anyhow::bail!("invalid {pair_type} format: {}", invalid.join(", "));
+    }
+    Ok(new_pairs)
+}
+
+/// `SetImageOptions.Validate` (set_image.go:177), for the checks that apply
+/// without `--all`, `-f` and `--local`.
+pub fn validate_image_args(
+    resources: &[String],
+    images: &std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    let mut errors: Vec<&str> = Vec::new();
+    if resources.is_empty() {
+        errors.push(
+            "one or more resources must be specified as <resource> <name> or <resource>/<name>",
+        );
+    }
+    if images.is_empty() {
+        errors.push("at least one image update is required");
+    } else if images.len() > 1 && images.contains_key("*") {
+        errors.push("all containers are already specified by *, but saw more than one container_name=container_image pairs");
+    }
+    if errors.is_empty() {
+        return Ok(());
+    }
+    // utilerrors.NewAggregate: one error prints as is, several as "[a, b]".
+    if errors.len() == 1 {
+        anyhow::bail!("{}", errors[0]);
+    }
+    anyhow::bail!("[{}]", errors.join(", "));
+}
+
+/// `setImage` (set_image.go:277): set `image` on every container of
+/// `containers` named `name` (or all, for `*`); whether any was found.
+pub fn set_image(containers: &mut [Value], name: &str, image: &str) -> bool {
+    let mut found = false;
+    for c in containers.iter_mut() {
+        if c.get("name").and_then(|n| n.as_str()) == Some(name) || name == "*" {
+            found = true;
+            c["image"] = Value::String(image.to_string());
+        }
+    }
+    found
+}
+
+/// The body of `SetImageOptions.Run`'s patch function (set_image.go:211-232)
+/// against one pod spec: the JSON-patch ops that change an image, and the
+/// `unable to find container named` errors. `ResolveImage` is the identity
+/// (`resolveImageFunc`, :334).
+pub fn image_patch_ops(
+    spec_ptr: &str,
+    pod_spec: &Value,
+    images: &std::collections::BTreeMap<String, String>,
+) -> (Vec<Value>, Vec<String>) {
+    let list = |f: &str| -> Vec<Value> {
+        pod_spec
+            .get(f)
+            .and_then(|c| c.as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    let (mut init, mut main) = (list("initContainers"), list("containers"));
+    let mut errs = Vec::new();
+    for (name, image) in images {
+        let init_found = set_image(&mut init, name, image);
+        let found = set_image(&mut main, name, image);
+        if !found && !init_found {
+            errs.push(format!("error: unable to find container named {name:?}"));
+        }
+    }
+    let mut ops = Vec::new();
+    for (field, before, after) in [
+        ("initContainers", list("initContainers"), &init),
+        ("containers", list("containers"), &main),
+    ] {
+        for (i, (b, a)) in before.iter().zip(after.iter()).enumerate() {
+            if b["image"] != a["image"] {
+                ops.push(json!({
+                    "op": "add",
+                    "path": format!("{spec_ptr}/{field}/{i}/image"),
+                    "value": a["image"],
+                }));
+            }
+        }
+    }
+    (ops, errs)
 }
 
 /// Update environment variables on a resource.
 ///
 /// Usage: `kubectl set env deployment/registry STORAGE_DIR=/local`
+///
+/// Ports `EnvOptions.RunEnv` (set_env.go:280): `ParseEnv`, `selectContainers`
+/// over containers plus init containers, `validateNoOverwrites` (skipped, as
+/// `--overwrite` defaults to true), `updateEnv`, and the `--list` output.
 pub async fn execute_env(
     client: &ApiClient,
     resource: &str,
@@ -285,6 +344,10 @@ pub async fn execute_env(
     let (resource_type, name) = parse_resource_arg(resource)?;
     let (path, mapping) = resolve_resource(client, &resource_type, &name, namespace).await?;
 
+    // ParseEnv(append(o.EnvParams, o.envArgs...), o.In)
+    let mut stdin = std::io::stdin();
+    let (env, remove, _used_stdin) = parse_env(env_vars, Some(&mut stdin))?;
+
     // Get current resource
     let current: Value = client
         .get(&path)
@@ -292,124 +355,89 @@ pub async fn execute_env(
         .map_err(|e| anyhow::anyhow!("{}", e))
         .context("Failed to get resource")?;
 
-    let containers = if current
-        .get("spec")
-        .and_then(|s| s.get("template"))
-        .is_some()
-    {
-        current["spec"]["template"]["spec"]["containers"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-    } else {
-        current["spec"]["containers"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-    };
+    // ContainerSelector defaults to "*" (NewEnvOptions).
+    let selector = container_name.unwrap_or("*");
+    let spec_ptr = pod_spec_pointer(&current);
+    let pod_spec = current.pointer(&spec_ptr).cloned().unwrap_or(Value::Null);
+    let kind = current.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+    let obj_name = current
+        .pointer("/metadata/name")
+        .and_then(|n| n.as_str())
+        .unwrap_or(&name);
 
-    // If --list, just print current env vars
-    if list {
-        for c in &containers {
-            let cname = c.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
-            if let Some(target) = container_name {
-                if cname != target {
-                    continue;
-                }
-            }
-            println!("# Container: {}", cname);
-            if let Some(envs) = c.get("env").and_then(|e| e.as_array()) {
-                for env in envs {
-                    let key = env.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                    let val = env.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                    println!("{}={}", key, val);
-                }
+    // containers = selectContainers(spec.Containers) + selectContainers(spec.InitContainers)
+    let empty = Vec::new();
+    let mut selected: Vec<(String, usize, &Value)> = Vec::new();
+    for field in ["containers", "initContainers"] {
+        for (i, c) in pod_spec
+            .get(field)
+            .and_then(|c| c.as_array())
+            .unwrap_or(&empty)
+            .iter()
+            .enumerate()
+        {
+            let cname = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            if select_string(cname, selector) {
+                selected.push((field.to_string(), i, c));
             }
         }
+    }
+    if selected.is_empty() {
+        eprintln!("Warning: {kind}/{obj_name} does not have any containers matching {selector:?}");
         return Ok(());
     }
 
-    // Parse env vars: KEY=VALUE to add, KEY- to remove
-    let mut to_add: Vec<(String, String)> = Vec::new();
-    let mut to_remove: Vec<String> = Vec::new();
-
-    for ev in env_vars {
-        if let Some(key) = ev.strip_suffix('-') {
-            to_remove.push(key.to_string());
-        } else if let Some((key, value)) = ev.split_once('=') {
-            to_add.push((key.to_string(), value.to_string()));
-        } else {
-            anyhow::bail!("Invalid env format: '{}'. Expected KEY=VALUE or KEY-", ev);
-        }
-    }
-
-    // Build updated containers with env changes
-    let mut updated_containers: Vec<Value> = Vec::new();
-
-    for c in &containers {
-        let cname = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
-        if let Some(target) = container_name {
-            if cname != target {
-                continue;
-            }
-        }
-
-        let mut env_list: Vec<Value> = c
+    let mut ops: Vec<Value> = Vec::new();
+    for (field, i, c) in &selected {
+        let existing: Vec<Value> = c
             .get("env")
             .and_then(|e| e.as_array())
             .cloned()
             .unwrap_or_default();
-
-        // Remove specified vars
-        env_list.retain(|e| {
-            let key = e.get("name").and_then(|n| n.as_str()).unwrap_or("");
-            !to_remove.contains(&key.to_string())
-        });
-
-        // Add/update vars
-        for (key, value) in &to_add {
-            if let Some(existing) = env_list
-                .iter_mut()
-                .find(|e| e.get("name").and_then(|n| n.as_str()) == Some(key))
-            {
-                existing["value"] = json!(value);
-            } else {
-                env_list.push(json!({"name": key, "value": value}));
-            }
-        }
-
-        updated_containers.push(json!({
-            "name": cname,
-            "env": env_list,
-        }));
-    }
-
-    let patch_body = if current
-        .get("spec")
-        .and_then(|s| s.get("template"))
-        .is_some()
-    {
-        json!({
-            "spec": {
-                "template": {
-                    "spec": {
-                        "containers": updated_containers,
+        let updated = update_env(&existing, &env, &remove);
+        if list {
+            let cname = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            println!("# {kind} {obj_name}, container {cname}");
+            for e in &updated {
+                let n = e.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                match e.get("valueFrom") {
+                    None | Some(Value::Null) => {
+                        let v = e.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                        println!("{n}={v}");
                     }
+                    Some(_) => println!("# {n} from {}", env_var_ref_string(&e["valueFrom"])),
                 }
             }
-        })
-    } else {
-        json!({
-            "spec": {
-                "containers": updated_containers,
-            }
-        })
-    };
+            continue;
+        }
+        let env_path = format!("{spec_ptr}/{field}/{i}/env");
+        if updated == existing {
+            continue;
+        }
+        if updated.is_empty() {
+            ops.push(json!({"op": "remove", "path": env_path}));
+        } else {
+            ops.push(json!({"op": "add", "path": env_path, "value": updated}));
+        }
+    }
+    if list {
+        return Ok(());
+    }
+
+    // make sure arguments to set or replace environment variables are set
+    // before returning a successful message (set_env.go:545)
+    if ops.is_empty() {
+        // no changes
+        return Ok(());
+    }
+    if env.is_empty() && remove.is_empty() {
+        anyhow::bail!("at least one environment variable must be provided");
+    }
 
     let _result: Value = client
-        .patch(&path, &patch_body, "application/strategic-merge-patch+json")
+        .patch(&path, &Value::Array(ops), "application/json-patch+json")
         .await
-        .context("Failed to update environment variables")?;
+        .context("failed to patch env update to pod template")?;
 
     println!(
         "{} env updated",
@@ -417,6 +445,241 @@ pub async fn execute_env(
     );
 
     Ok(())
+}
+
+/// JSON pointer to the pod spec of a pod or of an object with a pod template
+/// (`polymorphichelpers.UpdatePodSpecForObject`).
+fn pod_spec_pointer(obj: &Value) -> String {
+    if obj
+        .pointer("/spec/jobTemplate/spec/template/spec")
+        .is_some()
+    {
+        "/spec/jobTemplate/spec/template/spec".to_string()
+    } else if obj.pointer("/spec/template/spec").is_some() {
+        "/spec/template/spec".to_string()
+    } else {
+        "/spec".to_string()
+    }
+}
+
+/// `GetEnvVarRefString` (cmd/set/env/env_resolve.go): a short description of
+/// an env var's `valueFrom`.
+fn env_var_ref_string(from: &Value) -> String {
+    let sel = |k: &str| -> Option<(String, String)> {
+        let r = from.get(k)?;
+        Some((
+            r.get("name")?.as_str()?.to_string(),
+            r.get("key")?.as_str()?.to_string(),
+        ))
+    };
+    if let Some(f) = from.get("fieldRef") {
+        return format!(
+            "field path {}",
+            f.get("fieldPath").and_then(|v| v.as_str()).unwrap_or("")
+        );
+    }
+    if let Some(r) = from.get("resourceFieldRef") {
+        return format!(
+            "resource {}",
+            r.get("resource").and_then(|v| v.as_str()).unwrap_or("")
+        );
+    }
+    if let Some((n, k)) = sel("configMapKeyRef") {
+        return format!("configmap {n}, key {k}");
+    }
+    if let Some((n, k)) = sel("secretKeyRef") {
+        return format!("secret {n}, key {k}");
+    }
+    String::new()
+}
+
+/// `IsEnvironmentArgument` (cmd/set/env/env_parse.go:35): the regexp
+/// `(?ms)^(.+)\=(.*)$` matches iff there is an `=` after at least one char.
+pub fn is_environment_argument(s: &str) -> bool {
+    s.char_indices().any(|(i, c)| c == '=' && i > 0)
+}
+
+/// `SplitEnvironmentFromResources` (env_parse.go:40): resources come first,
+/// then environment arguments (`KEY=VALUE` or `KEY-`). `None` when a resource
+/// follows an environment argument.
+pub fn split_environment_from_resources(args: &[String]) -> Option<(Vec<String>, Vec<String>)> {
+    let (mut resources, mut env_args) = (Vec::new(), Vec::new());
+    let mut first = true;
+    for s in args {
+        let is_env = is_environment_argument(s) || s.ends_with('-');
+        match (first, is_env) {
+            (true, true) => {
+                first = false;
+                env_args.push(s.clone());
+            }
+            (false, true) => env_args.push(s.clone()),
+            (true, false) => resources.push(s.clone()),
+            (false, false) => return None,
+        }
+    }
+    Some((resources, env_args))
+}
+
+fn env_var(name: &str, value: &str) -> Value {
+    json!({"name": name, "value": value})
+}
+
+/// `readEnv` (env_parse.go:125): `KEY=VALUE` lines, `#` starts a comment.
+fn read_env(r: &mut dyn std::io::Read) -> Result<Vec<Value>> {
+    use std::io::BufRead;
+    let mut env = Vec::new();
+    for line in std::io::BufReader::new(r).lines() {
+        let line = line?;
+        let spec = line.split('#').next().unwrap_or("");
+        if let Some((k, v)) = spec.split_once('=') {
+            env.push(env_var(k, v));
+        }
+    }
+    Ok(env)
+}
+
+/// `ParseEnv` (env_parse.go:108) via `parseIntoEnvVar` (:55): the variables to
+/// set, the names to remove, and whether stdin was read (`-`). The same
+/// variable cannot be both modified and removed.
+pub fn parse_env(
+    spec: &[String],
+    mut default_reader: Option<&mut dyn std::io::Read>,
+) -> Result<(Vec<Value>, Vec<String>, bool)> {
+    const TYPE: &str = "environment variable";
+    let mut env = Vec::new();
+    let mut exists = std::collections::HashSet::new();
+    let mut remove: Vec<String> = Vec::new();
+    let mut used_stdin = false;
+    for env_spec in spec {
+        if env_spec == "-" {
+            let Some(r) = default_reader.as_deref_mut() else {
+                anyhow::bail!("when '-' is used, STDIN must be open");
+            };
+            env.extend(read_env(r)?);
+            used_stdin = true;
+        } else if let Some((k, v)) = env_spec.split_once('=') {
+            let errs = kubernetes_rs_common::validation::metav1::is_env_var_name(k);
+            if !errs.is_empty() {
+                anyhow::bail!("{k:?} is not a valid key name: {}", errs.join(";"));
+            }
+            exists.insert(k.to_string());
+            env.push(env_var(k, v));
+        } else if let Some(key) = env_spec.strip_suffix('-') {
+            remove.push(key.to_string());
+        } else {
+            anyhow::bail!("unknown {TYPE}: {env_spec}");
+        }
+    }
+    if remove.iter().any(|r| exists.contains(r)) {
+        anyhow::bail!("can not both modify and remove the same {TYPE} in the same command");
+    }
+    Ok((env, remove, used_stdin))
+}
+
+fn env_name(e: &Value) -> &str {
+    e.get("name").and_then(|n| n.as_str()).unwrap_or("")
+}
+
+/// `findEnv` (cmd/set/helper.go:125).
+pub fn find_env<'a>(env: &'a [Value], name: &str) -> Option<&'a Value> {
+    env.iter().find(|e| env_name(e) == name)
+}
+
+/// `updateEnv` (helper.go:140): adds and deletes environment variables. An
+/// added variable replaces every existing one of the same name; removing a
+/// variable removes every existing one of that name; unrelated duplicates are
+/// left intact; a removal wins over an addition.
+pub fn update_env(existing: &[Value], env: &[Value], remove: &[String]) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut covered: std::collections::HashSet<String> = remove.iter().cloned().collect();
+    for e in existing {
+        if covered.contains(env_name(e)) {
+            continue;
+        }
+        if let Some(newer) = find_env(env, env_name(e)) {
+            covered.insert(env_name(e).to_string());
+            out.push(newer.clone());
+            continue;
+        }
+        out.push(e.clone());
+    }
+    for e in env {
+        if covered.contains(env_name(e)) {
+            continue;
+        }
+        covered.insert(env_name(e).to_string());
+        out.push(e.clone());
+    }
+    out
+}
+
+/// `validateNoOverwrites` (set_env.go:186): without `--overwrite`, a variable
+/// that already has a different value is an error.
+pub fn validate_no_overwrites(existing: &[Value], env: &[Value]) -> Result<()> {
+    for e in env {
+        if let Some(current) = find_env(existing, env_name(e)) {
+            let (cv, ev) = (current.get("value"), e.get("value"));
+            if cv.and_then(|v| v.as_str()).unwrap_or("")
+                != ev.and_then(|v| v.as_str()).unwrap_or("")
+            {
+                anyhow::bail!(
+                    "'{}' already has a value ({}), and --overwrite is false",
+                    env_name(current),
+                    cv.and_then(|v| v.as_str()).unwrap_or("")
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `contains` (set_env.go:195): an empty key list contains every key.
+pub fn env_keys_contain(key: &str, key_list: &[String]) -> bool {
+    key_list.is_empty() || key_list.iter().any(|k| k == key)
+}
+
+/// `keyToEnvName` (set_env.go:208): upper-cased with every character outside
+/// `[a-zA-Z0-9_]` replaced by `_`. The caller prints the
+/// `key %s transferred to %s` warning when the result differs.
+pub fn key_to_env_name(key: &str) -> String {
+    key.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .to_uppercase()
+}
+
+/// `selectString` (cmd/set/helper.go:46): `spec` is a string with a non-greedy
+/// `*` wildcard. Ported with its quirks (relative `pos`, `next < pos`).
+pub fn select_string(s: &str, spec: &str) -> bool {
+    if spec == "*" {
+        return true;
+    }
+    if !spec.contains('*') {
+        return s == spec;
+    }
+    let mut pos: i64 = 0;
+    let parts: Vec<&str> = spec.split('*').collect();
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        let tail = s.get(pos as usize..).unwrap_or("");
+        let next: i64 = tail.find(part).map_or(-1, |n| n as i64);
+        if next < pos
+            || (i == 0 && pos != 0)
+            || (i == parts.len() - 1 && s.len() as i64 != part.len() as i64 + next)
+        {
+            return false;
+        }
+        pos = next;
+    }
+    true
 }
 
 /// Update resource requests/limits on a resource.
