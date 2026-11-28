@@ -35,6 +35,8 @@ struct Recorded {
 struct Fake {
     rec: Arc<Mutex<Recorded>>,
     fail_create: bool,
+    /// gRPC code of the failure; Internal when unset.
+    create_code: Option<tonic::Code>,
     fail_delete: bool,
 }
 
@@ -116,7 +118,10 @@ impl Controller for Fake {
         let req = r.into_inner();
         self.rec.lock().unwrap().create.push(req.clone());
         if self.fail_create {
-            return Err(Status::new(tonic::Code::Internal, "driver exploded"));
+            return Err(Status::new(
+                self.create_code.unwrap_or(tonic::Code::Internal),
+                "driver exploded",
+            ));
         }
         Ok(Response::new(CreateSnapshotResponse {
             snapshot: Some(Snapshot {
@@ -189,7 +194,17 @@ async fn start(fake: Fake, policy: &str) -> Env {
         "cls",
         json!({"apiVersion":"snapshot.storage.k8s.io/v1","kind":"VolumeSnapshotClass",
             "metadata":{"name":"cls"},"driver":DRIVER,"deletionPolicy":policy,
-            "parameters":{"foo":"bar","csi.storage.k8s.io/snapshotter-secret-name":"s"}}),
+            "parameters":{"foo":"bar","csi.storage.k8s.io/snapshotter-secret-name":"s-${volumesnapshot.name}",
+                "csi.storage.k8s.io/snapshotter-secret-namespace":"${volumesnapshot.namespace}"}}),
+    )
+    .await;
+    put(
+        &storage,
+        "secrets",
+        Some("default"),
+        "s-snap",
+        json!({"apiVersion":"v1","kind":"Secret","metadata":{"name":"s-snap","namespace":"default"},
+            "data":{"token":"dG9rZW4="}}),
     )
     .await;
     put(
@@ -406,4 +421,139 @@ fn volume_snapshot_driver_parameter_and_name_helpers() {
         make_snapshot_name("").unwrap_err().to_string(),
         "Corrupted snapshot object, it is missing UID"
     );
+}
+
+fn being_created(c: &VolumeSnapshotContent) -> bool {
+    c.metadata.annotations.as_ref().is_some_and(|a| {
+        a.contains_key("snapshot.storage.kubernetes.io/volumesnapshot-being-created")
+    })
+}
+
+#[tokio::test]
+async fn volume_snapshot_driver_credentials_from_class_secret() {
+    // getCreateSnapshotInput resolves the secret into the deletion-secret
+    // annotations; getCSISnapshotInput reads them back for CreateSnapshot.
+    let env = start(Fake::default(), "Delete").await;
+    env.controller.process_key(KEY).await.unwrap();
+    let c = content(&env).await;
+    let ann = c.metadata.annotations.clone().unwrap();
+    assert_eq!(
+        ann["snapshot.storage.kubernetes.io/deletion-secret-name"],
+        "s-snap"
+    );
+    assert_eq!(
+        ann["snapshot.storage.kubernetes.io/deletion-secret-namespace"],
+        "default"
+    );
+    let reqs = env.rec.lock().unwrap().create.clone();
+    let expect: HashMap<String, String> = [("token".to_string(), "token".to_string())].into();
+    assert_eq!(reqs[0].secrets, expect);
+    // Secret keys never reach the driver as parameters.
+    assert!(!reqs[0].parameters.keys().any(|k| k.contains("secret")));
+}
+
+#[tokio::test]
+async fn volume_snapshot_driver_being_created_removed_on_success() {
+    let env = start(Fake::default(), "Delete").await;
+    env.controller.process_key(KEY).await.unwrap();
+    assert!(!being_created(&content(&env).await));
+}
+
+#[tokio::test]
+async fn volume_snapshot_driver_being_created_removed_on_final_error() {
+    let env = start(
+        Fake {
+            fail_create: true,
+            ..Default::default()
+        },
+        "Delete",
+    )
+    .await;
+    env.controller.process_key(KEY).await.unwrap_err();
+    assert!(!being_created(&content(&env).await));
+}
+
+#[tokio::test]
+async fn volume_snapshot_driver_being_created_kept_on_non_final_error() {
+    // Unavailable: a previous CreateSnapshot may still be in progress, so the
+    // annotation stays to avoid leaking the snapshot.
+    let env = start(
+        Fake {
+            fail_create: true,
+            create_code: Some(tonic::Code::Unavailable),
+            ..Default::default()
+        },
+        "Delete",
+    )
+    .await;
+    env.controller.process_key(KEY).await.unwrap_err();
+    assert!(being_created(&content(&env).await));
+}
+
+#[tokio::test]
+async fn volume_snapshot_driver_missing_secret_fails_before_rpc() {
+    let env = start(Fake::default(), "Delete").await;
+    env.storage
+        .delete(&build_key("secrets", Some("default"), "s-snap"))
+        .await
+        .unwrap();
+    let err = env.controller.process_key(KEY).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("cannot get credentials for snapshot content"),
+        "{err:#}"
+    );
+    assert!(env.rec.lock().unwrap().create.is_empty());
+}
+
+#[test]
+fn volume_snapshot_driver_secret_reference_resolution() {
+    use kubernetes_rs_controller_manager::controllers::volume_snapshot::{
+        get_snapshotter_secret_reference as g, is_csi_final_error,
+    };
+    let p = |pairs: &[(&str, &str)]| -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    };
+    const N: &str = "csi.storage.k8s.io/snapshotter-secret-name";
+    const NS: &str = "csi.storage.k8s.io/snapshotter-secret-namespace";
+    assert_eq!(g(&p(&[]), "c", None).unwrap(), None);
+    assert!(g(&p(&[(N, "a")]), "c", None)
+        .unwrap_err()
+        .contains("Both must be specified"));
+    assert!(g(&p(&[(N, ""), (NS, "x")]), "c", None)
+        .unwrap_err()
+        .contains("either namespace or name is empty"));
+    // content name resolves without a snapshot (delete time).
+    assert_eq!(
+        g(
+            &p(&[(N, "${volumesnapshotcontent.name}"), (NS, "ns")]),
+            "snapcontent-1",
+            None
+        )
+        .unwrap(),
+        Some(("ns".to_string(), "snapcontent-1".to_string()))
+    );
+    // volumesnapshot.name is not valid in a namespace template.
+    let e = g(&p(&[(N, "a"), (NS, "${volumesnapshot.name}")]), "c", None).unwrap_err();
+    assert!(e.contains("invalid tokens"), "{e}");
+    let e = g(&p(&[(N, "Bad_Name"), (NS, "ns")]), "c", None).unwrap_err();
+    assert!(e.contains("is not a valid secret name"), "{e}");
+    // isCSIFinalError
+    use kubernetes_rs_csi::controller_client::ControllerError as CE;
+    let grpc = |c| CE::Grpc(Box::new(tonic::Status::new(c, "x")));
+    assert!(is_csi_final_error(&grpc(tonic::Code::Internal)));
+    assert!(is_csi_final_error(&grpc(tonic::Code::InvalidArgument)));
+    for c in [
+        tonic::Code::Cancelled,
+        tonic::Code::DeadlineExceeded,
+        tonic::Code::Unavailable,
+        tonic::Code::ResourceExhausted,
+        tonic::Code::Aborted,
+    ] {
+        assert!(!is_csi_final_error(&grpc(c)), "{c:?}");
+    }
+    assert!(!is_csi_final_error(&CE::InvalidArgument("x".into())));
 }
