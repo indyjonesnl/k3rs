@@ -1354,3 +1354,47 @@ mod tests {
         assert!(q.nominated_nodes().is_empty());
     }
 }
+
+/// `pending_pods` and `queue_incoming_pods_total` follow the queues
+/// (`heap.NewWithRecorder`, `unschedulablePods.addOrUpdate`,
+/// `unlockedActiveQueue.add`).
+#[cfg(test)]
+mod scheduler_metrics_pending_pods {
+    use kubernetes_rs_scheduler::metrics::metrics;
+
+    #[test]
+    fn active_pods_gauge_and_incoming_counter_follow_the_active_queue() {
+        use kubernetes_rs_scheduler::queue::events::EVENT_UNSCHEDULED_POD_ADD;
+        use kubernetes_rs_scheduler::queue::scheduling_queue::*;
+        let m = metrics();
+        let before = m.active_pods().get();
+        let incoming = |q: &str, e: &str| {
+            m.scheduler_queue_incoming_pods
+                .with_label_values(&[q, e])
+                .get()
+        };
+        let add = EVENT_UNSCHEDULED_POD_ADD.label();
+        let in_before = incoming("active", &add);
+        let q = PriorityQueue::new(
+            std::sync::Arc::new(|a: &QueuedPodInfo, b: &QueuedPodInfo| {
+                a.pod.metadata.name < b.pod.metadata.name
+            }),
+            PriorityQueueOptions::default(),
+        );
+        for n in ["a", "b", "c"] {
+            let mut p =
+                kubernetes_rs_common::resources::Pod::new(n.to_string(), Default::default());
+            p.metadata.uid = n.to_string();
+            p.metadata.namespace = Some("default".into());
+            q.add(p);
+        }
+        assert_eq!(m.active_pods().get(), before + 3.0);
+        assert_eq!(incoming("active", &add), in_before + 3.0);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let popped = rt.block_on(q.pop()).unwrap();
+        assert_eq!(popped.pod.metadata.name, "a");
+        assert_eq!(m.active_pods().get(), before + 2.0);
+    }
+}

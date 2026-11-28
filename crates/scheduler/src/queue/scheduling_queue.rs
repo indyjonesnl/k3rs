@@ -46,6 +46,7 @@ use super::events::*;
 use super::heap::Heap;
 use super::nominator::{NominatingInfo, Nominator, PodLister, PodRef};
 use crate::fwk::{Code, Status};
+use crate::metrics::{MetricRecorder, PendingPodsRecorder};
 use kubernetes_rs_common::resources::Pod;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -302,19 +303,70 @@ pub struct BackoffQueue {
 }
 
 /// `unschedulablePods` (`unschedulable_pods.go:27-34`).
-#[derive(Default)]
 pub struct UnschedulablePods {
     pod_info_map: HashMap<String, QueuedPodInfo>,
+    /// `unschedulableRecorder` / `gatedRecorder` (`:31-33`): update the
+    /// counters when elements are added or removed.
+    unschedulable_recorder: Option<Box<dyn MetricRecorder + Send + Sync>>,
+    gated_recorder: Option<Box<dyn MetricRecorder + Send + Sync>>,
+}
+
+impl Default for UnschedulablePods {
+    /// `newUnschedulablePods(NewUnschedulablePodsRecorder(), NewGatedPodsRecorder())`
+    /// (`scheduling_queue.go:362`).
+    fn default() -> Self {
+        let m = crate::metrics::metrics();
+        Self {
+            pod_info_map: HashMap::new(),
+            unschedulable_recorder: Some(Box::new(
+                PendingPodsRecorder::new_unschedulable_pods_recorder(m),
+            )),
+            gated_recorder: Some(Box::new(PendingPodsRecorder::new_gated_pods_recorder(m))),
+        }
+    }
 }
 
 impl UnschedulablePods {
-    /// `addOrUpdate` (`:48-59`).
-    fn add_or_update(&mut self, p_info: QueuedPodInfo, _event: &str) {
-        self.pod_info_map.insert(pod_key(&p_info.pod), p_info);
+    /// `addOrUpdate` (`:48-59`). `event` labels `queue_incoming_pods_total`.
+    fn add_or_update(&mut self, p_info: QueuedPodInfo, event: &str) {
+        let key = pod_key(&p_info.pod);
+        if !self.pod_info_map.contains_key(&key) {
+            let recorder = if p_info.gated() {
+                &self.gated_recorder
+            } else {
+                &self.unschedulable_recorder
+            };
+            if let Some(r) = recorder {
+                r.inc();
+            }
+            record_incoming_pod("unschedulable", event);
+        }
+        self.pod_info_map.insert(key, p_info);
     }
-    /// `delete` (`:63-73`).
-    fn delete(&mut self, pod: &Pod, _gated: bool) -> Option<QueuedPodInfo> {
-        self.pod_info_map.remove(&pod_key(pod))
+    /// `delete` (`:63-73`). `gated` selects which counter is decreased.
+    fn delete(&mut self, pod: &Pod, gated: bool) -> Option<QueuedPodInfo> {
+        let removed = self.pod_info_map.remove(&pod_key(pod));
+        if removed.is_some() {
+            let recorder = if gated {
+                &self.gated_recorder
+            } else {
+                &self.unschedulable_recorder
+            };
+            if let Some(r) = recorder {
+                r.dec();
+            }
+        }
+        removed
+    }
+    /// `clear` (`:86-95`).
+    pub fn clear(&mut self) {
+        self.pod_info_map.clear();
+        for r in [&self.unschedulable_recorder, &self.gated_recorder]
+            .into_iter()
+            .flatten()
+        {
+            r.clear();
+        }
     }
     /// `get` (`:77-83`).
     fn get(&self, pod: &Pod) -> Option<&QueuedPodInfo> {
@@ -360,6 +412,14 @@ impl Inner {
         pod.metadata.uid = np.uid.clone();
         pod
     }
+}
+
+/// `metrics.SchedulerQueueIncomingPods.WithLabelValues(queue, event).Inc()`.
+fn record_incoming_pod(queue: &str, event: &str) {
+    crate::metrics::metrics()
+        .scheduler_queue_incoming_pods
+        .with_label_values(&[queue, event])
+        .inc();
 }
 
 /// `PriorityQueue` (`scheduling_queue.go:163-209`).
@@ -431,10 +491,28 @@ impl PriorityQueue {
         let active_less = Arc::clone(&less_fn);
         Arc::new(Self {
             inner: Mutex::new(Inner {
-                active_q: Heap::new(key_fn(), Box::new(move |a, b| active_less(a, b))),
+                active_q: Heap::new_with_recorder(
+                    key_fn(),
+                    Box::new(move |a, b| active_less(a, b)),
+                    Some(Box::new(PendingPodsRecorder::new_active_pods_recorder(
+                        crate::metrics::metrics(),
+                    ))),
+                ),
                 backoff_q: BackoffQueue {
-                    pod_backoff_q: Heap::new(key_fn(), Box::new(less_backoff_with_priority)),
-                    pod_error_backoff_q: Heap::new(key_fn(), Box::new(less_backoff_completed)),
+                    pod_backoff_q: Heap::new_with_recorder(
+                        key_fn(),
+                        Box::new(less_backoff_with_priority),
+                        Some(Box::new(PendingPodsRecorder::new_backoff_pods_recorder(
+                            crate::metrics::metrics(),
+                        ))),
+                    ),
+                    pod_error_backoff_q: Heap::new_with_recorder(
+                        key_fn(),
+                        Box::new(less_backoff_completed),
+                        Some(Box::new(PendingPodsRecorder::new_backoff_pods_recorder(
+                            crate::metrics::metrics(),
+                        ))),
+                    ),
                 },
                 unschedulable_pods: UnschedulablePods::default(),
                 in_flight_pods: HashMap::new(),
@@ -726,6 +804,8 @@ impl PriorityQueue {
             inner.nominator.add_nominated_pod(&p_info.pod, None);
         }
         inner.active_q.add_or_update(p_info);
+        // `unlockedActiveQueue.add` (`active_queue.go:109`).
+        record_incoming_pod("active", event);
         true
     }
 
@@ -1430,6 +1510,8 @@ impl Inner {
             Err(_) => {
                 // Try to pop from backoffQ when activeQ is empty (`PopFromBackoffQ`).
                 let p = self.backoff_q.pop_backoff().ok()?;
+                // `active_queue.go:306`.
+                record_incoming_pod("active", POP_FROM_BACKOFF_Q);
                 debug!(pod = %pod_key(&p.pod), event = POP_FROM_BACKOFF_Q, "Pod popped from the backoffQ");
                 p
             }
@@ -1624,6 +1706,7 @@ impl BackoffQueue {
                 return;
             }
         }
+        record_incoming_pod("backoff", event); // `:309` / `:320`
         debug!(pod = %key, event, queue = BACKOFF_Q, "Pod moved to an internal scheduling queue");
     }
 
