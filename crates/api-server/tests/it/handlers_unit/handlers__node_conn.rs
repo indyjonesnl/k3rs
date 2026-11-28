@@ -104,4 +104,79 @@ mod tests {
         let conn = node_conn(&node, None).expect("should resolve");
         assert_eq!(conn.scheme, "https");
     }
+
+    /// Port of `TestGetPreferredAddress` (`pkg/util/node/node_test.go:31`).
+    #[test]
+    fn preferred_address_cases() {
+        let a = |t: &str, v: &str| NodeAddress {
+            address_type: t.to_string(),
+            address: v.to_string(),
+        };
+        let get = |addrs: Vec<NodeAddress>, prefs: &[&str]| {
+            let mut node = make_node(addrs, None);
+            // "label address ignored": the hostname label is not an address.
+            node.metadata
+                .labels
+                .get_or_insert_with(Default::default)
+                .insert("kubernetes.io/hostname".into(), "label-hostname".into());
+            get_preferred_node_address(&node, prefs)
+        };
+        assert_eq!(
+            get(vec![], &[]).unwrap_err().to_string(),
+            "no preferred addresses found; known addresses: []"
+        );
+        assert_eq!(
+            get(vec![a("InternalIP", "1.2.3.4")], &["Hostname"])
+                .unwrap_err()
+                .to_string(),
+            "no preferred addresses found; known addresses: [{InternalIP 1.2.3.4}]"
+        );
+        assert_eq!(
+            get(
+                vec![
+                    a("InternalIP", "1.2.3.4"),
+                    a("ExternalIP", "1.2.3.5"),
+                    a("ExternalIP", "1.2.3.7")
+                ],
+                &["Hostname", "ExternalIP"]
+            )
+            .unwrap(),
+            "1.2.3.5"
+        );
+        assert_eq!(
+            get(
+                vec![a("ExternalIP", "1.2.3.5"), a("Hostname", "status-hostname")],
+                &["Hostname", "ExternalIP"]
+            )
+            .unwrap(),
+            "status-hostname"
+        );
+        assert_eq!(
+            get(
+                vec![a("ExternalIP", "1.2.3.5")],
+                &["Hostname", "ExternalIP"]
+            )
+            .unwrap(),
+            "1.2.3.5"
+        );
+    }
+
+    /// The default order reaches nodes that report only a hostname or DNS
+    /// name (`options.go:75-85`), which InternalIP/ExternalIP alone did not.
+    #[test]
+    fn preferred_address_default_order_in_node_conn() {
+        let a = |t: &str, v: &str| NodeAddress {
+            address_type: t.to_string(),
+            address: v.to_string(),
+        };
+        let node = make_node(vec![a("InternalIP", "10.0.0.1"), a("Hostname", "h")], None);
+        assert_eq!(node_conn(&node, None).unwrap().host, "h");
+        let node = make_node(
+            vec![a("ExternalDNS", "x.example"), a("ExternalIP", "1.1.1.1")],
+            None,
+        );
+        assert_eq!(node_conn(&node, None).unwrap().host, "x.example");
+        let node = make_node(vec![a("InternalDNS", "n.local")], None);
+        assert_eq!(node_conn(&node, None).unwrap().host, "n.local");
+    }
 }
