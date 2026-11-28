@@ -1946,4 +1946,49 @@ mod tests {
             .unwrap();
         assert_eq!(hpa.kind.version, "v1");
     }
+
+    // `TestAPIGroupsAndResources` (test/integration/apiserver) + installer.go:488-498:
+    // every top-level resource this server registers carries a
+    // `storageVersionHash`, except the ones whose REST object is not a
+    // `genericregistry.Store` (not a `StorageVersionProvider`).
+    #[test]
+    fn storage_version_hash_audit_registered_kinds() {
+        use kubernetes_rs_common::resource_encoding::{
+            storage_version_hash::discovery_storage_version_hash, GroupResource,
+            StorageFactoryConfig,
+        };
+        let config = StorageFactoryConfig::new().resource_encoding_config();
+        let mut missing: Vec<String> = Vec::new();
+        let mut seen = 0;
+        for k in crate::registered_kinds() {
+            if !k.subresource.is_empty() {
+                continue;
+            }
+            seen += 1;
+            let gr = GroupResource::new(&k.group, &k.resource);
+            if discovery_storage_version_hash(&config, &gr, &k.kind).is_none() {
+                missing.push(format!("{}/{} {}", k.group, k.version, k.resource));
+            }
+        }
+        assert!(seen > 50, "registered_kinds looks empty: {seen}");
+        missing.sort();
+        missing.dedup();
+        // Upstream stamps no hash on these: not `genericregistry.Store`
+        // (tokenreviews, *accessreviews, componentstatuses: see `is_store_backed`)
+        // or not served by kube-apiserver at all (metrics.k8s.io is
+        // metrics-server's aggregated API).
+        assert_eq!(
+            missing,
+            vec![
+                "/v1 componentstatuses",
+                "authentication.k8s.io/v1 tokenreviews",
+                "authorization.k8s.io/v1 localsubjectaccessreviews",
+                "authorization.k8s.io/v1 selfsubjectaccessreviews",
+                "authorization.k8s.io/v1 selfsubjectrulesreviews",
+                "authorization.k8s.io/v1 subjectaccessreviews",
+                "metrics.k8s.io/v1beta1 nodes",
+                "metrics.k8s.io/v1beta1 pods",
+            ]
+        );
+    }
 }

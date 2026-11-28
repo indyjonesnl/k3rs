@@ -38,6 +38,32 @@ mod tests {
         StorageFactoryConfig::new_effective_version(e).resource_encoding_config()
     }
 
+    // Groups outside kube-apiserver's storage factory are stamped from their
+    // single storage version, v1.
+    #[test]
+    fn discovery_hash_external_groups_use_v1() {
+        let c = config("1.35");
+        for (g, r, k) in [
+            (
+                "apiextensions.k8s.io",
+                "customresourcedefinitions",
+                "CustomResourceDefinition",
+            ),
+            ("apiregistration.k8s.io", "apiservices", "APIService"),
+            (
+                "snapshot.storage.k8s.io",
+                "volumesnapshots",
+                "VolumeSnapshot",
+            ),
+        ] {
+            assert_eq!(
+                discovery_storage_version_hash(&c, &GroupResource::new(g, r), k),
+                Some(storage_version_hash(g, "v1", k)),
+                "{g}/{r}"
+            );
+        }
+    }
+
     #[test]
     fn discovery_hash_uses_storage_version() {
         let c = config("1.35");
