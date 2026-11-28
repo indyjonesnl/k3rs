@@ -243,17 +243,15 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_resource_spec_trailing_comma() {
-        let map = parse_resource_spec(Some("cpu=100m,")).unwrap();
-        assert_eq!(map.len(), 1);
-        assert_eq!(map.get("cpu").unwrap(), "100m");
-    }
-
-    #[test]
-    fn test_parse_resource_spec_whitespace_trimming() {
-        let map = parse_resource_spec(Some(" cpu=100m , memory=256Mi ")).unwrap();
-        assert_eq!(map.get("cpu").unwrap(), "100m");
-        assert_eq!(map.get("memory").unwrap(), "256Mi");
+    fn test_parse_resource_spec_trailing_comma_and_whitespace_are_rejected() {
+        // populateResourceListV1 splits strictly on "," and "=".
+        assert_eq!(
+            parse_resource_spec(Some("cpu=100m,"))
+                .unwrap_err()
+                .to_string(),
+            "Invalid argument syntax , expected <resource>=<value>"
+        );
+        assert!(parse_resource_spec(Some(" cpu=100m , memory=256Mi ")).is_err());
     }
 
     #[test]
@@ -823,5 +821,72 @@ mod set_image_logic {
         let (ops, errs) = image_patch_ops("/spec", &spec, &img("nope", "x"));
         assert!(ops.is_empty());
         assert_eq!(errs, ["error: unable to find container named \"nope\""]);
+    }
+}
+
+/// Ports of `populateResourceListV1`, `SetResourcesOptions.Validate` and the
+/// `Run` patch function (set_resources.go, generate/versioned/run.go).
+mod set_resources_logic {
+    use kubernetes_rs_kubectl::commands::set::*;
+    use serde_json::json;
+
+    #[test]
+    fn set_resources_parse_spec_is_strict_and_canonical() {
+        let m = parse_resource_spec(Some("cpu=0.2,memory=512Mi")).unwrap();
+        assert_eq!(m["cpu"], "200m");
+        assert_eq!(m["memory"], "512Mi");
+        assert_eq!(parse_resource_spec(Some("cpu=0")).unwrap()["cpu"], "0");
+        assert_eq!(
+            parse_resource_spec(Some("cpu200m"))
+                .unwrap_err()
+                .to_string(),
+            "Invalid argument syntax cpu200m, expected <resource>=<value>"
+        );
+        assert!(parse_resource_spec(Some("cpu=1=2")).is_err());
+        assert!(parse_resource_spec(Some("cpu=abc")).is_err());
+        assert!(parse_resource_spec(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn set_resources_patch_ops_select_containers_and_merge() {
+        let spec = json!({
+            "initContainers": [{"name": "init"}],
+            "containers": [
+                {"name": "nginx", "resources": {"limits": {"cpu": "1", "memory": "1Gi"}}},
+                {"name": "side"}
+            ]
+        });
+        let lim = parse_resource_spec(Some("cpu=200m")).unwrap();
+        let req = parse_resource_spec(Some("cpu=100m")).unwrap();
+
+        // `*` selects every container, init containers included; limits merge key by key.
+        let (ops, errs) = resources_patch_ops("/spec", &spec, "*", Some(&lim), Some(&req));
+        assert!(errs.is_empty());
+        assert_eq!(ops.len(), 3);
+        let by_path = |p: &str| ops.iter().find(|o| o["path"] == p).unwrap()["value"].clone();
+        assert_eq!(
+            by_path("/spec/containers/0/resources"),
+            json!({"limits": {"cpu": "200m", "memory": "1Gi"}, "requests": {"cpu": "100m"}})
+        );
+        assert_eq!(
+            by_path("/spec/initContainers/0/resources"),
+            json!({"limits": {"cpu": "200m"}, "requests": {"cpu": "100m"}})
+        );
+
+        // Only the named container; requests untouched when not given.
+        let (ops, _) = resources_patch_ops("/spec", &spec, "side", Some(&lim), None);
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0]["value"], json!({"limits": {"cpu": "200m"}}));
+
+        // Wildcard prefix.
+        let (ops, _) = resources_patch_ops("/spec", &spec, "ng*", Some(&lim), None);
+        assert_eq!(ops.len(), 1); // "ng*" matches "nginx" only
+
+        // Unchanged values produce no op; no match is an error.
+        let same = parse_resource_spec(Some("cpu=1,memory=1Gi")).unwrap();
+        let (ops, errs) = resources_patch_ops("/spec", &spec, "nginx", Some(&same), None);
+        assert!(ops.is_empty() && errs.is_empty());
+        let (_, errs) = resources_patch_ops("/spec", &spec, "zzz", Some(&lim), None);
+        assert_eq!(errs, ["error: unable to find container named zzz"]);
     }
 }
