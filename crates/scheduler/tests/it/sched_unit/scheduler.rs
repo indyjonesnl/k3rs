@@ -1752,6 +1752,32 @@ mod tests {
         );
     }
 
+    /// `PreemptionVictims.Observe(len(c.Victims().Pods))` (preemption.go:487)
+    /// counts every victim, terminating ones included.
+    #[tokio::test]
+    async fn test_prepare_candidate_scheduler_metrics_preemption_victims() {
+        let storage = Arc::new(MemoryStorage::new());
+        let scheduler =
+            Scheduler::new_with_name(storage.clone(), 1, "default-scheduler".to_string());
+        let mut victims = Vec::new();
+        for i in 0..3 {
+            victims.push(stored_pod(&storage, &format!("m{i}"), "node-1", 1, None).await);
+        }
+        let h = &kubernetes_rs_scheduler::metrics::metrics().preemption_victims;
+        let (c0, s0) = (h.get_sample_count(), h.get_sample_sum());
+        scheduler
+            .prepare_candidate(
+                None,
+                &make_pending_pod("high-pod", "default"),
+                "node-1",
+                &victims,
+            )
+            .await
+            .unwrap();
+        assert_eq!(h.get_sample_count(), c0 + 1);
+        assert_eq!(h.get_sample_sum(), s0 + 3.0);
+    }
+
     /// `prepareCandidate` clears the nomination of the lower-priority pods
     /// nominated to the node (`getLowerPriorityNominatedPods`, :746-761), in
     /// the queue's nominator and on the pod; others keep theirs.

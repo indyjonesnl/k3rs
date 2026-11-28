@@ -1118,7 +1118,14 @@ impl Framework {
         }
         let _remove = Remove(&self.waiting_pods, &pod.metadata.uid);
 
+        let start = std::time::Instant::now();
         let s = waiting_pod.recv().await;
+        // `PermitWaitDuration.WithLabelValues(s.Code().String())`
+        // (framework.go:1758).
+        crate::metrics::metrics()
+            .permit_wait_duration
+            .with_label_values(&[s.code().as_str()])
+            .observe(crate::metrics::since_in_seconds(start));
         if s.is_success() {
             return Status::success();
         }

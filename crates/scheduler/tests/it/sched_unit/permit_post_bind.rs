@@ -600,3 +600,52 @@ async fn waiting_pod_rejected_is_not_bound() {
     assert_eq!(node_of(&c.storage).await, None);
     assert_eq!(*log.lock().unwrap(), ["permit:Gate:p:n1"]);
 }
+
+/// `PermitWaitDuration.WithLabelValues(s.Code().String())` (framework.go:1758)
+/// is observed once per `WaitOnPermit` of a waiting pod, labelled with the
+/// resulting status code.
+#[tokio::test]
+async fn wait_on_permit_scheduler_metrics_permit_wait_duration() {
+    let m = kubernetes_rs_scheduler::metrics::metrics();
+    for (reject, label) in [(true, "Unschedulable"), (false, "Success")] {
+        let count = |l: &str| {
+            m.permit_wait_duration
+                .with_label_values(&[l])
+                .get_sample_count()
+        };
+        let before = count(label);
+        let log: Log = Default::default();
+        let f = framework(vec![permit(
+            "TestPermitPlugin",
+            Code::Wait,
+            Duration::from_secs(10),
+            &log,
+        )]);
+        let pod = pod_named("pod", "pod");
+        assert_eq!(run_permit(&f, &pod).await.code(), Code::Wait);
+        let wp = f.get_waiting_pod("pod").unwrap();
+        tokio::spawn(async move {
+            if reject {
+                wp.reject("TestPermitPlugin", "no");
+            } else {
+                wp.allow("TestPermitPlugin");
+            }
+        });
+        f.wait_on_permit(&pod).await;
+        assert_eq!(count(label), before + 1, "{label}");
+    }
+    // A pod that is not waiting records nothing.
+    let before = m
+        .permit_wait_duration
+        .with_label_values(&["Success"])
+        .get_sample_count();
+    Framework::default()
+        .wait_on_permit(&pod_named("p", "p"))
+        .await;
+    assert_eq!(
+        m.permit_wait_duration
+            .with_label_values(&["Success"])
+            .get_sample_count(),
+        before
+    );
+}

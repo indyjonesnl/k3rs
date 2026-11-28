@@ -2568,6 +2568,10 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
             // (schedule_one.go:170-173).
             return PostFilterOutcome::ClearNomination;
         }
+        // `defer metrics.PreemptionAttempts.Inc()` in
+        // `DefaultPreemption.PostFilter` (default_preemption.go:122-124): every
+        // call counts, whatever the outcome.
+        crate::metrics::metrics().preemption_attempts.inc();
         // If the pod's preemptionPolicy is "Never", skip preemption entirely.
         // Fall back to the PriorityClass's policy when the pod spec doesn't
         // carry one (mirrors the spec.priority backstop in the schedule
@@ -2787,6 +2791,13 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         })
         .await?;
 
+        // `metrics.PreemptionVictims.Observe(len(c.Victims().Pods))` after the
+        // victims were evicted (preemption.go:487): all victims, including
+        // those already terminating.
+        crate::metrics::metrics()
+            .preemption_victims
+            .observe(victims.len() as f64);
+
         let Some(queue) = queue else {
             return Ok(());
         };
@@ -2814,7 +2825,7 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
     /// Deviations: the task has no cancellable context of its own (dropping
     /// the eviction futures on the first error is the cancellation); failures
     /// to clear a nomination are only logged by the status writer, so they do
-    /// not trigger the `Activate`; the preemption metrics are not recorded.
+    /// not trigger the `Activate`.
     pub fn prepare_candidate_async(
         self: &Arc<Self>,
         queue: &Arc<PriorityQueue>,
@@ -2822,6 +2833,10 @@ impl<S: Storage + Send + Sync + 'static> Scheduler<S> {
         node_name: &str,
         victims: &[Pod],
     ) {
+        // First statement of `prepareCandidateAsync` (preemption.go:535).
+        crate::metrics::metrics()
+            .preemption_victims
+            .observe(victims.len() as f64);
         let victim_pods: Vec<Pod> = victims
             .iter()
             .filter(|v| v.metadata.deletion_timestamp.is_none())
