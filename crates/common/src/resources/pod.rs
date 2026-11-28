@@ -2075,3 +2075,88 @@ pub struct PodResourceClaimStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_claim_name: Option<String>,
 }
+
+/// `PodLogOptions` (`staging/src/k8s.io/api/core/v1/types.go:7169`): the query
+/// options of a Pod's `/log` subresource.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodLogOptions {
+    #[serde(flatten)]
+    pub type_meta: TypeMeta,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub container: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub follow: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub previous: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since_seconds: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since_time: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub timestamps: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tail_lines: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit_bytes: Option<i64>,
+    #[serde(
+        default,
+        rename = "insecureSkipTLSVerifyBackend",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub insecure_skip_tls_verify_backend: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<String>,
+}
+
+/// `LogStreamStdout` / `LogStreamStderr` / `LogStreamAll`
+/// (`staging/src/k8s.io/api/core/v1/types.go:7156-7161`).
+pub const LOG_STREAM_STDOUT: &str = "Stdout";
+pub const LOG_STREAM_STDERR: &str = "Stderr";
+pub const LOG_STREAM_ALL: &str = "All";
+
+impl PodLogOptions {
+    /// `Convert_url_Values_To_v1_PodLogOptions`
+    /// (`staging/src/k8s.io/api/core/v1/zz_generated.conversion`-style, see
+    /// `pkg/apis/core/v1/conversion.go`): each field takes the first value of
+    /// its query parameter. Booleans follow `runtime.Convert_Slice_string_To_bool`
+    /// (`"false"` / `"0"`, case-insensitive, are false, anything else true),
+    /// integers `strconv.ParseInt`, `sinceTime` RFC 3339.
+    pub fn from_query(params: &HashMap<String, String>) -> Result<Self, String> {
+        let get = |k: &str| params.get(k);
+        let boolean = |k: &str| {
+            get(k).is_some_and(|v| !(v.eq_ignore_ascii_case("false") || v == "0" || v.is_empty()))
+        };
+        let int = |k: &str| -> Result<Option<i64>, String> {
+            get(k)
+                .map(|v| {
+                    v.parse::<i64>()
+                        .map_err(|_| format!("strconv.ParseInt: parsing \"{v}\": invalid syntax"))
+                })
+                .transpose()
+        };
+        let since_time = get("sinceTime")
+            .filter(|v| !v.is_empty())
+            .map(|v| {
+                chrono::DateTime::parse_from_rfc3339(v)
+                    .map(|t| t.with_timezone(&chrono::Utc))
+                    .map_err(|e| {
+                        format!("parsing time \"{v}\" as \"2006-01-02T15:04:05Z07:00\": {e}")
+                    })
+            })
+            .transpose()?;
+        Ok(Self {
+            type_meta: TypeMeta::default(),
+            container: get("container").cloned().unwrap_or_default(),
+            follow: boolean("follow"),
+            previous: boolean("previous"),
+            since_seconds: int("sinceSeconds")?,
+            since_time,
+            timestamps: boolean("timestamps"),
+            tail_lines: int("tailLines")?,
+            limit_bytes: int("limitBytes")?,
+            insecure_skip_tls_verify_backend: boolean("insecureSkipTLSVerifyBackend"),
+            stream: get("stream").cloned(),
+        })
+    }
+}
