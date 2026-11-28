@@ -15,6 +15,7 @@ mod conformance_network_services_proxy;
 mod conntrack_cleanup;
 mod endpointslice_cache_test;
 mod hostport_test;
+mod kubeproxy_config;
 mod linebuffer_test;
 mod localdetector;
 mod metrics_encoding;

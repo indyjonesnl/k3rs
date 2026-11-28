@@ -1,3 +1,4 @@
+pub mod config;
 pub mod conntrack;
 pub mod endpointslice_cache;
 pub mod iptables;
