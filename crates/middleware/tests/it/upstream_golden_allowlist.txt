@@ -10,8 +10,6 @@
 # --- vct: typed StatefulSet volumeClaimTemplates[] serialises an empty apiVersion/kind (TypeMeta has no skip-if-empty)
 typed | apps.v1.StatefulSet | #2958 | typed StatefulSet volumeClaimTemplates[] serialises an empty apiVersion/kind (TypeMeta has no skip-if-empty)
 
-# --- evt: core/v1 Event shares one struct with events.k8s.io/v1: reportingComponent is serialised as reportingController
-typed,typed-wire | core.v1.Event | #2958 | core/v1 Event shares one struct with events.k8s.io/v1: reportingComponent is serialised as reportingController
 
 # --- node: typed Node does not model deprecated spec.configSource, spec.externalID, status.phase
 typed,typed-wire | core.v1.Node | #2958 | typed Node does not model deprecated spec.configSource, spec.externalID, status.phase

@@ -88,12 +88,15 @@ pub struct Event {
     )]
     pub event_time: Option<DateTime<Utc>>,
 
-    /// Name of the controller that emitted this Event (e.g., "kubernetes.io/kubelet")
-    /// K8s events.k8s.io/v1 calls this "reportingController"
+    /// Name of the controller that emitted this Event (e.g., "kubernetes.io/kubelet").
+    /// core/v1 wire name is `reportingComponent` (`api/core/v1/generated.proto`
+    /// `Event.reportingComponent`, field 14); events.k8s.io/v1 calls it
+    /// `reportingController`, which `Event::to_events_v1` emits and which is
+    /// still accepted on input.
     #[serde(
-        rename = "reportingController",
+        rename = "reportingComponent",
         skip_serializing_if = "Option::is_none",
-        alias = "reportingComponent"
+        alias = "reportingController"
     )]
     pub reporting_component: Option<String>,
 

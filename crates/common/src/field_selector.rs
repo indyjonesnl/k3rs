@@ -191,12 +191,13 @@ pub fn extract_field_value(resource: &Value, field_path: &str) -> Option<String>
             .and_then(Value::as_str)
             .unwrap_or("");
         if component.is_empty() {
-            // The stored core Event serializes it as `reportingController`
-            // (resources/event.rs `reporting_component`).
+            // The stored core Event serializes it as `reportingComponent`
+            // (resources/event.rs `reporting_component`); events.k8s.io
+            // bodies carry `reportingController`.
             return Some(
                 resource
-                    .get("reportingController")
-                    .or_else(|| resource.get("reportingComponent"))
+                    .get("reportingComponent")
+                    .or_else(|| resource.get("reportingController"))
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string(),
@@ -206,11 +207,13 @@ pub fn extract_field_value(resource: &Value, field_path: &str) -> Option<String>
     }
     // strategy.go:117-121: `"reportingComponent": event.ReportingController`
     // ("use the core/v1 field name").
-    if field_path == "reportingComponent" {
+    // events.k8s.io/v1 selects the same value as `reportingController`
+    // (events strategy ToSelectableFields); stored objects use the core name.
+    if field_path == "reportingComponent" || field_path == "reportingController" {
         return Some(
             resource
-                .get("reportingController")
-                .or_else(|| resource.get("reportingComponent"))
+                .get("reportingComponent")
+                .or_else(|| resource.get("reportingController"))
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string(),
