@@ -36,6 +36,7 @@
 
 pub mod apply;
 pub mod fieldset;
+pub mod lastapplied;
 pub mod schema;
 pub mod versionconverter;
 

@@ -87,7 +87,22 @@ impl FieldManager {
     /// `None` when the apply creates the object; `config` is the applied
     /// configuration. Returns the merged object with its new `managedFields`,
     /// or the conflicts when `force` is false.
+    ///
+    /// Layered as `NewDefaultFieldManager` does (fieldmanager.go:46-61): the
+    /// last-applied manager (lastappliedmanager.go) wraps the rest, see
+    /// [`super::lastapplied`].
     pub fn apply_value(
+        &self,
+        live: Option<&Value>,
+        config: &Value,
+        manager: &str,
+        force: bool,
+    ) -> Result<Value, UpdateFailure> {
+        self.apply_value_last_applied(live, config, manager, force)
+    }
+
+    /// `FieldManager.Apply` below the last-applied manager.
+    pub(super) fn apply_value_inner(
         &self,
         live: Option<&Value>,
         config: &Value,
