@@ -57,6 +57,7 @@ fn label_annotate_validate_labels() {
 }
 
 #[test]
+#[allow(clippy::type_complexity)]
 fn label_annotate_label_func() {
     let cases: Vec<(Value, Vec<(&str, &str)>, Vec<&str>, bool, &str, Value)> = vec![
         (
