@@ -12,5 +12,6 @@ pub mod ratelimit;
 pub mod reflector;
 pub mod token_source;
 pub mod urlbackoff;
+pub mod warnings;
 pub mod watch;
 pub mod with_retry;
