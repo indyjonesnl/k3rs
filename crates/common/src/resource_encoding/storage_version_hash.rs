@@ -57,6 +57,22 @@ pub fn discovery_storage_version_hash(
     if !is_store_backed(resource) {
         return None;
     }
+    // Groups kube-apiserver's own storage factory does not know. Each is served
+    // by a Store-backed API with a single storage version, v1:
+    // * apiextensions.k8s.io: apiextensions-apiserver `pkg/apiserver/apiserver.go`
+    //   (its own scheme registers only v1, `pkg/apis/apiextensions/install`).
+    // * apiregistration.k8s.io: kube-aggregator `pkg/apiserver/apiserver.go`
+    //   (`apiGroupInfo` with only the v1 `VersionedResourcesStorageMap`).
+    // * snapshot.storage.k8s.io: external-snapshotter CRDs, whose discovery hash
+    //   is `discovery.StorageVersionHash(group, storageVersion, kind)`
+    //   (apiextensions `pkg/apiserver/customresource_discovery_controller.go`)
+    //   with storage version v1.
+    if matches!(
+        resource.group.as_str(),
+        "apiextensions.k8s.io" | "apiregistration.k8s.io" | "snapshot.storage.k8s.io"
+    ) {
+        return Some(storage_version_hash(&resource.group, "v1", kind));
+    }
     let example = Example::new(&resource.group, kind);
     let versions = storage_codec_versions(config, resource, resource, Some(&example)).ok()?;
     let gv = versions.storage_version;
