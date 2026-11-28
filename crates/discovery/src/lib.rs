@@ -10,6 +10,7 @@ pub mod deferred_restmapper;
 pub mod deleted_kinds;
 pub mod etag;
 pub mod kube_version;
+pub mod negotiation;
 pub mod resource_config;
 pub mod restmapper;
 pub mod vap_typechecking;
