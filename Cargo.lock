@@ -2825,6 +2825,7 @@ dependencies = [
  "prometheus",
  "prost",
  "rcgen",
+ "regex",
  "reqwest",
  "rustls",
  "rustls-pemfile",

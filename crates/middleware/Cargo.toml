@@ -41,6 +41,7 @@ futures = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
 sha2 = "0.10"
+regex = "1.10"
 hmac = "0.12"
 tokio = { workspace = true, features = ["time", "net", "sync", "rt", "macros"] }
 tower = { workspace = true }
