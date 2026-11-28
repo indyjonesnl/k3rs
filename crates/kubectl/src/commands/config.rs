@@ -402,6 +402,7 @@ pub async fn execute(command: ConfigCommands, kubeconfig_path: Option<&str>) -> 
                         client_key,
                         client_key_data,
                         token,
+                        token_file: None,
                         username,
                         password,
                         auth_provider: None,
