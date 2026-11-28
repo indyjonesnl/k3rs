@@ -1,6 +1,7 @@
 pub mod authentication_metrics;
 pub mod cbor;
 pub mod compression;
+pub mod filter_latency;
 pub mod healthz;
 pub mod lifecycle;
 pub mod negotiated_error;

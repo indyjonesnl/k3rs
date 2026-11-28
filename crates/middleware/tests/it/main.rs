@@ -10,6 +10,7 @@
 mod auth_unauthorized_status;
 mod authentication_metrics_test;
 mod controllerrevision_request_decode;
+mod filter_latency;
 mod gzip_response;
 mod healthz_handler;
 mod legacy_token_observations;
