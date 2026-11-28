@@ -14,6 +14,7 @@ mod config_flags_tests;
 mod describe_core_a;
 mod describe_events_tests;
 mod describe_tests;
+mod describe_workloads;
 mod drain_tests;
 mod edit_editor_tests;
 mod exec_attach_portforward_tests;
