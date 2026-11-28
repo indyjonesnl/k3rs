@@ -117,6 +117,50 @@ fn fields_of(type_name: &str) -> Option<Vec<(&'static str, &'static str)>> {
 /// `ReturnTypes()` is `[bool]` (`SubjectAccessReviewMatchCondition`,
 /// interface.go): the selector usage, or the `Detail` of the compile error.
 pub fn compile_authorization_expression(expression: &str) -> Result<SelectorUsage, String> {
+    let result = compile_authorization_expression_hand(expression);
+    observe_authorization_compile(expression, &result);
+    result
+}
+
+/// Shadow comparison of the hand-rolled compile above with the typed-`request`
+/// checker ([`check_authorization_compile`]) under
+/// `KUBERNETES_RS_CEL_CHECKER=shadow` (`cel_checker_shadow.rs`): a
+/// disagreement on accept/reject is logged (target `cel_checker_shadow`) and
+/// never changes the result.
+fn observe_authorization_compile(expression: &str, hand: &Result<SelectorUsage, String>) {
+    if crate::cel_checker_shadow::Mode::current() != crate::cel_checker_shadow::Mode::Shadow {
+        return;
+    }
+    let set = EnvSet::must_base_env_set(crate::cel_versions::default_compatibility_version());
+    let selectors = feature_gates::enabled(Feature::AuthorizeWithSelectors);
+    if let Some(d) = authorization_divergence(&set, selectors, expression, hand) {
+        tracing::warn!(
+            target: "cel_checker_shadow",
+            expression,
+            env = "authorization",
+            hand = ?d.0,
+            checker = ?d.1,
+            "cel checker disagrees with the authorization compile"
+        );
+    }
+}
+
+/// `(hand-rolled error, checker error)` when exactly one of them rejects.
+pub fn authorization_divergence(
+    set: &EnvSet,
+    selectors: bool,
+    expression: &str,
+    hand: &Result<SelectorUsage, String>,
+) -> Option<(Option<String>, Option<String>)> {
+    let checker = check_authorization_compile(set, selectors, expression);
+    match (hand, &checker) {
+        (Ok(_), Err(e)) => Some((None, Some(e.clone()))),
+        (Err(h), Ok(())) => Some((Some(h.clone()), None)),
+        _ => None,
+    }
+}
+
+fn compile_authorization_expression_hand(expression: &str) -> Result<SelectorUsage, String> {
     let source = expression.to_string();
     let program = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         cel::Program::compile(&source)
