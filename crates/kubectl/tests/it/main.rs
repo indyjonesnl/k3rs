@@ -19,6 +19,7 @@ mod info_commands_tests;
 mod kc_unit;
 mod mock_client_example;
 mod printers;
+mod rollout_status_tests;
 mod scale_patch_label_tests;
 mod top_tests;
 mod wait_tests;

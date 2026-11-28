@@ -65,80 +65,361 @@ pub async fn execute(
     Ok(())
 }
 
+/// Options of `kubectl rollout status` (rollout_status.go `RolloutStatusOptions`).
+#[derive(Debug, Clone)]
+pub struct RolloutStatusOptions {
+    /// `--watch` (default true): keep watching until the rollout is done.
+    pub watch: bool,
+    /// `--revision`: pin to a revision (0 = latest).
+    pub revision: i64,
+    /// `--timeout`: give up watching after this long (None = forever).
+    pub timeout: Option<std::time::Duration>,
+}
+
+impl Default for RolloutStatusOptions {
+    fn default() -> Self {
+        Self {
+            watch: true,
+            revision: 0,
+            timeout: None,
+        }
+    }
+}
+
+fn i64_at(v: &Value, path: &[&str]) -> i64 {
+    let mut cur = v;
+    for p in path {
+        match cur.get(p) {
+            Some(n) => cur = n,
+            None => return 0,
+        }
+    }
+    cur.as_i64().unwrap_or(0)
+}
+
+fn opt_i64_at(v: &Value, path: &[&str]) -> Option<i64> {
+    let mut cur = v;
+    for p in path {
+        cur = cur.get(p)?;
+    }
+    cur.as_i64()
+}
+
+fn str_at<'a>(v: &'a Value, path: &[&str]) -> &'a str {
+    let mut cur = v;
+    for p in path {
+        match cur.get(p) {
+            Some(n) => cur = n,
+            None => return "",
+        }
+    }
+    cur.as_str().unwrap_or("")
+}
+
+/// `StatusViewerFor` + `StatusViewer.Status`
+/// (`staging/src/k8s.io/kubectl/pkg/polymorphichelpers/rollout_status.go`,
+/// release-1.35): returns the message, whether the rollout is done, or the
+/// error. `Err((msg, done))` mirrors the DaemonSet/StatefulSet strategy error
+/// that is returned together with `done=true`.
+pub fn rollout_status_message(
+    kind: &str,
+    obj: &Value,
+    revision: i64,
+) -> std::result::Result<(String, bool), String> {
+    match kind {
+        "Deployment" => deployment_status(obj, revision),
+        "DaemonSet" => daemon_set_status(obj),
+        "StatefulSet" => stateful_set_status(obj),
+        other => Err(format!("no status viewer has been implemented for {other}")),
+    }
+}
+
+/// `DeploymentStatusViewer.Status`.
+fn deployment_status(obj: &Value, revision: i64) -> std::result::Result<(String, bool), String> {
+    let name = str_at(obj, &["metadata", "name"]);
+    if revision > 0 {
+        // deploymentutil.Revision: absent annotation is 0, else ParseInt.
+        let deployment_rev = match obj
+            .get("metadata")
+            .and_then(|m| m.get("annotations"))
+            .and_then(|a| a.get("deployment.kubernetes.io/revision"))
+            .and_then(|v| v.as_str())
+        {
+            None => 0,
+            Some(v) => v
+                .parse::<i64>()
+                .map_err(|e| format!("cannot get the revision of deployment \"{name}\": {e}"))?,
+        };
+        if revision != deployment_rev {
+            return Err(format!(
+                "desired revision ({revision}) is different from the running revision ({deployment_rev})"
+            ));
+        }
+    }
+    if i64_at(obj, &["metadata", "generation"]) <= i64_at(obj, &["status", "observedGeneration"]) {
+        // GetDeploymentCondition(Progressing) / TimedOutReason
+        let timed_out = obj
+            .get("status")
+            .and_then(|s| s.get("conditions"))
+            .and_then(|c| c.as_array())
+            .and_then(|cs| {
+                cs.iter()
+                    .find(|c| c.get("type").and_then(|t| t.as_str()) == Some("Progressing"))
+            })
+            .map(|c| c.get("reason").and_then(|r| r.as_str()) == Some("ProgressDeadlineExceeded"))
+            .unwrap_or(false);
+        if timed_out {
+            return Err(format!(
+                "deployment \"{name}\" exceeded its progress deadline"
+            ));
+        }
+        let updated = i64_at(obj, &["status", "updatedReplicas"]);
+        let replicas = i64_at(obj, &["status", "replicas"]);
+        let available = i64_at(obj, &["status", "availableReplicas"]);
+        if let Some(spec_replicas) = opt_i64_at(obj, &["spec", "replicas"]) {
+            if updated < spec_replicas {
+                return Ok((
+                    format!("Waiting for deployment \"{name}\" rollout to finish: {updated} out of {spec_replicas} new replicas have been updated...\n"),
+                    false,
+                ));
+            }
+        }
+        if replicas > updated {
+            return Ok((
+                format!("Waiting for deployment \"{name}\" rollout to finish: {} old replicas are pending termination...\n", replicas - updated),
+                false,
+            ));
+        }
+        if available < updated {
+            return Ok((
+                format!("Waiting for deployment \"{name}\" rollout to finish: {available} of {updated} updated replicas are available...\n"),
+                false,
+            ));
+        }
+        return Ok((
+            format!("deployment \"{name}\" successfully rolled out\n"),
+            true,
+        ));
+    }
+    Ok((
+        "Waiting for deployment spec update to be observed...\n".into(),
+        false,
+    ))
+}
+
+/// `DaemonSetStatusViewer.Status`. The upstream strategy error message names
+/// `RollingUpdateStatefulSetStrategyType` (also "RollingUpdate").
+fn daemon_set_status(obj: &Value) -> std::result::Result<(String, bool), String> {
+    let name = str_at(obj, &["metadata", "name"]);
+    // appsv1 defaults an empty type to RollingUpdate on the server side; an
+    // object without the field is only produced by a defaulting-less caller.
+    let strategy = str_at(obj, &["spec", "updateStrategy", "type"]);
+    if strategy != "RollingUpdate" {
+        return Err("rollout status is only available for RollingUpdate strategy type".into());
+    }
+    if i64_at(obj, &["metadata", "generation"]) <= i64_at(obj, &["status", "observedGeneration"]) {
+        let updated = i64_at(obj, &["status", "updatedNumberScheduled"]);
+        let desired = i64_at(obj, &["status", "desiredNumberScheduled"]);
+        let available = i64_at(obj, &["status", "numberAvailable"]);
+        if updated < desired {
+            return Ok((
+                format!("Waiting for daemon set \"{name}\" rollout to finish: {updated} out of {desired} new pods have been updated...\n"),
+                false,
+            ));
+        }
+        if available < desired {
+            return Ok((
+                format!("Waiting for daemon set \"{name}\" rollout to finish: {available} of {desired} updated pods are available...\n"),
+                false,
+            ));
+        }
+        return Ok((
+            format!("daemon set \"{name}\" successfully rolled out\n"),
+            true,
+        ));
+    }
+    Ok((
+        "Waiting for daemon set spec update to be observed...\n".into(),
+        false,
+    ))
+}
+
+/// `StatefulSetStatusViewer.Status`.
+fn stateful_set_status(obj: &Value) -> std::result::Result<(String, bool), String> {
+    if str_at(obj, &["spec", "updateStrategy", "type"]) != "RollingUpdate" {
+        return Err("rollout status is only available for RollingUpdate strategy type".into());
+    }
+    let observed = i64_at(obj, &["status", "observedGeneration"]);
+    if observed == 0 || i64_at(obj, &["metadata", "generation"]) > observed {
+        return Ok((
+            "Waiting for statefulset spec update to be observed...\n".into(),
+            false,
+        ));
+    }
+    let replicas = opt_i64_at(obj, &["spec", "replicas"]);
+    let ready = i64_at(obj, &["status", "readyReplicas"]);
+    let updated = i64_at(obj, &["status", "updatedReplicas"]);
+    if let Some(r) = replicas {
+        if ready < r {
+            return Ok((
+                format!("Waiting for {} pods to be ready...\n", r - ready),
+                false,
+            ));
+        }
+    }
+    // The strategy type is RollingUpdate here, so upstream's
+    // `RollingUpdate != nil` branch decides.
+    if obj
+        .get("spec")
+        .and_then(|s| s.get("updateStrategy"))
+        .and_then(|u| u.get("rollingUpdate"))
+        .is_some_and(|v| !v.is_null())
+    {
+        if let (Some(r), Some(partition)) = (
+            replicas,
+            opt_i64_at(
+                obj,
+                &["spec", "updateStrategy", "rollingUpdate", "partition"],
+            ),
+        ) {
+            if updated < r - partition {
+                return Ok((
+                    format!("Waiting for partitioned roll out to finish: {updated} out of {} new pods have been updated...\n", r - partition),
+                    false,
+                ));
+            }
+        }
+        return Ok((
+            format!("partitioned roll out complete: {updated} new pods have been updated...\n"),
+            true,
+        ));
+    }
+    let update_rev = str_at(obj, &["status", "updateRevision"]);
+    let current_rev = str_at(obj, &["status", "currentRevision"]);
+    if update_rev != current_rev {
+        return Ok((
+            format!("waiting for statefulset rolling update to complete {updated} pods at revision {update_rev}...\n"),
+            false,
+        ));
+    }
+    Ok((
+        format!(
+            "statefulset rolling update complete {} pods at revision {current_rev}...\n",
+            i64_at(obj, &["status", "currentReplicas"])
+        ),
+        true,
+    ))
+}
+
+fn rollout_kind(resource_type: &str) -> &'static str {
+    match resource_type {
+        "deployment" | "deployments" | "deploy" => "Deployment",
+        "statefulset" | "statefulsets" | "sts" => "StatefulSet",
+        _ => "DaemonSet",
+    }
+}
+
 pub async fn rollout_status(
     client: &ApiClient,
     resource_type: &str,
     name: &str,
     namespace: &str,
 ) -> Result<()> {
-    let (api_path, _api_version) = get_resource_api_path(resource_type, namespace, name)?;
+    rollout_status_with(
+        client,
+        resource_type,
+        name,
+        namespace,
+        &RolloutStatusOptions::default(),
+    )
+    .await
+}
 
-    let resource: Value = client
-        .get(&api_path)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to get {} {}: {}", resource_type, name, e))?;
+/// `RolloutStatusOptions.Run` (cmd/rollout/rollout_status.go:160): list+watch
+/// the object by `metadata.name` (`UntilWithSync`), print each status message
+/// and stop when done, when `--watch=false`, on delete (an error) or timeout.
+pub async fn rollout_status_with(
+    client: &ApiClient,
+    resource_type: &str,
+    name: &str,
+    namespace: &str,
+    opts: &RolloutStatusOptions,
+) -> Result<()> {
+    use futures::StreamExt;
+    use kubernetes_rs_client::watch::{watch_stream, WatchEvent};
 
-    // Extract status information
-    let status = resource.get("status");
-    let spec = resource.get("spec");
-
-    if let Some(spec_val) = spec {
-        if let Some(replicas) = spec_val.get("replicas").and_then(|v| v.as_i64()) {
-            println!(
-                "{}/{} replicas are available",
-                status
-                    .and_then(|s| s.get("availableReplicas"))
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0),
-                replicas
-            );
-        }
+    if opts.revision < 0 {
+        anyhow::bail!("revision must be a positive integer: {}", opts.revision);
     }
+    let kind = rollout_kind(resource_type);
+    let (obj_path, _) = get_resource_api_path(resource_type, namespace, name)?;
+    let coll_path = obj_path
+        .rsplit_once('/')
+        .map(|(c, _)| c.to_string())
+        .unwrap_or_default();
+    let selector = format!("?fieldSelector=metadata.name%3D{name}");
 
-    if let Some(status_val) = status {
-        // Check rollout status
-        if let Some(conditions) = status_val.get("conditions").and_then(|v| v.as_array()) {
-            for condition in conditions {
-                if let Some(cond_type) = condition.get("type").and_then(|v| v.as_str()) {
-                    let status = condition
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown");
-                    let reason = condition
-                        .get("reason")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let message = condition
-                        .get("message")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-
-                    if cond_type == "Progressing" {
-                        println!("Condition: {} = {}", cond_type, status);
-                        if !reason.is_empty() {
-                            println!("  Reason: {}", reason);
-                        }
-                        if !message.is_empty() {
-                            println!("  Message: {}", message);
-                        }
-                    }
-                }
+    let run = async {
+        // The reflector's initial list; each item arrives as an Added event.
+        let list: Value = client
+            .get(&format!("{coll_path}{selector}"))
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get {resource_type} {name}: {e}"))?;
+        let mut rv = str_at(&list, &["metadata", "resourceVersion"]).to_string();
+        let handle = |obj: &Value| -> Result<bool> {
+            let (msg, done) =
+                rollout_status_message(kind, obj, opts.revision).map_err(anyhow::Error::msg)?;
+            print!("{msg}");
+            Ok(done || !opts.watch)
+        };
+        for item in list
+            .get("items")
+            .and_then(|i| i.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if handle(item)? {
+                return Ok(());
             }
         }
-
-        // Show update status
-        if let Some(updated) = status_val.get("updatedReplicas").and_then(|v| v.as_i64()) {
-            println!("Updated replicas: {}", updated);
+        loop {
+            let mut stream = std::pin::pin!(
+                watch_stream::<Value>(
+                    client,
+                    &format!("{coll_path}{selector}"),
+                    (!rv.is_empty()).then_some(rv.as_str())
+                )
+                .await?
+            );
+            while let Some(ev) = stream.next().await {
+                match ev? {
+                    WatchEvent::Added(o) | WatchEvent::Modified(o) => {
+                        let v = str_at(&o, &["metadata", "resourceVersion"]);
+                        if !v.is_empty() {
+                            rv = v.to_string();
+                        }
+                        if handle(&o)? {
+                            return Ok(());
+                        }
+                    }
+                    WatchEvent::Bookmark(o) => {
+                        let v = str_at(&o, &["metadata", "resourceVersion"]);
+                        if !v.is_empty() {
+                            rv = v.to_string();
+                        }
+                    }
+                    WatchEvent::Deleted(_) => anyhow::bail!("object has been deleted"),
+                }
+            }
+            // server closed the watch: re-watch from the last seen version
         }
-        if let Some(ready) = status_val.get("readyReplicas").and_then(|v| v.as_i64()) {
-            println!("Ready replicas: {}", ready);
-        }
-        if let Some(available) = status_val.get("availableReplicas").and_then(|v| v.as_i64()) {
-            println!("Available replicas: {}", available);
-        }
+    };
+    match opts.timeout {
+        Some(t) if !t.is_zero() => tokio::time::timeout(t, run)
+            .await
+            .map_err(|_| anyhow::anyhow!("timed out waiting for the condition"))?,
+        _ => run.await,
     }
-
-    Ok(())
 }
 
 pub async fn rollout_history(
